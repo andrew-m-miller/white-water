@@ -24,7 +24,10 @@ those answers are in, because two of them change the architecture rather than th
 | [docs/context.md](docs/context.md) | Why decisions went the way they did; known weaknesses |
 | [models/MODELS.md](models/MODELS.md) | Model provenance, licences, export procedure |
 
-## Build
+## Build — on a development machine
+
+These steps need network for the submodule checkout, and a toolchain. They are for a Mac
+or a Linux dev box, **not** for the Flame box. See the next section for that.
 
 ```bash
 git submodule update --init --recursive
@@ -41,6 +44,27 @@ ctest --test-dir build --output-on-failure
 Bundles land in `build/bundles/`. Install by copying into the host's scan directory
 (`/usr/OFX/Plugins` on Linux, `/Library/OFX/Plugins` on macOS) or by pointing
 `OFX_PLUGIN_PATH` at `build/bundles`.
+
+## Build — for the Flame box
+
+**Do not build on the Flame box.** It is airgapped and it is a production machine. Build a
+Linux artifact in CI and carry it over, the way warp-drive does:
+
+- The submodule checkout needs network.
+- A stock Flame install has no C++ toolchain, and installing one needs `dnf`.
+- Linux artifacts must be built in a `rockylinux:9` container (glibc 2.34) and gated with
+  `scripts/check-glibc-baseline.sh`. This is the check that matters most, because its
+  failure mode has no symptom: a plugin needing a newer glibc than the host provides is
+  simply **absent from the menu, with no error in any log**. A build done on some other
+  distribution is not a Flame artifact, however cleanly it compiles.
+- From Phase 3 the build pulls ONNX Runtime and CUDA redistributables — hundreds of
+  megabytes that are never going to be fetched on an airgapped machine.
+
+Artifacts are tarballs with a SHA256 alongside. Verify the checksum on the box before
+unpacking, then copy the bundle into `/usr/OFX/Plugins`.
+
+*The workflow itself is not written yet — it arrives with Phase 0, since carrying the host
+probe over is the first thing that needs it. See `docs/plan.md`.*
 
 ## Layout
 
