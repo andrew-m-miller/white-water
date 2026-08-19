@@ -138,5 +138,20 @@ is the right design.
 
 ## Mistakes and corrections
 
-None yet. When one happens it goes here, with what the symptom looked like — the symptom is
-the part that saves the next person time.
+### 1. `-static-libstdc++` needs a package that Rocky 9 does not install with the compiler
+
+**Symptom:** the first CI dispatch failed at link with `/usr/bin/ld: cannot find -lstdc++`,
+which reads like a broken or missing compiler. The compiler was fine.
+
+`-static-libstdc++` needs `libstdc++.a`. On EL9 that archive is not in `gcc-c++` — it is in
+`libstdc++-static`, which lives in the **CRB** repository and is disabled by default. So
+the workflow now enables CRB and installs it explicitly, then asserts the archive exists so
+a future repository reshuffle fails at the install step with a reason rather than at link
+time with a misleading message.
+
+warp-drive never hits this because it installs `gcc-toolset-12`, which carries its own
+static libstdc++. Dropping the toolset — correct here, since Rocky 9's default gcc 11.5 is
+already C++17-complete — quietly removed the thing that was satisfying the link.
+
+The macOS job passed on the same commit, which is the giveaway: `-static-libstdc++` is
+guarded by `UNIX AND NOT APPLE`, so only one platform could ever have shown this.

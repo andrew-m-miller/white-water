@@ -33,8 +33,22 @@ jobs:
       # git must exist before checkout, otherwise the action falls back to a tarball
       # download and silently skips submodules -- which here means no OpenFX headers and a
       # configure-time failure that looks like a broken checkout.
+      #
+      # libstdc++-static is not optional and is not obvious. The build links
+      # -static-libstdc++ so the plugin cannot depend on a newer libstdc++ than Flame's own,
+      # and that needs libstdc++.a, which gcc-c++ does not carry -- it lives in
+      # libstdc++-static, in the CRB repository, disabled by default. Without it the link
+      # fails with "cannot find -lstdc++", which reads like a missing compiler rather than a
+      # missing archive. (warp-drive never hits this: gcc-toolset-12 bundles its own.)
       - name: Install toolchain
-        run: dnf -y install git make cmake gcc-c++ binutils tar gzip
+        run: |
+          dnf -y install dnf-plugins-core
+          dnf config-manager --set-enabled crb
+          dnf -y install git make cmake gcc-c++ libstdc++-static binutils tar gzip
+          # Fail here, with a clear reason, rather than at link time -- a repository
+          # reshuffle that moves this package should not present as a compiler error.
+          find / -name 'libstdc++.a' -print -quit | grep -q . || {
+            echo "libstdc++.a is missing; -static-libstdc++ cannot work" >&2; exit 1; }
 
       - uses: actions/checkout@v7
         with:
