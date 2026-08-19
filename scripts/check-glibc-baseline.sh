@@ -52,8 +52,27 @@ echo "highest: $highest (baseline: $max_version)"
 if version_gt "$highest" "$max_version"; then
   echo
   echo "FAIL: needs glibc $highest but the baseline is $max_version." >&2
-  echo "This binary will not load on the Rocky 9 box Flame runs on." >&2
-  echo "Build it in a rockylinux:9 container -- see .github/workflows/ci.yml." >&2
+
+  # Name the symbols, not just the version. A bare version number leaves the reader with
+  # no idea whether the cause is one stray call they can avoid or the C++ runtime itself,
+  # and that is the entire difference between a five-minute fix and an afternoon. This is
+  # an addition to the vendored warp-drive original and is worth porting back.
+  echo >&2
+  echo "Symbols above the baseline:" >&2
+  objdump -T "$binary" 2>/dev/null |
+    grep -o 'GLIBC_[0-9][0-9.]*[[:space:]].*' |
+    awk '{print $1, $NF}' |
+    sed 's/^GLIBC_//' |
+    sort -uV |
+    while read -r version symbol; do
+      if version_gt "$version" "$max_version"; then
+        printf '  %-10s %s\n' "$version" "$symbol" >&2
+      fi
+    done
+
+  echo >&2
+  echo "This binary will not load on a host whose glibc is older than $highest." >&2
+  echo "Build it in a container matching the target -- see .github/workflows/ci.yml." >&2
   exit 1
 fi
 

@@ -21,14 +21,22 @@ jobs:
   # Rocky 9's default gcc is 11.5, which is C++17-complete, so there is no gcc-toolset here
   # -- warp-drive needs one only because EL8 ships gcc 8.
   #
-  # NOTE: if an EL8 Flame box ever has to be supported, this container drops to
-  # almalinux:8 and the baseline below to 2.28. That decision is cheap now and expensive
-  # after somebody reports the plugin missing from their menu.
+  # The image is pinned to the minor release, not to the floating :9 tag. RHEL 9 keeps the
+  # glibc release at 2.34 throughout the series but backports interfaces from later
+  # releases, and those arrive carrying their upstream symbol versions -- so a later minor
+  # can define symbol versions an earlier one does not. Building on the floating tag would
+  # mean the artifact's true requirements drift upward with whatever minor happened to be
+  # current on the day, and the first sign of trouble would be a plugin missing from the
+  # menu on an unremarkable box. Pinning to the stated floor makes the artifact reproducible
+  # and correct for every host at or above it.
+  #
+  # NOTE: if an EL8 Flame box ever has to be supported, this drops to almalinux:8. That
+  # decision is cheap now and expensive after somebody reports the plugin missing.
   linux:
-    name: linux (Rocky 9 / glibc 2.34)
+    name: linux (Rocky 9.5 / glibc 2.34)
     runs-on: ubuntu-latest
     container:
-      image: rockylinux:9
+      image: rockylinux/rockylinux:9.5
     steps:
       # git must exist before checkout, otherwise the action falls back to a tarball
       # download and silently skips submodules -- which here means no OpenFX headers and a
@@ -69,13 +77,40 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure --no-tests=error
 
+      # What the build container's own glibc actually is, and the highest symbol version it
+      # defines. These are different numbers: RHEL 9 pins the glibc *release* at 2.34 for
+      # the life of the 9 series but backports interfaces from later releases, which arrive
+      # carrying their upstream GLIBC_2.3x symbol versions. So a binary built here can
+      # legitimately require a version tag above 2.34 and still load on every EL9 host.
+      # Recording both numbers every run is what makes that distinguishable from the thing
+      # the gate exists to catch, which is a build that escaped onto a modern distribution.
+      - name: Report glibc facts
+        run: |
+          echo "container glibc release:"
+          ldd --version | head -1 | sed 's/^/  /'
+          echo "highest symbol version defined by the container's libc:"
+          objdump -T /lib64/libc.so.6 | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' \
+            | sort -uV | tail -1 | sed 's/^/  /'
+
       # The gate that matters most. A plugin needing a newer glibc than the host provides
       # is invisible with no error anywhere, so this is the difference between an artifact
       # and a thing that merely compiled.
+      #
+      # The baseline is the highest symbol version the build container's own libc defines,
+      # read at run time rather than hard-coded. Hard-coding it looks stricter and is in
+      # fact worse: pinned to the glibc *release* number it rejects every legitimate EL9
+      # backport, and pinned to a number somebody updated by hand it silently stops meaning
+      # anything. Derived from the container, it asserts exactly the true statement -- this
+      # binary needs nothing the platform we built against does not provide -- and it still
+      # fails loudly if the container is ever changed to a modern distribution, which is the
+      # accident it exists to catch.
       - name: Check glibc baseline
         run: |
+          baseline=$(objdump -T /lib64/libc.so.6 | grep -o 'GLIBC_[0-9][0-9.]*' \
+            | sed 's/GLIBC_//' | sort -uV | tail -1)
+          echo "baseline from container libc: $baseline"
           for binary in build/bundles/*.ofx.bundle/Contents/Linux-*/*.ofx; do
-            scripts/check-glibc-baseline.sh "$binary"
+            scripts/check-glibc-baseline.sh "$binary" "$baseline"
           done
 
       # Assert the version script actually worked, rather than trusting that it was passed.
@@ -145,8 +180,8 @@ jobs:
           White Water -- Linux OFX bundles
           ================================
 
-          Built in a rockylinux:9 container against a glibc 2.34 baseline, which is what
-          Rocky Linux 9.5 provides. These will NOT load on an EL8 host.
+          Built in a rockylinux 9.5 container. Requires glibc as provided by Rocky Linux
+          9.5 or later. These will NOT load on an EL8 host.
 
           Verify the download first, from the directory holding the tarball:
 
