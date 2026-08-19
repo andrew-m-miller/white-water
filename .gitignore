@@ -1,0 +1,33 @@
+build/
+build-*/
+cmake-build-*/
+install/
+Testing/
+
+*.o
+*.so
+*.dylib
+*.ofx
+
+.DS_Store
+.vscode/
+.idea/
+compile_commands.json
+
+whitewater-hostprobe*.txt
+
+# Model weights are staged into the bundle at build time from a pinned checkpoint, never
+# committed. They are tens of megabytes of binary that git cannot diff and that a licence
+# audit has to be able to trace back to an upstream release, which a checked-in blob makes
+# harder rather than easier. See models/MODELS.md.
+models/weights/
+models/*.onnx
+models/*.pth
+models/*.pkl
+
+# ONNX Runtime redistributables, fetched by cmake/OnnxRuntime.cmake.
+third_party/onnxruntime-*/
+
+# Agent worktrees: real git checkouts that live inside the repo. Committing them adds
+# gitlinks that no clone can resolve.
+.claude/worktrees/

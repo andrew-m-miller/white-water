@@ -1,0 +1,16 @@
+/* Only the three entry points an OFX host looks up are exported. Everything else stays
+   local, so the plugin can never interpose on symbols in the host process.
+
+   This matters more here than it does for a plain image effect. The plugin links ONNX
+   Runtime, which in turn carries protobuf, abseil, Eigen and a CUDA runtime -- all
+   libraries Flame itself may already have loaded, at other versions. Two copies of
+   protobuf visible to the dynamic linker in one process is a crash with no useful
+   backtrace. `local: *` is what keeps ours invisible. */
+{
+  global:
+    OfxGetNumberOfPlugins;
+    OfxGetPlugin;
+    OfxSetHost;
+  local:
+    *;
+};
