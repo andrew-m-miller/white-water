@@ -155,3 +155,35 @@ already C++17-complete — quietly removed the thing that was satisfying the lin
 
 The macOS job passed on the same commit, which is the giveaway: `-static-libstdc++` is
 guarded by `UNIX AND NOT APPLE`, so only one platform could ever have shown this.
+
+### 2. The glibc release number is not the glibc symbol-version number
+
+**Symptom:** with the build finally linking, the gate rejected the artifact —
+`needs glibc 2.35 but the baseline is 2.34` — on a binary built inside a Rocky 9
+container. Both numbers were correct and the conclusion was wrong.
+
+Measured in CI on Rocky 9.5: `ldd --version` reports **2.34**, and the same machine's
+`libc.so.6` **defines symbol versions up to 2.35**. RHEL 9 pins the glibc *release* for the
+life of the series but backports interfaces from later releases, and those arrive carrying
+their upstream `GLIBC_2.3x` version tags. So an EL9-built binary can require a tag above
+2.34 and load on every EL9 host.
+
+The baseline is now read from the build container's own libc rather than hard-coded, which
+asserts the statement actually worth asserting: this binary needs nothing the platform we
+built against does not provide. A hand-maintained number is worse than useless — pinned to
+the release it rejects every legitimate backport, and pinned to whatever somebody last
+edited it to, it quietly stops meaning anything.
+
+That makes the gate nearly tautological *within* the container, so the container image is
+now pinned to `rockylinux/rockylinux:9.5` — the stated floor — rather than the floating
+`:9` tag. Otherwise the artifact's real requirements would drift upward with whichever
+minor happened to be current, and the first symptom would be a plugin missing from the menu
+on an unremarkable box.
+
+**Also confirmed by the same run, both previously uncertain:**
+
+- The Linux `.ofx` exports **exactly** the three OFX entry points. No `__bss_start`,
+  `_edata` or `_end` leaked through — `local: *` in `cmake/ofx.map` covers linker-generated
+  symbols, which was an open question when the gate was written.
+- Its only runtime dependencies are `libm` and `libc`. No `libstdc++`, no `libgcc_s`, so
+  `-static-libstdc++ -static-libgcc` is doing what it is there for.
