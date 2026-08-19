@@ -1,0 +1,277 @@
+name: build
+run-name: Human test build — ${{ inputs.purpose }} (${{ github.ref_name }})
+
+on:
+  # Intentionally manual-only. Local build and tests are the routine merge gate; this
+  # workflow exists to produce platform artifacts when a human has a concrete test to
+  # perform. The Flame box is airgapped, so this is the only way anything reaches it.
+  workflow_dispatch:
+    inputs:
+      purpose:
+        description: Human test that needs a fresh installable build
+        required: true
+        type: string
+
+jobs:
+  # White Water targets Rocky Linux 9.5+ (glibc 2.34). Building on a modern Ubuntu runner
+  # produces a bundle needing a newer glibc, and the failure mode has no symptom: the
+  # plugin is simply absent from the host's menu with nothing in any log. Build in a
+  # matching container and check the resulting binary before upload.
+  #
+  # Rocky 9's default gcc is 11.5, which is C++17-complete, so there is no gcc-toolset here
+  # -- warp-drive needs one only because EL8 ships gcc 8.
+  #
+  # NOTE: if an EL8 Flame box ever has to be supported, this container drops to
+  # almalinux:8 and the baseline below to 2.28. That decision is cheap now and expensive
+  # after somebody reports the plugin missing from their menu.
+  linux:
+    name: linux (Rocky 9 / glibc 2.34)
+    runs-on: ubuntu-latest
+    container:
+      image: rockylinux:9
+    steps:
+      # git must exist before checkout, otherwise the action falls back to a tarball
+      # download and silently skips submodules -- which here means no OpenFX headers and a
+      # configure-time failure that looks like a broken checkout.
+      - name: Install toolchain
+        run: dnf -y install git make cmake gcc-c++ binutils tar gzip
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Report toolchain
+        run: |
+          g++ --version
+          cmake --version
+          ldd --version | head -1
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+
+      # The gate that matters most. A plugin needing a newer glibc than the host provides
+      # is invisible with no error anywhere, so this is the difference between an artifact
+      # and a thing that merely compiled.
+      - name: Check glibc baseline
+        run: |
+          for binary in build/bundles/*.ofx.bundle/Contents/Linux-*/*.ofx; do
+            scripts/check-glibc-baseline.sh "$binary"
+          done
+
+      # Assert the version script actually worked, rather than trusting that it was passed.
+      #
+      # This is White Water's own gate, not one warp-drive has. From Phase 3 the plugin
+      # links ONNX Runtime, which carries protobuf, abseil and a CUDA runtime -- all things
+      # Flame may already have loaded at other versions. Two visible copies of protobuf in
+      # one process is a crash with no useful backtrace. cmake/ofx.map is what prevents it,
+      # and a linker flag that silently stopped being applied would not otherwise be
+      # noticed until a host crashed.
+      - name: Verify exported symbols
+        run: |
+          fail=0
+          for binary in build/bundles/*.ofx.bundle/Contents/Linux-*/*.ofx; do
+            echo "== $binary"
+            exported=$(nm -D --defined-only --extern-only "$binary" | awk '{print $NF}' | sort)
+            echo "$exported" | sed 's/^/   /'
+            for required in OfxGetNumberOfPlugins OfxGetPlugin OfxSetHost; do
+              echo "$exported" | grep -qx "$required" || {
+                echo "   MISSING entry point: $required" >&2; fail=1; }
+            done
+            unexpected=$(echo "$exported" | grep -vx -e OfxGetNumberOfPlugins \
+                                                    -e OfxGetPlugin -e OfxSetHost || true)
+            if [ -n "$unexpected" ]; then
+              echo "   UNEXPECTED exported symbols (version script not applied?):" >&2
+              echo "$unexpected" | sed 's/^/     /' >&2
+              fail=1
+            fi
+          done
+          exit $fail
+
+      # A plugin in the wrong architecture directory is invisible, with no error message
+      # anywhere -- the same class of failure as the glibc one, and just as silent.
+      - name: Verify bundle layout
+        run: |
+          fail=0
+          for bundle in build/bundles/*.ofx.bundle; do
+            name=$(basename "$bundle" .ofx.bundle)
+            test -f "$bundle/Contents/Linux-x86-64/$name.ofx" || {
+              echo "missing or misplaced binary for $name:" >&2
+              find "$bundle" -type f | sed 's/^/  /' >&2
+              fail=1; }
+          done
+          exit $fail
+
+      # Nothing is bundled into Contents/Libraries yet, so every dependency must be a
+      # genuine host system library. Once ONNX Runtime arrives this step becomes the check
+      # that its libraries were actually shipped -- the failure warp-drive hit, where a
+      # dropped ICU passed CI (masked by LD_LIBRARY_PATH) and then failed on the host with
+      # status 127. Clearing LD_LIBRARY_PATH is what makes ldd honour only the image's own
+      # $ORIGIN rpath, which is what the host will do.
+      - name: Report runtime dependencies
+        run: |
+          for binary in build/bundles/*.ofx.bundle/Contents/Linux-*/*.ofx; do
+            echo "== $binary"
+            env -u LD_LIBRARY_PATH ldd "$binary" | sed 's/^/   /'
+          done
+
+      - name: Package
+        run: |
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-8)
+          staging="whitewater-linux-$SHA_SHORT"
+          mkdir -p "$staging"
+          cp -R build/bundles/*.ofx.bundle "$staging/"
+          cp docs/host-notes.md "$staging/"
+          cat > "$staging/INSTALL.txt" <<'EOF'
+          White Water -- Linux OFX bundles
+          ================================
+
+          Built in a rockylinux:9 container against a glibc 2.34 baseline, which is what
+          Rocky Linux 9.5 provides. These will NOT load on an EL8 host.
+
+          Verify the download first, from the directory holding the tarball:
+
+              sha256sum -c whitewater-linux-*.tar.gz.sha256
+
+          Install, as root:
+
+              cp -R *.ofx.bundle /usr/OFX/Plugins/
+
+          Or, without root, point the host at the bundles before launching it:
+
+              export OFX_PLUGIN_PATH=/path/to/this/directory
+
+          Then restart Flame.
+
+          WhiteWaterHostProbe is a diagnostic plugin, not the product: it passes frames
+          through untouched and writes a report on what this host actually supports.
+          Apply it in a Batch node and press "Run Probe".
+
+          The report is written to $WHITEWATER_PROBE_LOG, else $TMPDIR/whitewater-hostprobe.txt,
+          else /tmp/whitewater-hostprobe.txt -- and also to stderr, which Flame captures
+          under /opt/Autodesk/log/.
+
+          See host-notes.md for the full procedure and for the five open questions this
+          probe exists to answer. Please send back the report file.
+          EOF
+          tar -czf "$staging.tar.gz" "$staging"
+          sha256sum "$staging.tar.gz" > "$staging.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: whitewater-linux-rocky9
+          path: |
+            whitewater-linux-*.tar.gz
+            whitewater-linux-*.tar.gz.sha256
+          if-no-files-found: error
+
+  macos:
+    name: macos (arm64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+
+      - name: Verify plugin architecture (arm64-only)
+        run: |
+          for binary in build/bundles/*.ofx.bundle/Contents/MacOS/*.ofx; do
+            archs=$(lipo -archs "$binary")
+            echo "$binary: $archs"
+            [ "$archs" = "arm64" ] || {
+              echo "expected arm64-only, got '$archs': $binary" >&2; exit 1; }
+          done
+
+      # The macOS half of the symbol gate. See the Linux job for why this matters here more
+      # than it does in warp-drive. There is no version script on macOS -- the hidden
+      # visibility preset plus the explicit default visibility on the entry points is what
+      # produces this, so it is a different mechanism reaching the same result and is worth
+      # asserting separately rather than assuming it follows from the Linux check passing.
+      - name: Verify exported symbols
+        run: |
+          fail=0
+          for binary in build/bundles/*.ofx.bundle/Contents/MacOS/*.ofx; do
+            echo "== $binary"
+            exported=$(nm -gU "$binary" | awk '{print $NF}' | sed 's/^_//' | sort)
+            echo "$exported" | sed 's/^/   /'
+            for required in OfxGetNumberOfPlugins OfxGetPlugin OfxSetHost; do
+              echo "$exported" | grep -qx "$required" || {
+                echo "   MISSING entry point: $required" >&2; fail=1; }
+            done
+            unexpected=$(echo "$exported" | grep -vx -e OfxGetNumberOfPlugins \
+                                                    -e OfxGetPlugin -e OfxSetHost || true)
+            if [ -n "$unexpected" ]; then
+              echo "   UNEXPECTED exported symbols:" >&2
+              echo "$unexpected" | sed 's/^/     /' >&2
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Verify bundle layout
+        run: |
+          fail=0
+          for bundle in build/bundles/*.ofx.bundle; do
+            name=$(basename "$bundle" .ofx.bundle)
+            test -f "$bundle/Contents/MacOS/$name.ofx" || {
+              echo "missing or misplaced binary for $name" >&2; fail=1; }
+            test -f "$bundle/Contents/Info.plist" || {
+              echo "missing Info.plist for $name" >&2; fail=1; }
+          done
+          exit $fail
+
+      - name: Package
+        run: |
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-8)
+          staging="whitewater-macos-$SHA_SHORT"
+          mkdir -p "$staging"
+          cp -R build/bundles/*.ofx.bundle "$staging/"
+          cp docs/host-notes.md "$staging/"
+          cat > "$staging/INSTALL.txt" <<'EOF'
+          White Water -- macOS OFX bundles (arm64, Apple Silicon)
+          =======================================================
+
+          These are not signed or notarized. A bundle downloaded through a browser carries
+          a quarantine attribute that stops the host loading it, so strip it after copying:
+
+              xattr -dr com.apple.quarantine *.ofx.bundle
+
+          Verify the download first:
+
+              shasum -a 256 -c whitewater-macos-*.tar.gz.sha256
+
+          Install:
+
+              sudo cp -R *.ofx.bundle /Library/OFX/Plugins/
+
+          Or point the host at this directory instead:
+
+              export OFX_PLUGIN_PATH=/path/to/this/directory
+
+          WhiteWaterHostProbe is a diagnostic plugin, not the product. See host-notes.md
+          for the procedure and for the five open questions it exists to answer.
+          EOF
+          tar -czf "$staging.tar.gz" "$staging"
+          shasum -a 256 "$staging.tar.gz" > "$staging.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: whitewater-macos
+          path: |
+            whitewater-macos-*.tar.gz
+            whitewater-macos-*.tar.gz.sha256
+          if-no-files-found: error

@@ -80,6 +80,26 @@ exists.
 The alternative, resampling each field up to full resolution on arrival, costs a copy per
 chain link and filters the same data twice: once going up, once when it is sampled.
 
+### CI gates on symbol exports, which warp-drive does not
+
+`.github/workflows/ci.yml` asserts that each built `.ofx` exports **exactly**
+`OfxGetNumberOfPlugins`, `OfxGetPlugin`, `OfxSetHost` and nothing else — on both platforms,
+because they reach that result by different mechanisms (a version script on Linux, hidden
+visibility plus explicit default visibility on the entry points on macOS), so one passing
+is not evidence about the other.
+
+warp-drive passes the version script and trusts it. That is reasonable there. Here it is
+not: from Phase 3 the plugin links ONNX Runtime, which carries protobuf, abseil and a CUDA
+runtime, all of which Flame may already have loaded at other versions. Two visible copies
+of protobuf in one process is a crash with no useful backtrace and no obvious cause. A
+linker flag that silently stopped being applied — a refactor of `OfxBundle.cmake`, a
+platform branch not taken — would otherwise go unnoticed until a host crashed on somebody's
+machine.
+
+The gate was verified to fail on both a leaked third-party symbol and a missing entry
+point before being committed. A gate that has never been observed to fail is not known to
+be a gate.
+
 ### The reference frame gets a button, not just a number
 
 Flame hands OFX 0-based time: a batch starting at frame 1001 arrives as time 0. An artist

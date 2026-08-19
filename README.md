@@ -60,11 +60,24 @@ Linux artifact in CI and carry it over, the way warp-drive does:
 - From Phase 3 the build pulls ONNX Runtime and CUDA redistributables — hundreds of
   megabytes that are never going to be fetched on an airgapped machine.
 
-Artifacts are tarballs with a SHA256 alongside. Verify the checksum on the box before
-unpacking, then copy the bundle into `/usr/OFX/Plugins`.
+Run the **build** workflow from the Actions tab. It is `workflow_dispatch` only and takes a
+required `purpose` — name the human test the build is for, so a run in the history says why
+it exists. It produces two artifacts, `whitewater-linux-rocky9` and `whitewater-macos`, each
+a tarball with a SHA256 alongside and an `INSTALL.txt` inside.
 
-*The workflow itself is not written yet — it arrives with Phase 0, since carrying the host
-probe over is the first thing that needs it. See `docs/plan.md`.*
+On the box, verify the checksum before unpacking:
+
+```bash
+sha256sum -c whitewater-linux-*.tar.gz.sha256
+```
+
+Then copy the bundle into `/usr/OFX/Plugins` and restart Flame.
+
+Beyond compiling, the workflow gates each artifact on the three things that fail silently:
+the glibc baseline, the architecture directory inside the bundle, and that the binary
+exports **exactly** the three OFX entry points and nothing else. The last one matters more
+here than in most plugins — from Phase 3 this links ONNX Runtime, which carries protobuf,
+abseil and a CUDA runtime, all of which Flame may already have loaded at other versions.
 
 ## Layout
 
