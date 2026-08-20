@@ -2,10 +2,15 @@
 #
 # Fails if a binary requires a newer glibc than Flame's certified Linux provides.
 #
-# White Water targets Rocky Linux 9.5+, which ships glibc 2.34. A plugin built on a modern
-# distribution silently picks up newer symbol versions and then refuses to load on the
-# Flame box with an error that names a symbol, not the real cause. Worse, the host usually
-# reports nothing at all -- the plugin is simply absent from the menu.
+# A plugin built on a newer distribution silently picks up newer symbol versions and then
+# refuses to load on the Flame box, reporting a symbol rather than the real cause -- and
+# often reporting nothing at all, the plugin simply being absent from the menu.
+#
+# Artifacts are therefore built on EL8 (glibc 2.28), so they load on any EL8 or EL9 host
+# whatever point release it sits at. A nominal distro version is NOT a glibc version:
+# measured 2026-08-20, a Rocky 9.5 build container carried glibc symbols that the certified
+# Rocky 9.5 Flame box did not have, and the resulting plugin failed to load with
+# "GLIBC_2.35 not found". Never take this baseline from the machine doing the building.
 #
 # Run this on every Linux artifact before it is handed to anyone.
 #
@@ -14,7 +19,7 @@
 set -euo pipefail
 
 binary="${1:-}"
-max_version="${2:-2.34}"
+max_version="${2:-2.28}"
 
 if [[ -z "$binary" ]]; then
   echo "usage: $0 <binary> [max glibc version]" >&2

@@ -168,17 +168,11 @@ life of the series but backports interfaces from later releases, and those arriv
 their upstream `GLIBC_2.3x` version tags. So an EL9-built binary can require a tag above
 2.34 and load on every EL9 host.
 
-The baseline is now read from the build container's own libc rather than hard-coded, which
-asserts the statement actually worth asserting: this binary needs nothing the platform we
-built against does not provide. A hand-maintained number is worse than useless — pinned to
-the release it rejects every legitimate backport, and pinned to whatever somebody last
-edited it to, it quietly stops meaning anything.
-
-That makes the gate nearly tautological *within* the container, so the container image is
-now pinned to `rockylinux/rockylinux:9.5` — the stated floor — rather than the floating
-`:9` tag. Otherwise the artifact's real requirements would drift upward with whichever
-minor happened to be current, and the first symptom would be a plugin missing from the menu
-on an unremarkable box.
+**This conclusion was wrong, and correction 3 below is what it cost.** The reasoning
+survives here because the shape of the error is worth keeping: I noticed the fix made the
+gate "nearly tautological", wrote that down, tried to patch around it by pinning the
+container image, and shipped it anyway. A check that cannot fail should have been the end
+of the argument, not a caveat inside it.
 
 **Also confirmed by the same run, both previously uncertain:**
 
@@ -187,3 +181,37 @@ on an unremarkable box.
   symbols, which was an open question when the gate was written.
 - Its only runtime dependencies are `libm` and `libc`. No `libstdc++`, no `libgcc_s`, so
   `-static-libstdc++ -static-libgcc` is doing what it is there for.
+
+### 3. Deriving the glibc baseline from the builder made the gate unable to fail
+
+**Symptom:** CI green on every gate; Flame then refused to load the plugin with
+`GLIBC_2.35 not found`. The artist sees nothing useful, and the gate that exists precisely
+to prevent this had passed.
+
+The offending symbol is **`_dl_find_object`**, pulled in by `-static-libgcc` — it is the C++
+unwinder's fast path for FDE lookup, and Rocky 9.5's `libgcc.a` is built against a glibc
+that has it. The certified Flame box, *also nominally Rocky 9.5*, has an older glibc that
+does not. Autodesk certifies a point release and nobody runs `dnf update` on a Flame box,
+so **a distro version is not a glibc version**.
+
+The gate could never have caught that, because correction 2 had changed its baseline to be
+read from the build container's own libc. That asserts "this binary needs nothing the
+machine that built it provides" — true by construction, and therefore not a check. Pinning
+the image to `:9.5` looked like it addressed the gap; it did not, because the container
+tagged 9.5 is rebuilt with updates while the box is frozen at whatever shipped.
+
+**Fixed by going back to what warp-drive already does**: build on `almalinux:8`, glibc 2.28,
+hard-coded baseline. A binary built against 2.28 loads on every EL8 and EL9 host whatever
+point release it sits at, so the entire class of problem disappears rather than being
+tracked. gcc-toolset-12 also carries its own static libstdc++, which retires correction 1's
+CRB dance as a side effect.
+
+Three lessons, in descending order of how much they would have saved:
+
+1. **A check that cannot fail is not a check.** I wrote "nearly tautological" in the commit
+   message and shipped it anyway.
+2. **Never derive a compatibility floor from the machine doing the building.** If the number
+   is ever raised it must come from a measured target.
+3. **Departing from a sibling project's proven configuration needs a stronger reason than
+   "our target is newer".** warp-drive's EL8 choice looked like over-caution for a Rocky 9.5
+   target. It is the thing that makes the artifact load.
