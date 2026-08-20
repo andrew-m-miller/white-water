@@ -150,6 +150,56 @@ capability probe down with it.
 **If this fails:** inference is CPU-only, which makes RAFT at 4K unusable and promotes RIFE
 from the fast option to the only option.
 
+#### Prior evidence: Mocha Pro does ML matting in an OFX plugin
+
+*Reported 2026-08-19 from regular production use, not instrumented.* Boris FX Mocha Pro
+ships an OFX plugin whose ML matte feature is believed to run GPU inference, and it is used
+routinely on this facility's boxes. That is the strongest evidence available short of
+measuring: an ML model doing real work from inside an OFX plugin, on this hardware, in
+production.
+
+It raises the prior considerably. It does **not** close this item, for one specific reason
+worth stating before anyone treats it as settled.
+
+**Mocha Pro's OFX plugin launches its own separate application process.** That is its
+defining architectural quirk — the plugin is a shim and the actual Mocha interface is a
+standalone program. So the inference may well be happening in *Mocha's* process, with its
+own address space, its own CUDA context and its own runtime, and not inside the host's
+process at all. If so it is evidence for a **different** architecture than the one this item
+is asking about, and the fact that it works says nothing about whether ONNX Runtime can get
+a CUDA device inside Flame's own process while Flame holds one.
+
+Two further unknowns: which backend it uses (CUDA, OpenVINO and CPU are all plausible; Boris
+FX has shipped OpenVINO elsewhere), and which host the observation was made in.
+
+#### Cheapest way to answer this: inspect Mocha's bundle before building anything
+
+This is worth doing **first**, on the box, before the ONNX Runtime probe bundle exists. It
+costs minutes and it may be decisive.
+
+```bash
+# What does Mocha's OFX binary actually link? Look for libcudart, libonnxruntime,
+# libopenvino, libtorch, libcudnn.
+find /usr/OFX/Plugins /opt/Autodesk -name '*.ofx' -path '*ocha*'
+env -u LD_LIBRARY_PATH ldd <the .ofx> | grep -iE 'cuda|onnx|openvino|torch|cudnn|tensorrt'
+
+# Does the bundle carry a separate executable? That is the in-process question, answered.
+find <the .ofx.bundle> -type f -perm -u+x
+```
+
+Then, with Flame open and Mocha's ML matte actually running:
+
+```bash
+nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+```
+
+**Read it like this.** If `nvidia-smi` shows the *Flame* pid holding the extra VRAM, ML
+inference runs in-process in Flame and this item is close to answered in our favour. If it
+shows a separate Mocha process, the evidence supports out-of-process inference instead —
+which is still useful, because warp-drive already has a proven fork/exec supervisor for
+exactly that shape (`src/ofx/EditorProcess.cpp`, with environment scrubbing), and it would
+become the fallback architecture rather than a rewrite.
+
 ### 4. Does `setSupportsTiles(false)` yield whole-frame render windows?
 
 Flame reports `SupportsTiles = 1` as a host. A plugin declaring `false` is legal OFX and

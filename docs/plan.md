@@ -71,12 +71,25 @@ no support library, no dependencies) and run it in Batch:
 3. **An ONNX Runtime session created inside Flame's process** with the CUDA EP — does it
    initialise, does it get a device, does it survive alongside Flame's own CUDA context, and
    what does VRAM look like? Include a trivial matmul model, ~1 MB, in the probe bundle.
+   **Do the Mocha Pro bundle inspection in `host-notes.md` first** — Mocha Pro ships an OFX
+   plugin doing ML matting on this hardware in production, and `ldd` plus `nvidia-smi` on it
+   costs minutes and may answer this before we build anything.
 4. Whether declaring `setSupportsTiles(false)` actually yields whole-frame render windows.
 5. `getFramesNeeded` behaviour: does declaring only `{N}` while pulling other frames work?
 
 Write results to `docs/host-notes.md` in white-water. Items 2 and 3 are the project's real
-risk; if either fails, the architecture changes (item 2 → mandatory Analyze pass writing a
-disk cache; item 3 → CPU-only inference, which makes RAFT at 4K unusable and promotes RIFE).
+risk; if either fails, the architecture changes:
+
+- **Item 2 fails** → a mandatory Analyze pass writing a disk cache, driven from an
+  instance-changed action, which warp-drive measured to work.
+- **Item 3 fails** → *not* automatically CPU-only. There are two outcomes, and the Mocha
+  evidence suggests the second is live: inference could move **out of process**, into a
+  supervised helper with its own address space and its own CUDA context. warp-drive already
+  has that machinery working for its editor (`src/ofx/EditorProcess.cpp`, fork/exec with
+  environment scrubbing, plus `src/ipc/` for the frame channel), so it is a port rather than
+  a design. CPU-only is the outcome only if GPU inference fails in *both* process models —
+  and that is what makes RAFT at 4K unusable and promotes RIFE from fast option to only
+  option.
 
 ---
 
