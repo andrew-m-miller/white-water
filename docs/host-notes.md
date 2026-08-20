@@ -135,17 +135,8 @@ Flame owning the GPU would leave nothing to work with — and it is answered. It
 GPU inference on a Flame box is not merely plausible but *demonstrated by a shipping
 product* on this exact hardware.
 
-**Still open, and now narrower.** Item 3 asked two questions bundled together. Only one
-remains, and it is the linker question, not the device question: can ONNX Runtime's CUDA EP
-load and initialise **inside Flame's own address space**, given that Flame has its own CUDA
-runtime and quite possibly its own protobuf, at versions we do not control? Mocha never has
-to answer that, because it never loads any of it into Flame.
-
-Suggestive: Mocha Pro 2026.5 uses **CUDA 12 / cuDNN 9.10.2**. If Flame 2026.2.1 links CUDA
-11, then two CUDA runtimes coexisting in one process is exactly the collision `cmake/ofx.map`
-cannot prevent — it keeps *our* symbols private, it does not stop our references binding to
-*theirs*. Out of process, the question does not arise. Worth checking what Flame itself
-links before designing around in-process.
+**Still open, and now narrower.** Item 3 asked two questions bundled together. Only the
+linker question remains — see the next section, which answers a large part of it.
 
 **Do not over-read the architecture.** Mocha is a standalone application with an OFX front
 end, so its process split is probably product history rather than a technical verdict on
@@ -207,6 +198,82 @@ runtime. **Three orders of magnitude out.** Consequences:
 
 *No `.onnx` files appear above — but the search matched only `*.so*`, `*.ofx` and `*.dat`,
 so weights were never in scope. That is not evidence of absence.*
+
+---
+
+## Measured — Flame already runs ONNX Runtime, in its own process
+
+Flame 2026.2.1 on `flame6`, **2026-08-20**, read from `/proc/<pid>/maps` of the live
+process (needs sudo — Flame runs as another user). Raw:
+`docs/measurements/2026-08-20-flame-loaded-libraries.txt`.
+
+```
+/opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1.22.0
+/opt/Autodesk/lib64/2026.2.1/libcudart.so.12.8.57
+/opt/Autodesk/lib64/2026.2.1/libcublas.so.12.8.3.14
+/opt/Autodesk/lib64/2026.2.1/libcublasLt.so.12.8.3.14
+/opt/Autodesk/lib64/2026.2.1/libcudnn.so.9.9.0
+/opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10.8.0
+/opt/Autodesk/lib64/2026.2.1/libnvinfer_plugin.so.10.8.0
+/opt/Autodesk/lib64/2026.2.1/libnvonnxparser.so.10.8.0
+/opt/Autodesk/lib64/2026.2.1/libtbb.so.12.15
+/usr/lib64/libcuda.so.580.95.05          (driver 580.95.05)
+```
+
+### The good half
+
+**ONNX Runtime demonstrably initialises inside Flame's address space, because Flame does it
+itself.** That is the single most important thing item 3 was trying to establish, and it is
+now answered without us building anything. Flame is also on **CUDA 12.8 / cuDNN 9.9 /
+TensorRT 10.8**, so a plugin built against CUDA 12 matches the host's major version rather
+than fighting it.
+
+This also corrects a guess recorded here earlier — that Flame might be on CUDA 11 while
+Mocha is on CUDA 12. It is not. **CUDA major version is not a conflict.** Both Flame and
+Mocha are on 12.
+
+### The bad half, and it is sharper than the old worry
+
+**Flame has `libonnxruntime.so.1.22.0` already loaded when our plugin is dlopened.** If we
+bundle our own ONNX Runtime, there are two copies of it in one address space, and ORT
+exports C symbols (`OrtGetApiBase` and friends) that the dynamic linker resolves globally,
+first-loaded-wins. Our calls can bind to **Flame's** ORT while our data structures came from
+ours — a version-skew crash with no useful backtrace, on a machine with no debugger.
+
+This is precisely the collision `cmake/ofx.map` cannot prevent. The version script keeps
+*our* symbols from being visible to Flame; it does nothing about *our references* binding to
+*Flame's* exports. The note in that file anticipated this in the abstract; this is the
+concrete instance, with a version number.
+
+Note that Flame's ORT is 1.22.0 — the same release whose CUDA EP made cuDNN and cuFFT
+optional at runtime, which is also the lead for shrinking our own 3 GB payload problem.
+
+### Options, in rough order of preference
+
+1. **Out of process.** The collision cannot occur, and it is what Boris FX ships. Costs an
+   IPC boundary that warp-drive has already built (`src/ofx/EditorProcess.cpp`, `src/ipc/`).
+2. **`dlopen` our ORT with `RTLD_LOCAL | RTLD_DEEPBIND`,** so our copy prefers its own
+   symbols over the global ones. The classic fix, and it keeps everything in one process.
+   `RTLD_DEEPBIND` has real hazards though — it breaks malloc interposition and can misroute
+   exceptions across the boundary — so it needs proving, not assuming.
+3. **Link ORT statically** with hidden visibility. Awkward to build, but the collision
+   disappears at the source.
+4. **Use Flame's ORT.** Tempting — the library is right there and the version is current.
+   Undocumented, unsupported, and version-locked to whatever Autodesk ships next release.
+   Not for a facility deliverable, though possibly interesting for an experiment.
+
+**This is now the decision item 3 exists to settle**, and it is a much better-posed question
+than "does GPU inference work at all". The probe should attempt (2), because if
+`RTLD_DEEPBIND` works cleanly then in-process is available and simpler; if it does not, (1)
+is already known to work on this hardware.
+
+### Worth capturing next
+
+- Does Flame ship `libonnxruntime_providers_cuda.so` on disk? It is not in the mapped list,
+  but a provider not in use at that moment would not be mapped. If it is there, Flame's ML
+  features use the CUDA EP and the whole stack is proven in-process.
+- `readelf -d` on Flame's `libonnxruntime.so.1.22.0` for its `SONAME` and `RUNPATH` — the
+  soname is what our references would bind to.
 
 ---
 
