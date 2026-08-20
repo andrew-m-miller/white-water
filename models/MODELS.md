@@ -26,6 +26,10 @@ goes to a client, re-verify against the *exact* checkpoint files shipped — som
 forks and some "practical" checkpoint drops carry non-commercial terms that the parent
 repository does not. Record the verdict here with a date and the checkpoint SHA256.
 
+Deployment posture changes which of these obligations actually bind — see **Deployment
+posture** below. The short version: not distributing the plugin relaxes a lot, but it does
+**not** unlock anything CC-BY-NC for commercial work.
+
 ## Candidates considered
 
 Surveyed 2026-08-19. Licence column is what the upstream repository *states*; none of it
@@ -138,6 +142,66 @@ and faster inference. Since this plugin renders sequentially through a shot, a m
 carries temporal state is a natural fit rather than an awkward one.
 
 Worth reconsidering the RIFE slot against MemFlow before Phase 5. Both are permissive.
+
+## Deployment posture, and what it does and does not change
+
+Raised 2026-08-19: if the plugin is used only inside MTI Film -- on commercial work, but
+never handed to anyone outside -- does the licensing picture change?
+
+Yes, but not where it would help most, and in one place the usual intuition inverts.
+
+**None of this is legal advice.** It is a reading of what the licences say. The
+NonCommercial point below is load-bearing enough that counsel should confirm it before any
+of this is on a show.
+
+### What internal-only genuinely fixes
+
+Most obligations in these licences are triggered by **distribution**, not by use.
+
+- **DINOv3 becomes much easier.** Its friction was the clause requiring the licence to
+  travel with redistributed weights -- which is exactly what shipping a checkpoint inside a
+  `.ofx.bundle` is. Never redistribute and that clause does not fire; commercial use was
+  already permitted. A DINOv3-backbone WAFT checkpoint goes from "needs a legal read" to
+  "read the acceptable-use terms." Note it still forbids military use.
+- **BSD-3 / MIT / Apache-2.0 attribution obligations go to roughly zero**, being
+  redistribution-triggered. They were never the obstacle.
+
+### What it does not fix
+
+**CC-BY-NC restricts use, not only distribution.** This is the part that catches people,
+because it runs opposite to the usual intuition about internal tools. NonCommercial is
+defined in terms of purposes directed towards commercial advantage or monetary
+compensation, and it governs exercising the licensed rights at all -- including simply
+running the model. Producing shots that get billed to a client is commercial use whether or
+not the software ever leaves the building.
+
+So **CoTracker3, DOT as shipped, and DAv2 Base/Large/Giant remain blocked** for commercial
+post work under an internal-only posture. Not distributing buys nothing here.
+
+### What does not move either way
+
+- **Training-data provenance is a separate risk from the model licence** and is unaffected
+  by deployment posture. There is an open upstream issue asking exactly this about the
+  *Apache-2.0* Depth Anything V2 Small variant. A permissive model licence is not a warranty
+  that the training data was clean.
+- **"We will never distribute it" erodes.** The day a partner facility asks, or a client
+  does, or somebody wants to productise this, every obligation re-triggers -- with the model
+  already baked into delivered shows and no cheap way back.
+
+### Why the shipped default should stay permissive anyway
+
+The plan's weight-resolution order -- `Model Dir` parameter, then `$WHITEWATER_MODEL_DIR`,
+then the bundle -- already separates these two problems, and that is worth keeping
+deliberately rather than by accident.
+
+Ship the bundle with permissive weights only (Twins or DAv2-Small backbone WAFT, or
+SEA-RAFT). The **plugin** is then distributable by construction, and its licensing story is
+one sentence long. Anyone who has satisfied themselves about other weights points the
+override at them, and that decision belongs to them and their situation rather than to the
+software.
+
+This costs nothing under an internal-only posture and keeps every future option open, which
+is the whole argument for doing it now rather than when it is expensive.
 
 ## Tensor contract
 
