@@ -16,7 +16,7 @@ and a binary in git history proves nothing about where it came from.
 | RIFE | Fast alternative. IFNet gives bidirectional intermediate flow in one pass. | hzwer/Practical-RIFE | MIT, weights stated to be under the same licence as the code |
 
 **This table is the approved plan's choice and is now expected to change before Phase 3.**
-The survey below concludes that SEA-RAFT should take the default slot and that MemFlow is a
+The survey below concludes that **WAFT** should take the default slot and that MemFlow is a
 better fast option than RIFE. Neither estimator has been written, so the change is free
 today and expensive after an export and a tensor contract exist.
 
@@ -33,10 +33,11 @@ has been audited, and for a facility deliverable that audit is not optional.
 
 | Model | Venue | Licence | Verdict |
 |---|---|---|---|
-| **SEA-RAFT** | ECCV 2024 (oral) | **BSD-3** | **Should replace RAFT as the default.** See below. |
+| **WAFT** | ICLR 2026 (oral) | **BSD-3 code, backbone weights vary** | **Should be the default.** 1st on Spring/Sintel/KITTI, 2x lower memory. Checkpoint licence needs resolving. |
+| SEA-RAFT | ECCV 2024 (oral) | **BSD-3** | Fallback if WAFT's checkpoint licensing cannot be resolved. |
 | **AllTracker** | ICCV 2025 | **MIT** | Architecturally native to this problem. Investigate — it could delete the chain. |
 | **MemFlow** | CVPR 2024 | **Apache-2.0** | Better "fast/temporal" option than RIFE. |
-| RAFT | ECCV 2020 | BSD-3 | Superseded by SEA-RAFT from the same lab. |
+| RAFT | ECCV 2020 | BSD-3 | Superseded twice over by the same lab. No reason to ship it. |
 | RIFE | ECCV 2022 | MIT | Works, but off-label — see below. |
 | DOT | CVPR 2024 | MIT code, **CC-BY-NC front-end** | Right idea, unusable as shipped. |
 | CoTracker3 | 2024 | **CC-BY-NC** | Blocked for commercial use. |
@@ -44,24 +45,62 @@ has been audited, and for a facility deliverable that audit is not optional.
 | MEMFOF | 2025 | not checked | Reported SOTA on Sintel; worth a look if accuracy stalls. |
 | NeuFlow v2 | 2024 | not checked | Real-time/edge focus; fallback if GPU inference is denied. |
 
-### SEA-RAFT should be the default, not RAFT
+### WAFT should be the default
 
-Same lab as RAFT (princeton-vl), same BSD-3 licence, same two-frame interface — so it drops
-into `FlowEstimator` with no architectural change. It reports at least **2.3× faster than
-existing methods**, state of the art on Spring (3.69 EPE, 0.36 1px — a reported 22.9% and
-17.8% error reduction), and **the best cross-dataset generalization on KITTI and Spring**.
+This supersedes the SEA-RAFT recommendation made earlier in the same survey. Same lab again
+(princeton-vl, Jia Deng), same BSD-3 code licence, ICLR 2026 oral.
 
-That last one is the reason, not the speed. Every benchmark here is driving footage, animated
-shorts and synthetic scenes; none of them are the film and commercial plates this plugin will
-actually see. Cross-dataset generalization is the closest available proxy for "behaves on
-material it was not trained on", which is the entire job.
+WAFT is RAFT with the **cost volume replaced by high-resolution warping**. Reported: **1st on
+Spring, Sintel and KITTI**, **best zero-shot generalization on KITTI**, 1.3-4.1x faster than
+methods with similar performance, and **2x lower memory**.
 
-The change costs nothing today because the estimator does not exist yet. Making it after
-Phase 3 means redoing an export, a tensor contract and a golden test.
+Three of those matter to us specifically, in this order:
 
-**Caveat:** no public ONNX export was found for SEA-RAFT, so we export from the checkpoint
-ourselves. The plan already requires that for provenance reasons, so it is not extra work —
-but it does mean no pre-existing export to check our tensor contract against.
+1. **2x lower memory.** The cost volume is what makes the RAFT family memory-hungry -- it is
+   O((HW)^2) before pooling, which is why the plan downscales to half resolution before
+   inference at all. Removing it attacks the single hardest constraint this project has:
+   fitting an inference context alongside Flame, which already owns the GPU. Phase 0 probe
+   item 3 is the measurement that decides whether GPU inference is possible at all, and
+   halving the memory materially improves those odds. It may also make full-resolution
+   analysis reachable where RAFT never was.
+2. **Best zero-shot generalization.** Same argument as for SEA-RAFT and still the most
+   important accuracy number here: the benchmarks are driving footage, animated shorts and
+   synthetic scenes, and none of them are the plates this plugin will see.
+3. **Export may be simpler, not harder.** The correlation lookup is the awkward part of
+   exporting RAFT to ONNX. Warping is `grid_sample`, which ONNX has supported since opset 16
+   and ONNX Runtime implements. This is an expectation, not a measurement -- the iterative
+   refinement loop is still there, so the unroll-at-export problem in the tensor contract
+   section is unchanged.
+
+**The catch, and it is a real one: the code licence is not the checkpoint licence.**
+
+WAFT supports three backbones -- Twins, DAv2 (Depth Anything v2) and DINOv3 -- and the
+README states no licence for the weights separately from the BSD-3 code, nor which checkpoint
+uses which backbone. That mapping exists only inside the linked Google Drive folder. The
+backbones do not share terms:
+
+| Backbone | Licence | For us |
+|---|---|---|
+| Twins | Apache-2.0 | Clean. Prefer this if it performs adequately. |
+| DAv2 Small | Apache-2.0 | Clean. |
+| DAv2 Base / Large / Giant | **CC-BY-NC-4.0** | **Blocked.** Non-commercial. |
+| DINOv3 | Meta custom licence | Permits commercial use, forbids military use, and **requires the licence to travel with any redistributed weights** -- which is exactly what shipping a checkpoint inside a .ofx.bundle is. Bespoke, so it needs an actual legal read rather than a shrug. |
+
+So the WAFT decision is two decisions: adopt the architecture (easy, BSD-3, clearly better),
+and separately choose a checkpoint whose backbone we can ship. **Action before Phase 3:**
+pull the model zoo, record which backbone each checkpoint uses and its SHA256 in this
+document, and benchmark the Twins-backbone checkpoint against the recommended one. If the
+gap is small, Twins ends the question. If it is large, DINOv3 becomes a legal question and
+SEA-RAFT (unambiguously BSD-3, no foundation-model backbone) is the fallback.
+
+### The general rule this keeps producing
+
+Three times now the licence that matters has not been the one on the repository page:
+CoTracker's CC-BY-NC inside DOT's MIT, Practical-RIFE's weights versus its code, and now
+WAFT's backbones versus its BSD-3. Treat **code licence, checkpoint licence, and the
+checkpoint's backbone licence as three separate questions**, and record all three per shipped
+file. A "BSD-3" badge on a repository says nothing about the file we actually put in the
+bundle.
 
 ### AllTracker could delete the chain entirely
 
