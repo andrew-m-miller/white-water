@@ -272,6 +272,20 @@ WhiteWater.ofx.bundle/Contents/
   Libraries/              libonnxruntime + providers
 ```
 
+> **This layout is wrong for the GPU build and must be revised before Phase 3.** Measured
+> 2026-08-20 on the box: Mocha Pro 2026.5's equivalent payload is **3.11 GB** — CUDA, cuDNN
+> and `libonnxruntime_providers_cuda.so` (775 MB by itself). The estimate elsewhere in this
+> plan of "roughly 20-80 MB" is right for model *weights* and three orders of magnitude out
+> for the runtime that dominates.
+>
+> Boris FX's answer is worth copying: a sibling tree next to the bundle
+> (`/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/…`) rather than inside it, so the
+> bundle stays a bundle and the runtime is an installed component. Also likely: a small
+> CPU-only default artifact with GPU as a separate download. And check first whether a
+> current ONNX Runtime shrinks this materially — 1.22 made cuDNN and cuFFT optional at
+> runtime for the CUDA EP specifically to cut this footprint, and Mocha's build may predate
+> that. See `docs/host-notes.md`, *Measured — Mocha Pro's ML architecture*.
+
 - **Linux**: build in a `rockylinux:9` container (glibc 2.34, matching the stated target).
   `-static-libstdc++ -static-libgcc`. Gate with `objdump -T`. Verify the bundled ORT libraries
   resolve under `env -u LD_LIBRARY_PATH ldd` — warp-drive lost a release to a dropped ICU that

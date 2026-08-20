@@ -1,0 +1,1623 @@
+(base) 10:28AM flame @ flame6 ~> find /usr/OFX/Plugins /usr/local/OFX/Plugins /opt -ipath '*mocha*' \( -name '*.so*' -o -name '*.ofx' -o -name '*.dat' \) -printf '%10s  %p\n' 2>/dev/null | sort -k2
+   2085944  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libMLBackend_ort_cpu.so
+   2736912  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libMLBackend_ort_cuda.so
+   2652360  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libMLPlugin.so
+  94729912  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libcublas.so.11
+ 574565016  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libcublasLt.so.11
+    695712  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libcudart.so.11.0
+    142008  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libcudnn.so.8
+ 618889208  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libcudnn_cnn_infer.so.8
+ 125942448  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libcudnn_cnn_train.so.8
+  90892040  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libcudnn_ops_infer.so.8
+  71062936  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libcudnn_ops_train.so.8
+ 279161544  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libcufft.so.10
+ 101334448  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libcurand.so.10
+ 487615656  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libnvinfer.so.8
+ 373749080  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libnvinfer_builder_resource.so.8.5.3
+  50090232  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libnvinfer_plugin.so.8
+   2860752  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libnvonnxparser.so.8
+   3442552  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libnvparsers.so.8
+  22455952  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libonnxruntime.so
+ 459431392  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libonnxruntime_providers_cuda.so
+     15992  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/ML/libonnxruntime_providers_shared.so
+     42448  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstapp.so
+    655808  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstasf.so
+    877728  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstaudioparsers.so
+    833568  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstavi.so
+   2038632  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstcoreelements.so
+   3111400  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstisomp4.so
+    227344  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstjpegformat.so
+   1411400  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstlibav.so
+   1664768  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstmatroska.so
+    845936  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstmpegtsdemux.so
+   1775992  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstmxf.so
+   2733936  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstplayback.so
+    326672  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstrawparse.so
+    540272  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgsttypefindfunctions.so
+    237392  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstvideoconvertscale.so
+    411008  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstvideofilter.so
+   1658104  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/gstreamer-1.0/libgstvideoparsersbad.so
+        79  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libAlembic.so
+        81  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libAlembic.so.1.8
+   1969592  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libAlembic.so.1.8.6
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libGUI.so
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libGUI.so.1
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libGUI.so.1.0
+  13396336  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libGUI.so.1.0.0
+        78  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libIex-3_1.so
+        83  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libIex-3_1.so.30
+    475936  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libIex-3_1.so.30.11.1
+        84  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libIlmThread-3_1.so
+        89  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libIlmThread-3_1.so.30
+     47648  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libIlmThread-3_1.so.30.11.1
+        80  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libImath-3_1.so
+        84  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libImath-3_1.so.29
+    333896  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libImath-3_1.so.29.8.0
+        76  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenCL.so
+        78  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenCL.so.1
+     52592  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenCL.so.1.2
+        83  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenColorIO.so
+        85  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenColorIO.so.2.2
+   6508792  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenColorIO.so.2.2.1
+        82  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenEXR-3_1.so
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenEXR-3_1.so.30
+   3349544  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenEXR-3_1.so.30.11.1
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenEXRCore-3_1.so
+        91  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenEXRCore-3_1.so.30
+   2302152  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenEXRCore-3_1.so.30.11.1
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenEXRUtil-3_1.so
+        91  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenEXRUtil-3_1.so.30
+    205256  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libOpenEXRUtil-3_1.so.30.11.1
+        94  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Concurrent.isl0.so
+        94  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Concurrent.isl0.so.5
+        94  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Concurrent.isl0.so.5.15
+     31160  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Concurrent.isl0.so.5.15.15
+        88  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Core.isl0.so
+        88  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Core.isl0.so.5
+        88  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Core.isl0.so.5.15
+   6875264  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Core.isl0.so.5.15.15
+        88  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5DBus.isl0.so
+        88  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5DBus.isl0.so.5
+        88  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5DBus.isl0.so.5.15
+    623344  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5DBus.isl0.so.5.15.15
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Gui.isl0.so
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Gui.isl0.so.5
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Gui.isl0.so.5.15
+   6641184  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Gui.isl0.so.5.15.15
+        94  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Multimedia.isl0.so
+        94  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Multimedia.isl0.so.5
+        94  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Multimedia.isl0.so.5.15
+        99  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5MultimediaQuick.isl0.so
+        99  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5MultimediaQuick.isl0.so.5
+        99  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5MultimediaQuick.isl0.so.5.15
+        91  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Network.isl0.so
+        91  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Network.isl0.so.5
+        91  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Network.isl0.so.5.15
+   1804368  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Network.isl0.so.5.15.15
+        90  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5OpenGL.isl0.so
+        90  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5OpenGL.isl0.so.5
+        90  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5OpenGL.isl0.so.5.15
+    365944  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5OpenGL.isl0.so.5.15.15
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Qml.isl0.so
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Qml.isl0.so.5
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Qml.isl0.so.5.15
+        93  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QmlModels.isl0.so
+        93  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QmlModels.isl0.so.5
+        93  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QmlModels.isl0.so.5.15
+        99  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QmlWorkerScript.isl0.so
+        99  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QmlWorkerScript.isl0.so.5
+        99  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QmlWorkerScript.isl0.so.5.15
+        89  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Quick.isl0.so
+        89  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Quick.isl0.so.5
+        89  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Quick.isl0.so.5.15
+        98  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QuickControls2.isl0.so
+        98  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QuickControls2.isl0.so.5
+        98  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QuickControls2.isl0.so.5.15
+        99  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QuickTemplates2.isl0.so
+        99  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QuickTemplates2.isl0.so.5
+        99  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QuickTemplates2.isl0.so.5.15
+        96  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QuickWidgets.isl0.so
+        96  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QuickWidgets.isl0.so.5
+        96  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5QuickWidgets.isl0.so.5.15
+        91  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Widgets.isl0.so
+        91  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Widgets.isl0.so.5
+        91  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Widgets.isl0.so.5.15
+   6897616  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Widgets.isl0.so.5.15.15
+        93  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5X11Extras.isl0.so
+        93  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5X11Extras.isl0.so.5
+        93  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5X11Extras.isl0.so.5.15
+     22696  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5X11Extras.isl0.so.5.15.15
+        90  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5XcbQpa.isl0.so
+        90  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5XcbQpa.isl0.so.5
+        90  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5XcbQpa.isl0.so.5.15
+   1192336  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5XcbQpa.isl0.so.5.15.15
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Xml.isl0.so
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Xml.isl0.so.5
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Xml.isl0.so.5.15
+    285912  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libQt5Xml.isl0.so.5.15.15
+  66630616  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libavcodec.so.58
+  16474320  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libavfilter.so.7
+  21099552  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libavformat.so.58
+    358440  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libavresample.so.4
+   1979072  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libavutil.so.56
+        82  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libbfx_core.so
+        82  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libbfx_core.so.1
+        82  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libbfx_core.so.1.0
+   1017776  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libbfx_core.so.1.0.0
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_atomic.so
+     22728  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_atomic.so.1.85.0
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_chrono.so
+     35112  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_chrono.so.1.85.0
+        90  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_date_time.so
+     14128  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_date_time.so.1.85.0
+        91  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_filesystem.so
+    217160  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_filesystem.so.1.85.0
+        84  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_log.so
+    940968  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_log.so.1.85.0
+        90  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_log_setup.so
+    895408  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_log_setup.so.1.85.0
+        96  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_program_options.so
+    520208  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_program_options.so.1.85.0
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_regex.so
+    381808  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_regex.so.1.85.0
+        94  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_serialization.so
+    269888  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_serialization.so.1.85.0
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_system.so
+     14128  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_system.so.1.85.0
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_thread.so
+    183776  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_thread.so.1.85.0
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_timer.so
+     22792  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_timer.so.1.85.0
+        95  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_wserialization.so
+    183480  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libboost_wserialization.so.1.85.0
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libbsc.so
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libbsc.so.1
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libbsc.so.1.0
+   1333920  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libbsc.so.1.0.0
+        81  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libcrypto.isl0.so
+   4341216  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libcrypto.isl0.so.3
+        74  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libcurl.so
+        78  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libcurl.so.4
+    723168  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libcurl.so.4.8.0
+   9733576  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libfbxsdk.so
+    194648  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libffi.so.7
+        83  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libfreetype.so
+        83  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libfreetype.so.6
+    965496  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libfreetype.so.6.17.1
+        81  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgandalf.so
+        81  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgandalf.so.1
+   3095768  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgandalf.so.1.1.1
+  11423448  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgio-2.0.so.0
+   5448552  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libglib-2.0.so.0
+     67128  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgmodule-2.0.so.0
+   2353400  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgobject-2.0.so.0
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgpu.so
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgpu.so.1
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgpu.so.1.0
+   2741760  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgpu.so.1.0.0
+     88048  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstallocators-1.0.so.0
+    354088  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstapp-1.0.so.0
+   2527912  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstaudio-1.0.so.0
+   2411992  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstbase-1.0.so.0
+   3490288  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstcodecparsers-1.0.so.0
+   2319040  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstgl-1.0.so.0
+    757456  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstmpegts-1.0.so.0
+   1178336  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstpbutils-1.0.so.0
+   6632856  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstreamer-1.0.so.0
+    223952  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstriff-1.0.so.0
+    842520  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstrtp-1.0.so.0
+    617600  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstrtsp-1.0.so.0
+    488744  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstsdp-1.0.so.0
+   1107272  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgsttag-1.0.so.0
+   3975704  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libgstvideo-1.0.so.0
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libipc.so
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libipc.so.1
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libipc.so.1.0
+    165840  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libipc.so.1.0.0
+        76  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libis.so
+        76  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libis.so.1
+        76  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libis.so.1.0
+   6407344  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libis.so.1.0.0
+        81  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libisildur.so
+        81  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libisildur.so.1
+        81  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libisildur.so.1.0
+   3478848  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libisildur.so.1.0.0
+        83  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libjpeg.isl0.so
+        83  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libjpeg.isl0.so.9
+    346648  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libjpeg.isl0.so.9.4.0
+        83  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libjpeg.so
+   1747152  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libjpeg.so.8.2.2
+        83  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libjpeg.so.9
+        82  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/liblayercam.so
+        82  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/liblayercam.so.1
+        82  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/liblayercam.so.1.0
+  21297624  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/liblayercam.so.1.0.0
+        81  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libluthien.so
+        81  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libluthien.so.1
+        81  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libluthien.so.1.0
+    412488  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libluthien.so.1.0.0
+  92387648  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libmocha.so
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libmvt.so
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libmvt.so.1
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libmvt.so.1.0
+   1372056  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libmvt.so.1.0.0
+        80  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/liboberon.so
+        80  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/liboberon.so.1
+        80  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/liboberon.so.1.0
+   2832480  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/liboberon.so.1.0.0
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_calib3d.so
+   2312168  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_calib3d.so.4.5.5
+        88  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_calib3d.so.405
+        83  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_core.so
+  16831008  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_core.so.4.5.5
+        85  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_core.so.405
+        89  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_features2d.so
+    877504  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_features2d.so.4.5.5
+        91  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_features2d.so.405
+        84  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_flann.so
+    548472  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_flann.so.4.5.5
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_flann.so.405
+        88  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_imgcodecs.so
+   2273720  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_imgcodecs.so.4.5.5
+        90  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_imgcodecs.so.405
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_imgproc.so
+  28087240  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_imgproc.so.4.5.5
+        88  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_imgproc.so.405
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_optflow.so
+    409688  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_optflow.so.4.5.5
+        88  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_optflow.so.405
+        84  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_photo.so
+    663248  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_photo.so.4.5.5
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_photo.so.405
+        84  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_shape.so
+    150232  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_shape.so.4.5.5
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_shape.so.405
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_superres.so
+    125904  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_superres.so.4.5.5
+        89  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_superres.so.405
+        84  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_video.so
+    496432  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_video.so.4.5.5
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_video.so.405
+        88  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_videostab.so
+    240880  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_videostab.so.4.5.5
+        90  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_videostab.so.405
+        87  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_ximgproc.so
+   1266704  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_ximgproc.so.4.5.5
+        89  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libopencv_ximgproc.so.405
+   2644272  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/liborc-0.4.so.0
+   1299160  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libpcre2-8.so
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libpng.isl0.so
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libpng.so
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libpng16.isl0.so
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libpng16.isl0.so.16
+    275568  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libpng16.isl0.so.16.21.0
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libpng16.so
+        86  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libpng16.so.16
+    402584  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libpostproc.so.55
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libprm.so
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libprm.so.1
+        77  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libprm.so.1.0
+   4409328  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libprm.so.1.0.0
+    352952  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libsentry.so
+        78  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libssl.isl0.so
+    980472  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libssl.isl0.so.3
+    350072  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libswresample.so.3
+   2799624  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libswscale.so.5
+        78  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libtiff.so
+        78  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libtiff.so.5
+    564448  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libtiff.so.5.2.0
+        78  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libxml2.so
+        78  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libxml2.so.2
+   1407536  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libxml2.so.2.9.9
+        75  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libz.so
+        75  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libz.so.1
+    117048  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/lib/libz.so.1.3.1
+   1362144  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/plugins/imageformats/libqjpeg.isl0.so
+   5577320  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/plugins/platforms/libqminimal.isl0.so
+   6859840  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/plugins/platforms/libqoffscreen.isl0.so
+    794512  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/plugins/platforms/libqxcb.isl0.so
+   3117960  /opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/plugins/xcbglintegrations/libqxcb-glx-integration.isl0.so
+  81022032  /opt/BorisFX/SapphireOFX/sapphire-mocha/libmocha4bcc.so.1
+   4833320  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/REDR3D-x64.so
+  99544592  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/libmocha.so
+   4833320  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/REDR3D-x64.so
+     42448  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstapp.so
+    655808  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstasf.so
+    877728  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstaudioparsers.so
+    833568  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstavi.so
+   2038632  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstcoreelements.so
+   3111400  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstisomp4.so
+    227344  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstjpegformat.so
+   1411400  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstlibav.so
+   1664768  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstmatroska.so
+    845936  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstmpegtsdemux.so
+   1775992  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstmxf.so
+   2733936  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstplayback.so
+    326672  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstrawparse.so
+    540272  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgsttypefindfunctions.so
+    237392  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstvideoconvertscale.so
+    411008  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstvideofilter.so
+   1658104  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/gstreamer-1.0/libgstvideoparsersbad.so
+        17  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libAlembic.so
+        19  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libAlembic.so.1.8
+   1969592  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libAlembic.so.1.8.6
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libGUI.so
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libGUI.so.1
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libGUI.so.1.0
+  20639608  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libGUI.so.1.0.0
+        16  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libIex-3_1.so
+        21  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libIex-3_1.so.30
+    475936  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libIex-3_1.so.30.11.1
+        22  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libIlmThread-3_1.so
+        27  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libIlmThread-3_1.so.30
+     47648  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libIlmThread-3_1.so.30.11.1
+        18  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libImath-3_1.so
+        22  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libImath-3_1.so.29
+    333896  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libImath-3_1.so.29.8.0
+        14  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenCL.so
+        16  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenCL.so.1
+     52592  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenCL.so.1.2
+        21  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenColorIO.so
+        23  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenColorIO.so.2.2
+   6508792  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenColorIO.so.2.2.1
+        20  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenEXR-3_1.so
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenEXR-3_1.so.30
+   3349544  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenEXR-3_1.so.30.11.1
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenEXRCore-3_1.so
+        29  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenEXRCore-3_1.so.30
+   2302152  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenEXRCore-3_1.so.30.11.1
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenEXRUtil-3_1.so
+        29  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenEXRUtil-3_1.so.30
+    205256  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libOpenEXRUtil-3_1.so.30.11.1
+        32  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Concurrent.isl0.so
+        32  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Concurrent.isl0.so.5
+        32  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Concurrent.isl0.so.5.15
+     31160  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Concurrent.isl0.so.5.15.13
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Core.isl0.so
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Core.isl0.so.5
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Core.isl0.so.5.15
+   6883456  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Core.isl0.so.5.15.13
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5DBus.isl0.so
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5DBus.isl0.so.5
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5DBus.isl0.so.5.15
+    623344  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5DBus.isl0.so.5.15.13
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Gui.isl0.so
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Gui.isl0.so.5
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Gui.isl0.so.5.15
+   6641184  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Gui.isl0.so.5.15.13
+        32  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Multimedia.isl0.so
+        32  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Multimedia.isl0.so.5
+        32  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Multimedia.isl0.so.5.15
+   1106664  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Multimedia.isl0.so.5.15.13
+        37  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5MultimediaQuick.isl0.so
+        37  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5MultimediaQuick.isl0.so.5
+        37  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5MultimediaQuick.isl0.so.5.15
+    134808  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5MultimediaQuick.isl0.so.5.15.13
+        29  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Network.isl0.so
+        29  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Network.isl0.so.5
+        29  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Network.isl0.so.5.15
+   1800272  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Network.isl0.so.5.15.13
+        28  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5OpenGL.isl0.so
+        28  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5OpenGL.isl0.so.5
+        28  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5OpenGL.isl0.so.5.15
+    365944  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5OpenGL.isl0.so.5.15.13
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Qml.isl0.so
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Qml.isl0.so.5
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Qml.isl0.so.5.15
+   4946328  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Qml.isl0.so.5.15.13
+        31  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QmlModels.isl0.so
+        31  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QmlModels.isl0.so.5
+        31  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QmlModels.isl0.so.5.15
+    550064  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QmlModels.isl0.so.5.15.13
+        37  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QmlWorkerScript.isl0.so
+        37  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QmlWorkerScript.isl0.so.5
+        37  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QmlWorkerScript.isl0.so.5.15
+     60544  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QmlWorkerScript.isl0.so.5.15.13
+        27  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Quick.isl0.so
+        27  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Quick.isl0.so.5
+        27  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Quick.isl0.so.5.15
+   5595360  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Quick.isl0.so.5.15.13
+        36  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QuickControls2.isl0.so
+        36  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QuickControls2.isl0.so.5
+        36  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QuickControls2.isl0.so.5.15
+    213768  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QuickControls2.isl0.so.5.15.13
+        37  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QuickTemplates2.isl0.so
+        37  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QuickTemplates2.isl0.so.5
+        37  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QuickTemplates2.isl0.so.5.15
+   1613120  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QuickTemplates2.isl0.so.5.15.13
+        34  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QuickWidgets.isl0.so
+        34  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QuickWidgets.isl0.so.5
+        34  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QuickWidgets.isl0.so.5.15
+     81632  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5QuickWidgets.isl0.so.5.15.13
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Test.isl0.so
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Test.isl0.so.5
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Test.isl0.so.5.15
+    336872  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Test.isl0.so.5.15.13
+        29  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Widgets.isl0.so
+        29  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Widgets.isl0.so.5
+        29  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Widgets.isl0.so.5.15
+   6897616  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Widgets.isl0.so.5.15.13
+        31  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5X11Extras.isl0.so
+        31  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5X11Extras.isl0.so.5
+        31  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5X11Extras.isl0.so.5.15
+     22696  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5X11Extras.isl0.so.5.15.13
+        28  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5XcbQpa.isl0.so
+        28  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5XcbQpa.isl0.so.5
+        28  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5XcbQpa.isl0.so.5.15
+   1192336  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5XcbQpa.isl0.so.5.15.13
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Xml.isl0.so
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Xml.isl0.so.5
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Xml.isl0.so.5.15
+    285912  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libQt5Xml.isl0.so.5.15.13
+  66630616  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libavcodec.so.58
+  16474320  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libavfilter.so.7
+  21099552  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libavformat.so.58
+    358440  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libavresample.so.4
+   1979072  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libavutil.so.56
+        20  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libbfx_core.so
+        20  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libbfx_core.so.1
+        20  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libbfx_core.so.1.0
+   1004872  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libbfx_core.so.1.0.0
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_atomic.so
+     22728  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_atomic.so.1.84.0
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_chrono.so
+     35144  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_chrono.so.1.84.0
+        28  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_date_time.so
+     14128  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_date_time.so.1.84.0
+        29  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_filesystem.so
+    204872  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_filesystem.so.1.84.0
+        22  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_log.so
+    940968  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_log.so.1.84.0
+        28  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_log_setup.so
+    895408  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_log_setup.so.1.84.0
+        34  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_program_options.so
+    520216  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_program_options.so.1.84.0
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_regex.so
+    381808  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_regex.so.1.84.0
+        32  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_serialization.so
+    269872  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_serialization.so.1.84.0
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_system.so
+     14128  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_system.so.1.84.0
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_thread.so
+    183776  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_thread.so.1.84.0
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_timer.so
+     22792  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_timer.so.1.84.0
+        33  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_wserialization.so
+    183472  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libboost_wserialization.so.1.84.0
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libbsc.so
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libbsc.so.1
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libbsc.so.1.0
+   6251328  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libbsc.so.1.0.0
+        17  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libcam3d.so
+        17  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libcam3d.so.1
+        17  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libcam3d.so.1.0
+    379288  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libcam3d.so.1.0.0
+        19  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libcrypto.isl0.so
+   4341216  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libcrypto.isl0.so.3
+        12  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libcurl.so
+        16  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libcurl.so.4
+    723168  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libcurl.so.4.8.0
+   9733576  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libfbxsdk.so
+    194648  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libffi.so.7
+        21  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libfreetype.so
+        21  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libfreetype.so.6
+    965496  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libfreetype.so.6.17.1
+        19  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgandalf.so
+        19  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgandalf.so.1
+   3095768  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgandalf.so.1.1.1
+  11423448  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgio-2.0.so.0
+   5448552  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libglib-2.0.so.0
+     67128  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgmodule-2.0.so.0
+   2353400  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgobject-2.0.so.0
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgpu.so
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgpu.so.1
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgpu.so.1.0
+   2736128  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgpu.so.1.0.0
+     88048  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstallocators-1.0.so.0
+    354088  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstapp-1.0.so.0
+   2527912  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstaudio-1.0.so.0
+   2411992  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstbase-1.0.so.0
+   3490288  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstcodecparsers-1.0.so.0
+   2319040  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstgl-1.0.so.0
+    757456  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstmpegts-1.0.so.0
+   1178336  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstpbutils-1.0.so.0
+   6632856  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstreamer-1.0.so.0
+    223952  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstriff-1.0.so.0
+    842520  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstrtp-1.0.so.0
+    617600  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstrtsp-1.0.so.0
+    488744  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstsdp-1.0.so.0
+   1107272  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgsttag-1.0.so.0
+   3975704  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libgstvideo-1.0.so.0
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libipc.so
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libipc.so.1
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libipc.so.1.0
+    165824  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libipc.so.1.0.0
+        14  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libis.so
+        14  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libis.so.1
+        14  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libis.so.1.0
+   6238344  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libis.so.1.0.0
+        19  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libisildur.so
+        19  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libisildur.so.1
+        19  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libisildur.so.1.0
+   3625712  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libisildur.so.1.0.0
+        21  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libjpeg.isl0.so
+        21  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libjpeg.isl0.so.9
+    346648  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libjpeg.isl0.so.9.4.0
+        21  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libjpeg.so
+   1747152  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libjpeg.so.8.2.2
+        21  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libjpeg.so.9
+        20  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/liblayercam.so
+        20  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/liblayercam.so.1
+        20  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/liblayercam.so.1.0
+  20281576  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/liblayercam.so.1.0.0
+        19  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libluthien.so
+        19  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libluthien.so.1
+        19  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libluthien.so.1.0
+    421032  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libluthien.so.1.0.0
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libmvt.so
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libmvt.so.1
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libmvt.so.1.0
+   1311936  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libmvt.so.1.0.0
+        18  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/liboberon.so
+        18  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/liboberon.so.1
+        18  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/liboberon.so.1.0
+   2831576  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/liboberon.so.1.0.0
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_calib3d.so
+   2312168  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_calib3d.so.4.5.5
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_calib3d.so.405
+        21  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_core.so
+  16831008  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_core.so.4.5.5
+        23  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_core.so.405
+        27  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_features2d.so
+    877504  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_features2d.so.4.5.5
+        29  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_features2d.so.405
+        22  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_flann.so
+    548472  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_flann.so.4.5.5
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_flann.so.405
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_imgcodecs.so
+   2273720  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_imgcodecs.so.4.5.5
+        28  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_imgcodecs.so.405
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_imgproc.so
+  28087240  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_imgproc.so.4.5.5
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_imgproc.so.405
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_optflow.so
+    409688  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_optflow.so.4.5.5
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_optflow.so.405
+        22  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_photo.so
+    663248  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_photo.so.4.5.5
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_photo.so.405
+        22  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_shape.so
+    150232  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_shape.so.4.5.5
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_shape.so.405
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_superres.so
+    125904  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_superres.so.4.5.5
+        27  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_superres.so.405
+        22  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_video.so
+    496432  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_video.so.4.5.5
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_video.so.405
+        26  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_videostab.so
+    240880  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_videostab.so.4.5.5
+        28  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_videostab.so.405
+        25  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_ximgproc.so
+   1266704  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_ximgproc.so.4.5.5
+        27  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libopencv_ximgproc.so.405
+   2644272  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/liborc-0.4.so.0
+        18  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libosdCPU.so
+    665624  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libosdCPU.so.3.4.4
+        18  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libosdGPU.so
+    900344  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libosdGPU.so.3.4.4
+   1299160  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpcre2-8.so
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpng.isl0.so
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpng.so
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpng16.isl0.so
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpng16.isl0.so.16
+    275568  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpng16.isl0.so.16.21.0
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpng16.so
+        24  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpng16.so.16
+    402584  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpostproc.so.55
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libprm.so
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libprm.so.1
+        15  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libprm.so.1.0
+   4340528  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libprm.so.1.0.0
+        20  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpybridge.so
+        20  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpybridge.so.1
+        20  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpybridge.so.1.0
+   2755880  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libpybridge.so.1.0.0
+    352952  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libsentry.so
+        16  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libssl.isl0.so
+    980472  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libssl.isl0.so.3
+    350072  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libswresample.so.3
+   2799624  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libswscale.so.5
+  24079352  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libsyntheyes.so
+    352136  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libtbb.so
+        16  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libtiff.so
+        16  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libtiff.so.5
+    564448  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libtiff.so.5.2.0
+  36504808  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libusd_ms.so
+        16  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libxml2.so
+        16  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libxml2.so.2
+   1407536  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/lib/libxml2.so.2.9.9
+   1362144  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/plugins/imageformats/libqjpeg.isl0.so
+   5577320  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/plugins/platforms/libqminimal.isl0.so
+   6859840  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/plugins/platforms/libqoffscreen.isl0.so
+    794512  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/plugins/platforms/libqxcb.isl0.so
+   3853504  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/plugins/styles/libqplastiquestyle.isl0.so
+   3117960  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/plugins/xcbglintegrations/libqxcb-glx-integration.isl0.so
+        46  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/libpyside2.cpython-39-x86_64-linux-gnu.so
+        49  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/libpyside2.cpython-39-x86_64-linux-gnu.so.5.15
+    274216  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/libpyside2.cpython-39-x86_64-linux-gnu.so.5.15.13
+        19  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/libpython3.9.so
+   3768656  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/libpython3.9.so.1.0
+     14056  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/libpython3.so
+        48  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/libshiboken2.cpython-39-x86_64-linux-gnu.so
+        51  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/libshiboken2.cpython-39-x86_64-linux-gnu.so.5.15
+    343232  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/libshiboken2.cpython-39-x86_64-linux-gnu.so.5.15.13
+     70896  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_asyncio.cpython-39-x86_64-linux-gnu.so
+     14960  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_bisect.cpython-39-x86_64-linux-gnu.so
+     44952  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_blake2.cpython-39-x86_64-linux-gnu.so
+    153848  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_codecs_cn.cpython-39-x86_64-linux-gnu.so
+    157976  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_codecs_hk.cpython-39-x86_64-linux-gnu.so
+     31000  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_codecs_iso2022.cpython-39-x86_64-linux-gnu.so
+    268536  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_codecs_jp.cpython-39-x86_64-linux-gnu.so
+    141560  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_codecs_kr.cpython-39-x86_64-linux-gnu.so
+    112888  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_codecs_tw.cpython-39-x86_64-linux-gnu.so
+     14552  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_contextvars.cpython-39-x86_64-linux-gnu.so
+     14552  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_crypt.cpython-39-x86_64-linux-gnu.so
+     41776  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_csv.cpython-39-x86_64-linux-gnu.so
+    132312  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_ctypes.cpython-39-x86_64-linux-gnu.so
+     22968  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_ctypes_test.cpython-39-x86_64-linux-gnu.so
+    136496  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_curses.cpython-39-x86_64-linux-gnu.so
+     19456  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_curses_panel.cpython-39-x86_64-linux-gnu.so
+    117456  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_datetime.cpython-39-x86_64-linux-gnu.so
+     19664  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_dbm.cpython-39-x86_64-linux-gnu.so
+    356224  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_decimal.cpython-39-x86_64-linux-gnu.so
+     76848  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_elementtree.cpython-39-x86_64-linux-gnu.so
+     28048  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_gdbm.cpython-39-x86_64-linux-gnu.so
+     59296  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_hashlib.cpython-39-x86_64-linux-gnu.so
+     23000  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_heapq.cpython-39-x86_64-linux-gnu.so
+     44880  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_json.cpython-39-x86_64-linux-gnu.so
+     23832  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_lsprof.cpython-39-x86_64-linux-gnu.so
+     41488  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_lzma.cpython-39-x86_64-linux-gnu.so
+     19504  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_md5.cpython-39-x86_64-linux-gnu.so
+     47120  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_multibytecodec.cpython-39-x86_64-linux-gnu.so
+     19960  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_multiprocessing.cpython-39-x86_64-linux-gnu.so
+     14616  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_opcode.cpython-39-x86_64-linux-gnu.so
+    118384  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_pickle.cpython-39-x86_64-linux-gnu.so
+     14776  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_posixshmem.cpython-39-x86_64-linux-gnu.so
+     23072  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_posixsubprocess.cpython-39-x86_64-linux-gnu.so
+     19608  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_queue.cpython-39-x86_64-linux-gnu.so
+     23208  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_random.cpython-39-x86_64-linux-gnu.so
+     19504  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_sha1.cpython-39-x86_64-linux-gnu.so
+     24176  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_sha256.cpython-39-x86_64-linux-gnu.so
+     91536  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_sha3.cpython-39-x86_64-linux-gnu.so
+     28272  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_sha512.cpython-39-x86_64-linux-gnu.so
+    104208  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_socket.cpython-39-x86_64-linux-gnu.so
+    216840  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_ssl.cpython-39-x86_64-linux-gnu.so
+     14552  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_statistics.cpython-39-x86_64-linux-gnu.so
+     54776  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_struct.cpython-39-x86_64-linux-gnu.so
+     45776  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_testbuffer.cpython-39-x86_64-linux-gnu.so
+    145008  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_testcapi.cpython-39-x86_64-linux-gnu.so
+     14656  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_testimportmultiple.cpython-39-x86_64-linux-gnu.so
+     14712  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_testinternalcapi.cpython-39-x86_64-linux-gnu.so
+     30712  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_testmultiphase.cpython-39-x86_64-linux-gnu.so
+     14552  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_uuid.cpython-39-x86_64-linux-gnu.so
+     41424  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_xxsubinterpreters.cpython-39-x86_64-linux-gnu.so
+     18840  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_xxtestfuzz.cpython-39-x86_64-linux-gnu.so
+     36272  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/_zoneinfo.cpython-39-x86_64-linux-gnu.so
+     58192  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/array.cpython-39-x86_64-linux-gnu.so
+     56512  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/audioop.cpython-39-x86_64-linux-gnu.so
+     36120  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/binascii.cpython-39-x86_64-linux-gnu.so
+     52408  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/cmath.cpython-39-x86_64-linux-gnu.so
+     22968  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/fcntl.cpython-39-x86_64-linux-gnu.so
+     19144  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/grp.cpython-39-x86_64-linux-gnu.so
+     66200  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/math.cpython-39-x86_64-linux-gnu.so
+     32496  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/mmap.cpython-39-x86_64-linux-gnu.so
+     19032  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/nis.cpython-39-x86_64-linux-gnu.so
+     33328  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/ossaudiodev.cpython-39-x86_64-linux-gnu.so
+     28312  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/parser.cpython-39-x86_64-linux-gnu.so
+    262352  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/pyexpat.cpython-39-x86_64-linux-gnu.so
+     19240  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/resource.cpython-39-x86_64-linux-gnu.so
+     32488  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/select.cpython-39-x86_64-linux-gnu.so
+     14904  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/spwd.cpython-39-x86_64-linux-gnu.so
+     14872  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/syslog.cpython-39-x86_64-linux-gnu.so
+     31072  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/termios.cpython-39-x86_64-linux-gnu.so
+   1116080  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/unicodedata.cpython-39-x86_64-linux-gnu.so
+     15096  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/xxlimited.cpython-39-x86_64-linux-gnu.so
+     40672  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib-dynload/zlib.cpython-39-x86_64-linux-gnu.so
+    117936  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/PySide2/QtConcurrent.so
+   4927064  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/PySide2/QtCore.so
+   5366168  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/PySide2/QtGui.so
+   1403176  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/PySide2/QtNetwork.so
+    486128  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/PySide2/QtPrintSupport.so
+    664720  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/PySide2/QtSql.so
+    199824  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/PySide2/QtTest.so
+    578432  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/PySide2/QtUiTools.so
+  10390864  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/PySide2/QtWidgets.so
+    567856  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/PySide2/QtXml.so
+     28040  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/mocha/_init.so
+     28048  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/mocha/exporters.so
+     28048  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/mocha/mediaio.so
+     28048  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/mocha/project.so
+     28048  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/mocha/tools.so
+     19344  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/site-packages/shiboken2/shiboken2.so
+    776248  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtGraphicalEffects/libqtgraphicaleffectsplugin.so
+   3156552  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtGraphicalEffects/private/libqtgraphicaleffectsprivate.so
+  10209224  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtMultimedia/libdeclarative_multimedia.so
+    536720  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQml/Models.2/libmodelsplugin.so
+   5504712  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQml/StateMachine/libqtqmlstatemachine.so
+    536920  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQml/WorkerScript.2/libworkerscriptplugin.so
+    737736  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQml/libqmlplugin.so
+   1213280  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick.2/libqtquick2plugin.so
+   4763576  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Controls.2/Fusion/libqtquickcontrols2fusionstyleplugin.so
+   5910752  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Controls.2/Imagine/libqtquickcontrols2imaginestyleplugin.so
+   5356520  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Controls.2/Material/libqqc2materialstyleplugin.so
+   5269288  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Controls.2/Universal/libqtquickcontrols2universalstyleplugin.so
+   6043112  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Controls.2/libqtquickcontrols2plugin.so
+   3055864  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Controls/Styles/Flat/libqtquickextrasflatplugin.so
+  19967744  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Controls/libqtquickcontrolsplugin.so
+   2324520  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Dialogs/Private/libdialogsprivateplugin.so
+  12777504  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Dialogs/libdialogplugin.so
+   5248536  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Extras/libqtquickextrasplugin.so
+   5614040  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Layouts/libqquicklayoutsplugin.so
+   3343016  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/LocalStorage/libqmllocalstorageplugin.so
+    744768  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Particles.2/libparticlesplugin.so
+   8860680  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/PrivateWidgets/libwidgetsplugin.so
+    918120  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Shapes/libqmlshapesplugin.so
+   5026288  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Templates.2/libqtquicktemplates2plugin.so
+   4324064  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Timeline/libqtquicktimelineplugin.so
+   2061856  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/Window.2/libwindowplugin.so
+   2984920  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/qml/QtQuick/XmlListModel/libqmlxmllistmodelplugin.so
+   2315696  /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/mochaPro11.ofx.plugin/Contents/Linux-x86-64/mochaPro11.ofx
+  81022032  /opt/BorisFX/SilhouettePlugin/resources/modules/Sapphire/sapphire-mocha/libmocha4bcc.so.1
+   1883592  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/_license_activation.so
+     59864  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_bisect.cpython-39-x86_64-linux-gnu.so
+    337272  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_blake2.cpython-39-x86_64-linux-gnu.so
+     79256  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_bz2.cpython-39-x86_64-linux-gnu.so
+    694616  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_ctypes.cpython-39-x86_64-linux-gnu.so
+    636016  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_datetime.cpython-39-x86_64-linux-gnu.so
+    174208  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_hashlib.cpython-39-x86_64-linux-gnu.so
+     78744  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_heapq.cpython-39-x86_64-linux-gnu.so
+    206080  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_json.cpython-39-x86_64-linux-gnu.so
+    139424  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_lzma.cpython-39-x86_64-linux-gnu.so
+     40656  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_opcode.cpython-39-x86_64-linux-gnu.so
+    594072  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_pickle.cpython-39-x86_64-linux-gnu.so
+     94688  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_posixsubprocess.cpython-39-x86_64-linux-gnu.so
+     60416  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_queue.cpython-39-x86_64-linux-gnu.so
+     80272  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_random.cpython-39-x86_64-linux-gnu.so
+    517904  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_sha3.cpython-39-x86_64-linux-gnu.so
+     96760  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_sha512.cpython-39-x86_64-linux-gnu.so
+    395424  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_socket.cpython-39-x86_64-linux-gnu.so
+    532656  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_ssl.cpython-39-x86_64-linux-gnu.so
+    255496  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/_struct.cpython-39-x86_64-linux-gnu.so
+    232496  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/array.cpython-39-x86_64-linux-gnu.so
+    128384  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/binascii.cpython-39-x86_64-linux-gnu.so
+     67472  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/grp.cpython-39-x86_64-linux-gnu.so
+    296912  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/math.cpython-39-x86_64-linux-gnu.so
+    135984  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/select.cpython-39-x86_64-linux-gnu.so
+   1236808  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/unicodedata.cpython-39-x86_64-linux-gnu.so
+    155200  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/lib-dynload/zlib.cpython-39-x86_64-linux-gnu.so
+   7070064  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/lib/libQt5Core.so.5
+    752976  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/lib/libQt5DBus.so.5
+   8775264  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/lib/libQt5Gui.so.5
+    456432  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/lib/libQt5Svg.so.5
+   8100680  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/lib/libQt5Widgets.so.5
+   1794824  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/lib/libQt5XcbQpa.so.5
+  25048256  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/lib/libicudata.so.56
+   3368288  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/lib/libicui18n.so.56
+   2069136  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/lib/libicuuc.so.56
+     48104  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/iconengines/libqsvgicon.so
+     36128  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/imageformats/libqgif.so
+     51792  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/imageformats/libqicns.so
+     38128  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/imageformats/libqico.so
+    450112  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/imageformats/libqjpeg.so
+     32496  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/imageformats/libqsvg.so
+     27728  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/imageformats/libqtga.so
+    496224  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/imageformats/libqtiff.so
+     27488  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/imageformats/libqwbmp.so
+    621896  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/imageformats/libqwebp.so
+     33264  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforminputcontexts/libcomposeplatforminputcontextplugin.so
+    182880  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforminputcontexts/libibusplatforminputcontextplugin.so
+     15584  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforms/libqeglfs.so
+    566664  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforms/libqlinuxfb.so
+    189728  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforms/libqminimal.so
+    237216  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforms/libqminimalegl.so
+    255200  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforms/libqoffscreen.so
+    339040  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforms/libqvnc.so
+    103912  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforms/libqwayland-egl.so
+     15880  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforms/libqwayland-generic.so
+    106896  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforms/libqwayland-xcomposite-egl.so
+     84256  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforms/libqwayland-xcomposite-glx.so
+   1117240  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforms/libqwebgl.so
+     19744  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platforms/libqxcb.so
+    472520  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platformthemes/libqgtk3.so
+    112984  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/platformthemes/libqxdgdesktopportal.so
+    100400  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/xcbglintegrations/libqxcb-egl-integration.so
+    101360  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/Qt/plugins/xcbglintegrations/libqxcb-glx-integration.so
+   4201344  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/QtCore.abi3.so
+   4445816  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/QtGui.abi3.so
+    157304  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/QtSvg.abi3.so
+   7534672  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/QtWidgets.abi3.so
+    941608  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/PyQt5/sip.cpython-39-x86_64-linux-gnu.so
+   1765564  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/site-packages/yaml/_yaml.cpython-39-x86_64-linux-gnu.so
+   2706920  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libcrypto.so.1.0.0
+    333368  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libdbus-1.so.3
+    333368  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libdbus-1.so.3.14.14
+     32328  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libffi.so.6
+     32328  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libffi.so.6.0.1
+    179296  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libpng15.so.15
+    179296  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libpng15.so.15.13.0
+  20786776  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libpython3.9.so.1.0
+    525608  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libssl.so.1.0.0
+     62736  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libwayland-client.so.0
+     32416  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libwayland-cursor.so.0
+      6920  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libwayland-egl.so.1
+    110000  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-glx.so.0
+    110000  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-glx.so.0.0.0
+     19304  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-icccm.so.4
+     19304  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-icccm.so.4.0.0
+     19640  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-image.so.0
+     19640  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-image.so.0.0.0
+     11136  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-keysyms.so.1
+     11136  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-keysyms.so.1.0.0
+     64800  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-randr.so.0
+     64800  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-randr.so.0.1.0
+     15488  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-render-util.so.0
+     15488  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-render-util.so.0.0.0
+     56544  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-render.so.0
+     56544  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-render.so.0.0.0
+     15392  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-shape.so.0
+     15392  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-shape.so.0.0.0
+     15416  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-shm.so.0
+     15416  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-shm.so.0.0.0
+     27800  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-sync.so.1
+     27800  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-sync.so.1.0.0
+     23648  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-util.so.1
+     23648  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-util.so.1.0.0
+     31720  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-xfixes.so.0
+     31720  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-xfixes.so.0.0.0
+     11216  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-xinerama.so.0
+     11216  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-xinerama.so.0.0.0
+    114432  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-xkb.so.1
+    114432  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb-xkb.so.1.0.0
+    165976  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb.so.1
+    165976  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxcb.so.1.1.0
+     32704  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxkbcommon-x11.so.0
+     32704  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxkbcommon-x11.so.0.0.0
+    264544  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxkbcommon.so.0
+    264544  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/libxkbcommon.so.0.0.0
+   1641200  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libMLBackend_ort_cpu.so
+   2654144  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libMLBackend_ort_cuda.so
+   2957920  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libMLPlugin.so
+ 116388640  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcublas.so.12
+ 751771728  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcublasLt.so.12
+    746032  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcudart.so.12
+    125136  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcudnn.so.9.10.2
+ 284493976  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcudnn_adv.so.9.10.2
+   5376848  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcudnn_cnn.so.9.10.2
+ 546541632  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcudnn_engines_precompiled.so.9.10.2
+  22497104  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcudnn_engines_runtime_compiled.so.9.10.2
+   3644688  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcudnn_graph.so.9.10.2
+  57467408  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcudnn_heuristic.so.9.10.2
+ 127696448  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcudnn_ops.so.9.10.2
+ 278678584  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcufft.so.11
+ 136749240  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libcurand.so.10
+  94111288  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libnvJitLink.so.12
+ 104487248  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libnvrtc.so.12
+  23502896  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libonnxruntime.so
+ 775330264  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libonnxruntime_providers_cuda.so
+     16384  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/ML/libonnxruntime_providers_shared.so
+  10815168  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/REDR3D-x64.so
+     26056  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstapp.so
+    668640  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstasf.so
+    910752  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstaudioparsers.so
+    858408  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstavi.so
+   2100664  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstcoreelements.so
+    276328  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstdv.so
+   3649704  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstisomp4.so
+   1396288  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstlibav.so
+   1727000  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstmatroska.so
+    887648  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstmpegtsdemux.so
+   1879208  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstmxf.so
+   2989152  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstplayback.so
+    330928  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstrawparse.so
+    605816  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgsttypefindfunctions.so
+    254856  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstvideoconvertscale.so
+    374680  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstvideofilter.so
+   2041152  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/gstreamer-1.0/libgstvideoparsersbad.so
+        17  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libAlembic.so
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libAlembic.so.1.8
+   2145040  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libAlembic.so.1.8.8
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libGUI.so
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libGUI.so.1
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libGUI.so.1.0
+  23725880  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libGUI.so.1.0.0
+        16  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libIex-3_3.so
+        22  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libIex-3_3.so.32
+    517000  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libIex-3_3.so.32.3.3.5
+        22  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libIlmThread-3_3.so
+        28  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libIlmThread-3_3.so.32
+     39520  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libIlmThread-3_3.so.32.3.3.5
+        18  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libImath-3_2.so
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libImath-3_2.so.30
+    334032  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libImath-3_2.so.30.3.2.1
+        14  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenCL.so
+        16  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenCL.so.1
+     52720  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenCL.so.1.2
+        21  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenColorIO.so
+        23  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenColorIO.so.2.4
+   7107200  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenColorIO.so.2.4.2
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenEXR-3_3.so
+        26  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenEXR-3_3.so.32
+   1310048  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenEXR-3_3.so.32.3.3.5
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenEXRCore-3_3.so
+        30  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenEXRCore-3_3.so.32
+    987552  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenEXRCore-3_3.so.32.3.3.5
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenEXRUtil-3_3.so
+        30  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenEXRUtil-3_3.so.32
+    225784  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libOpenEXRUtil-3_3.so.32.3.3.5
+        26  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Concurrent.isl0.so
+        30  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Concurrent.isl0.so.6
+    133576  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Concurrent.isl0.so.6.5.4
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Core.isl0.so
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Core.isl0.so.6
+  10949376  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Core.isl0.so.6.5.4
+        27  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Core5Compat.isl0.so
+        31  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Core5Compat.isl0.so.6
+   1011216  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Core5Compat.isl0.so.6.5.4
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6DBus.isl0.so
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6DBus.isl0.so.6
+   1001168  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6DBus.isl0.so.6.5.4
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Gui.isl0.so
+        23  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Gui.isl0.so.6
+   9208464  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Gui.isl0.so.6.5.4
+        26  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Multimedia.isl0.so
+        30  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Multimedia.isl0.so.6
+   1230208  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Multimedia.isl0.so.6.5.4
+        31  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6MultimediaQuick.isl0.so
+        35  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6MultimediaQuick.isl0.so.6
+    394864  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6MultimediaQuick.isl0.so.6.5.4
+        23  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Network.isl0.so
+        27  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Network.isl0.so.6
+   2057416  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Network.isl0.so.6.5.4
+        22  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6OpenGL.isl0.so
+        26  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6OpenGL.isl0.so.6
+    849392  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6OpenGL.isl0.so.6.5.4
+        29  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6OpenGLWidgets.isl0.so
+        33  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6OpenGLWidgets.isl0.so.6
+    169264  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6OpenGLWidgets.isl0.so.6.5.4
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Qml.isl0.so
+        23  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Qml.isl0.so.6
+   7251432  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Qml.isl0.so.6.5.4
+        25  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QmlModels.isl0.so
+        29  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QmlModels.isl0.so.6
+   1084704  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QmlModels.isl0.so.6.5.4
+        31  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QmlWorkerScript.isl0.so
+        35  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QmlWorkerScript.isl0.so.6
+    192272  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QmlWorkerScript.isl0.so.6.5.4
+        21  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Quick.isl0.so
+        25  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Quick.isl0.so.6
+   7811008  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Quick.isl0.so.6.5.4
+        30  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickControls2.isl0.so
+        34  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickControls2.isl0.so.6
+    206720  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickControls2.isl0.so.6.5.4
+        34  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickControls2Impl.isl0.so
+        38  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickControls2Impl.isl0.so.6
+    509248  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickControls2Impl.isl0.so.6.5.4
+        28  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickLayouts.isl0.so
+        32  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickLayouts.isl0.so.6
+    352736  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickLayouts.isl0.so.6.5.4
+        31  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickTemplates2.isl0.so
+        35  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickTemplates2.isl0.so.6
+   2917736  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickTemplates2.isl0.so.6.5.4
+        28  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickWidgets.isl0.so
+        32  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickWidgets.isl0.so.6
+    255520  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6QuickWidgets.isl0.so.6.5.4
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Svg.isl0.so
+        23  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Svg.isl0.so.6
+    532536  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Svg.isl0.so.6.5.4
+        26  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6SvgWidgets.isl0.so
+        30  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6SvgWidgets.isl0.so.6
+    161624  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6SvgWidgets.isl0.so.6.5.4
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Test.isl0.so
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Test.isl0.so.6
+    610456  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Test.isl0.so.6.5.4
+        23  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Widgets.isl0.so
+        27  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Widgets.isl0.so.6
+   9257512  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Widgets.isl0.so.6.5.4
+        22  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6XcbQpa.isl0.so
+        26  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6XcbQpa.isl0.so.6
+    989984  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6XcbQpa.isl0.so.6.5.4
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Xml.isl0.so
+        23  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Xml.isl0.so.6
+    396864  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libQt6Xml.isl0.so.6.5.4
+  75603488  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libavcodec.so.61
+    563552  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libavdevice.so.61
+  18952952  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libavfilter.so.10
+  18318640  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libavformat.so.61
+   2988216  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libavutil.so.59
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libbfx_core.so
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libbfx_core.so.1
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libbfx_core.so.1.0
+    856760  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libbfx_core.so.1.0.0
+        25  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_atomic.so
+     19104  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_atomic.so.1.85.0
+        25  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_chrono.so
+     35240  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_chrono.so.1.85.0
+        28  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_date_time.so
+     14248  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_date_time.so.1.85.0
+        29  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_filesystem.so
+    159288  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_filesystem.so.1.85.0
+        22  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_log.so
+    837704  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_log.so.1.85.0
+        28  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_log_setup.so
+    919824  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_log_setup.so.1.85.0
+        34  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_program_options.so
+    441856  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_program_options.so.1.85.0
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_regex.so
+    311728  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_regex.so.1.85.0
+        32  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_serialization.so
+    278184  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_serialization.so.1.85.0
+        25  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_system.so
+     14248  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_system.so.1.85.0
+        25  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_thread.so
+    117792  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_thread.so.1.85.0
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_timer.so
+     22912  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_timer.so.1.85.0
+        33  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_wserialization.so
+    187688  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libboost_wserialization.so.1.85.0
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libbsc.so
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libbsc.so.1
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libbsc.so.1.0
+   3899784  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libbsc.so.1.0.0
+        17  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libcam3d.so
+        17  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libcam3d.so.1
+        17  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libcam3d.so.1.0
+    606152  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libcam3d.so.1.0.0
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libcrypto.isl0.so
+   4358192  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libcrypto.isl0.so.3
+        12  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libcurl.so
+        16  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libcurl.so.4
+    752144  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libcurl.so.4.8.0
+        18  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libexport.so
+        18  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libexport.so.1
+        18  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libexport.so.1.0
+   3458544  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libexport.so.1.0.0
+   9018128  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libfbxsdk.so
+    198744  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libffi.so.7
+        21  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libfreetype.so
+        21  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libfreetype.so.6
+    966080  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libfreetype.so.6.17.1
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgandalf.so
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgandalf.so.1
+   3128664  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgandalf.so.1.1.1
+  11954152  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgio-2.0.so.0
+   9396744  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libglib-2.0.so.0
+     76552  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgmodule-2.0.so.0
+   2087720  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgobject-2.0.so.0
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgpu.so
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgpu.so.1
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgpu.so.1.0
+   2549456  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgpu.so.1.0.0
+    150704  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstallocators-1.0.so.0
+    461880  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstapp-1.0.so.0
+   2812144  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstaudio-1.0.so.0
+   2495112  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstbase-1.0.so.0
+   4410048  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstcodecparsers-1.0.so.0
+   2978672  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstgl-1.0.so.0
+    901704  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstmpegts-1.0.so.0
+   1273848  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstpbutils-1.0.so.0
+   7402272  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstreamer-1.0.so.0
+    266688  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstriff-1.0.so.0
+    863520  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstrtp-1.0.so.0
+    699832  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstrtsp-1.0.so.0
+    517688  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstsdp-1.0.so.0
+   1205608  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgsttag-1.0.so.0
+   4564056  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libgstvideo-1.0.so.0
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libipc.so
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libipc.so.1
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libipc.so.1.0
+     27872  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libipc.so.1.0.0
+        14  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libis.so
+        14  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libis.so.1
+        14  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libis.so.1.0
+   6538656  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libis.so.1.0.0
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libisildur.so
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libisildur.so.1
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libisildur.so.1.0
+   3515320  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libisildur.so.1.0.0
+        21  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libjpeg.isl0.so
+        21  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libjpeg.isl0.so.9
+    346760  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libjpeg.isl0.so.9.4.0
+        21  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libjpeg.so
+        21  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libjpeg.so.9
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/liblayercam.so
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/liblayercam.so.1
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/liblayercam.so.1.0
+  19724104  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/liblayercam.so.1.0.0
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libluthien.so
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libluthien.so.1
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libluthien.so.1.0
+    393480  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libluthien.so.1.0.0
+ 106906920  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libmocha.so
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libmvt.so
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libmvt.so.1
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libmvt.so.1.0
+   1112624  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libmvt.so.1.0.0
+        18  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/liboberon.so
+        18  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/liboberon.so.1
+        18  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/liboberon.so.1.0
+   2727112  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/liboberon.so.1.0.0
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_calib3d.so
+   2324456  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_calib3d.so.4.5.5
+        26  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_calib3d.so.405
+        21  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_core.so
+  16695136  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_core.so.4.5.5
+        23  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_core.so.405
+        27  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_features2d.so
+    857056  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_features2d.so.4.5.5
+        29  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_features2d.so.405
+        22  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_flann.so
+    568984  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_flann.so.4.5.5
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_flann.so.405
+        26  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_imgcodecs.so
+   1318920  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_imgcodecs.so.4.5.5
+        28  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_imgcodecs.so.405
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_imgproc.so
+  28124168  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_imgproc.so.4.5.5
+        26  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_imgproc.so.405
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_optflow.so
+    405688  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_optflow.so.4.5.5
+        26  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_optflow.so.405
+        22  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_photo.so
+    642896  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_photo.so.4.5.5
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_photo.so.405
+        22  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_shape.so
+    146256  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_shape.so.4.5.5
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_shape.so.405
+        25  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_superres.so
+    130096  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_superres.so.4.5.5
+        27  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_superres.so.405
+        22  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_video.so
+    492432  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_video.so.4.5.5
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_video.so.405
+        26  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_videostab.so
+    228712  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_videostab.so.4.5.5
+        28  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_videostab.so.405
+        25  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_ximgproc.so
+   1274928  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_ximgproc.so.4.5.5
+        27  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libopencv_ximgproc.so.405
+        18  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libosdCPU.so
+    920952  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libosdCPU.so.3.6.1
+        18  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libosdGPU.so
+    842520  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libosdGPU.so.3.6.1
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libpng.isl0.so
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libpng.so
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libpng16.isl0.so
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libpng16.isl0.so.16
+    279792  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libpng16.isl0.so.16.21.0
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libpng16.so
+        24  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libpng16.so.16
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libprm.so
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libprm.so.1
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libprm.so.1.0
+   4218336  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libprm.so.1.0.0
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libpybridge.so
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libpybridge.so.1
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libpybridge.so.1.0
+   3092560  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libpybridge.so.1.0.0
+    530240  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libsentry.so
+        16  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libssl.isl0.so
+   1044568  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libssl.isl0.so.3
+    411704  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libswresample.so.5
+   3410160  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libswscale.so.8
+   8365560  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libsyntheyes.so
+        12  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libtbb.so
+        15  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libtbb.so.12
+    272936  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libtbb.so.12.13
+        16  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libtiff.so
+        16  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libtiff.so.5
+    573296  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libtiff.so.5.2.0
+  68144568  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libusd_ms.so
+        16  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libxml2.so
+        16  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libxml2.so.2
+   1432328  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libxml2.so.2.9.9
+        13  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libz.so
+        13  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libz.so.1
+    117168  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/lib/libz.so.1.3.1
+   2007376  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/plugins/iconengines/libqsvgicon.isl0.so
+   4315328  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/plugins/imageformats/libqjpeg.isl0.so
+   1855400  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/plugins/platforms/libqminimal.isl0.so
+   3867800  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/plugins/platforms/libqoffscreen.isl0.so
+    605456  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/plugins/platforms/libqxcb.isl0.so
+   3602760  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/plugins/tls/libqcertonlybackend.isl0.so
+  14638800  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/plugins/tls/libqopensslbackend.isl0.so
+   2755632  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/plugins/xcbglintegrations/libqxcb-glx-integration.isl0.so
+        14  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libb2.so
+        14  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libb2.so.1
+     30832  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libb2.so.1.0.4
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libcrypto.isl0.so
+   4354096  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libcrypto.isl0.so.3
+        19  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libcrypto.so
+        16  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/liblzma.so
+        16  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/liblzma.so.5
+    195560  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/liblzma.so.5.8.1
+        46  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libpyside6.cpython-311-x86_64-linux-gnu.so
+        48  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libpyside6.cpython-311-x86_64-linux-gnu.so.6.5
+    246616  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libpyside6.cpython-311-x86_64-linux-gnu.so.6.5.4
+        20  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libpython3.11.so
+   5738664  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libpython3.11.so.1.0
+     14360  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libpython3.so
+        48  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libshiboken6.cpython-311-x86_64-linux-gnu.so
+        50  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libshiboken6.cpython-311-x86_64-linux-gnu.so.6.5
+    470240  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libshiboken6.cpython-311-x86_64-linux-gnu.so.6.5.4
+        16  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libssl.isl0.so
+   1044568  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libssl.isl0.so.3
+        16  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libssl.so
+        13  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libz.so
+        13  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libz.so.1
+    117168  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/libz.so.1.3.1
+     70256  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_asyncio.cpython-311-x86_64-linux-gnu.so
+     19224  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_bisect.cpython-311-x86_64-linux-gnu.so
+     32280  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_blake2.cpython-311-x86_64-linux-gnu.so
+     27880  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_bz2.cpython-311-x86_64-linux-gnu.so
+    153976  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_codecs_cn.cpython-311-x86_64-linux-gnu.so
+    158104  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_codecs_hk.cpython-311-x86_64-linux-gnu.so
+     35224  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_codecs_iso2022.cpython-311-x86_64-linux-gnu.so
+    268696  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_codecs_jp.cpython-311-x86_64-linux-gnu.so
+    141688  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_codecs_kr.cpython-311-x86_64-linux-gnu.so
+    113016  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_codecs_tw.cpython-311-x86_64-linux-gnu.so
+     14648  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_contextvars.cpython-311-x86_64-linux-gnu.so
+     14680  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_crypt.cpython-311-x86_64-linux-gnu.so
+     41512  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_csv.cpython-311-x86_64-linux-gnu.so
+    131640  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_ctypes.cpython-311-x86_64-linux-gnu.so
+     27192  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_ctypes_test.cpython-311-x86_64-linux-gnu.so
+    136624  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_curses.cpython-311-x86_64-linux-gnu.so
+     28024  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_curses_panel.cpython-311-x86_64-linux-gnu.so
+    117296  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_datetime.cpython-311-x86_64-linux-gnu.so
+     23608  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_dbm.cpython-311-x86_64-linux-gnu.so
+    364568  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_decimal.cpython-311-x86_64-linux-gnu.so
+     76944  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_elementtree.cpython-311-x86_64-linux-gnu.so
+     27928  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_gdbm.cpython-311-x86_64-linux-gnu.so
+     59488  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_hashlib.cpython-311-x86_64-linux-gnu.so
+     27224  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_heapq.cpython-311-x86_64-linux-gnu.so
+     45168  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_json.cpython-311-x86_64-linux-gnu.so
+     27784  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_lsprof.cpython-311-x86_64-linux-gnu.so
+     44968  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_lzma.cpython-311-x86_64-linux-gnu.so
+     19416  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_md5.cpython-311-x86_64-linux-gnu.so
+     46120  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_multibytecodec.cpython-311-x86_64-linux-gnu.so
+     24248  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_multiprocessing.cpython-311-x86_64-linux-gnu.so
+     14744  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_opcode.cpython-311-x86_64-linux-gnu.so
+    121520  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_pickle.cpython-311-x86_64-linux-gnu.so
+     14904  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_posixshmem.cpython-311-x86_64-linux-gnu.so
+     23232  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_posixsubprocess.cpython-311-x86_64-linux-gnu.so
+     19640  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_queue.cpython-311-x86_64-linux-gnu.so
+     19256  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_random.cpython-311-x86_64-linux-gnu.so
+     19416  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_sha1.cpython-311-x86_64-linux-gnu.so
+     27800  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_sha256.cpython-311-x86_64-linux-gnu.so
+     24728  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_sha3.cpython-311-x86_64-linux-gnu.so
+     36088  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_sha512.cpython-311-x86_64-linux-gnu.so
+    104336  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_socket.cpython-311-x86_64-linux-gnu.so
+    119112  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_sqlite3.cpython-311-x86_64-linux-gnu.so
+    238512  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_ssl.cpython-311-x86_64-linux-gnu.so
+     14648  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_statistics.cpython-311-x86_64-linux-gnu.so
+     54936  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_struct.cpython-311-x86_64-linux-gnu.so
+     45904  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_testbuffer.cpython-311-x86_64-linux-gnu.so
+    176048  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_testcapi.cpython-311-x86_64-linux-gnu.so
+     63472  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_testclinic.cpython-311-x86_64-linux-gnu.so
+     14784  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_testimportmultiple.cpython-311-x86_64-linux-gnu.so
+     23736  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_testinternalcapi.cpython-311-x86_64-linux-gnu.so
+     30872  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_testmultiphase.cpython-311-x86_64-linux-gnu.so
+     66632  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_tkinter.cpython-311-x86_64-linux-gnu.so
+     14616  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_typing.cpython-311-x86_64-linux-gnu.so
+     14648  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_uuid.cpython-311-x86_64-linux-gnu.so
+     41520  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_xxsubinterpreters.cpython-311-x86_64-linux-gnu.so
+     23032  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_xxtestfuzz.cpython-311-x86_64-linux-gnu.so
+     36368  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/_zoneinfo.cpython-311-x86_64-linux-gnu.so
+     70488  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/array.cpython-311-x86_64-linux-gnu.so
+     52544  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/audioop.cpython-311-x86_64-linux-gnu.so
+     32056  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/binascii.cpython-311-x86_64-linux-gnu.so
+     44344  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/cmath.cpython-311-x86_64-linux-gnu.so
+     23128  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/fcntl.cpython-311-x86_64-linux-gnu.so
+     15176  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/grp.cpython-311-x86_64-linux-gnu.so
+     78680  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/math.cpython-311-x86_64-linux-gnu.so
+     32536  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/mmap.cpython-311-x86_64-linux-gnu.so
+     33456  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/ossaudiodev.cpython-311-x86_64-linux-gnu.so
+    262544  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/pyexpat.cpython-311-x86_64-linux-gnu.so
+     36544  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/readline.cpython-311-x86_64-linux-gnu.so
+     19368  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/resource.cpython-311-x86_64-linux-gnu.so
+     32648  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/select.cpython-311-x86_64-linux-gnu.so
+     15064  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/spwd.cpython-311-x86_64-linux-gnu.so
+     15000  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/syslog.cpython-311-x86_64-linux-gnu.so
+     35424  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/termios.cpython-311-x86_64-linux-gnu.so
+   1140472  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/unicodedata.cpython-311-x86_64-linux-gnu.so
+     15256  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/xxlimited.cpython-311-x86_64-linux-gnu.so
+     15224  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/xxlimited_35.cpython-311-x86_64-linux-gnu.so
+     45248  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib-dynload/zlib.cpython-311-x86_64-linux-gnu.so
+    466024  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/Qt3DAnimation.cpython-311-x86_64-linux-gnu.so
+    459400  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/Qt3DCore.cpython-311-x86_64-linux-gnu.so
+    864840  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/Qt3DExtras.cpython-311-x86_64-linux-gnu.so
+    374472  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/Qt3DInput.cpython-311-x86_64-linux-gnu.so
+     86760  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/Qt3DLogic.cpython-311-x86_64-linux-gnu.so
+   1787176  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/Qt3DRender.cpython-311-x86_64-linux-gnu.so
+    686056  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtBluetooth.cpython-311-x86_64-linux-gnu.so
+   1296968  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtCharts.cpython-311-x86_64-linux-gnu.so
+    123496  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtConcurrent.cpython-311-x86_64-linux-gnu.so
+   4842248  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtCore.cpython-311-x86_64-linux-gnu.so
+    421192  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtDBus.cpython-311-x86_64-linux-gnu.so
+   1056392  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtDataVisualization.cpython-311-x86_64-linux-gnu.so
+    739640  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtDesigner.cpython-311-x86_64-linux-gnu.so
+   5142072  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtGui.cpython-311-x86_64-linux-gnu.so
+    364840  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtHelp.cpython-311-x86_64-linux-gnu.so
+    188040  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtHttpServer.cpython-311-x86_64-linux-gnu.so
+    757672  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtLocation.cpython-311-x86_64-linux-gnu.so
+    706568  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtMultimedia.cpython-311-x86_64-linux-gnu.so
+    149896  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtMultimediaWidgets.cpython-311-x86_64-linux-gnu.so
+   1379624  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtNetwork.cpython-311-x86_64-linux-gnu.so
+    300712  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtNetworkAuth.cpython-311-x86_64-linux-gnu.so
+    253288  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtNfc.cpython-311-x86_64-linux-gnu.so
+  12115624  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtOpenGL.cpython-311-x86_64-linux-gnu.so
+    125192  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtOpenGLWidgets.cpython-311-x86_64-linux-gnu.so
+    451688  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtPositioning.cpython-311-x86_64-linux-gnu.so
+    397544  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtPrintSupport.cpython-311-x86_64-linux-gnu.so
+    671320  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtQml.cpython-311-x86_64-linux-gnu.so
+    990648  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtQuick.cpython-311-x86_64-linux-gnu.so
+    191528  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtQuick3D.cpython-311-x86_64-linux-gnu.so
+     61800  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtQuickControls2.cpython-311-x86_64-linux-gnu.so
+    138184  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtQuickWidgets.cpython-311-x86_64-linux-gnu.so
+    279560  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtRemoteObjects.cpython-311-x86_64-linux-gnu.so
+    334568  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtScxml.cpython-311-x86_64-linux-gnu.so
+    589160  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtSensors.cpython-311-x86_64-linux-gnu.so
+    416744  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtSerialBus.cpython-311-x86_64-linux-gnu.so
+    152968  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtSerialPort.cpython-311-x86_64-linux-gnu.so
+    178984  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtSpatialAudio.cpython-311-x86_64-linux-gnu.so
+    602088  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtSql.cpython-311-x86_64-linux-gnu.so
+    297096  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtStateMachine.cpython-311-x86_64-linux-gnu.so
+    117992  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtSvg.cpython-311-x86_64-linux-gnu.so
+    145448  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtSvgWidgets.cpython-311-x86_64-linux-gnu.so
+    243784  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtTest.cpython-311-x86_64-linux-gnu.so
+    160360  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtTextToSpeech.cpython-311-x86_64-linux-gnu.so
+    125080  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtUiTools.cpython-311-x86_64-linux-gnu.so
+    179240  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtWebSockets.cpython-311-x86_64-linux-gnu.so
+   8602344  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtWidgets.cpython-311-x86_64-linux-gnu.so
+    278984  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/PySide6/QtXml.cpython-311-x86_64-linux-gnu.so
+     27752  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/mocha/_init.so
+     27752  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/mocha/exporters.so
+     27752  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/mocha/mediaio.so
+     27752  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/mocha/project.so
+     27752  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/mocha/tools.so
+     30600  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/site-packages/shiboken6/Shiboken.cpython-311-x86_64-linux-gnu.so
+    843904  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtMultimedia/libquickmultimedia.isl0plugin.so
+    597200  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQml/Base/libqml.isl0plugin.so
+    597656  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQml/Models/libmodels.isl0plugin.so
+    598144  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQml/StateMachine/libqtqmlstatemachine.isl0plugin.so
+    598128  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQml/WorkerScript/libworkerscript.isl0plugin.so
+    598144  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQml/XmlListModel/libqmlxmllistmodel.isl0plugin.so
+    605040  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQml/libqmlmeta.isl0plugin.so
+   4682840  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Controls/Basic/impl/libqtquickcontrols2basicstyleimpl.isl0plugin.so
+  25819864  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Controls/Basic/libqtquickcontrols2basicstyle.isl0plugin.so
+   7051472  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Controls/Fusion/impl/libqtquickcontrols2fusionstyleimpl.isl0plugin.so
+  22231488  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Controls/Fusion/libqtquickcontrols2fusionstyle.isl0plugin.so
+   1486936  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Controls/Imagine/impl/libqtquickcontrols2imaginestyleimpl.isl0plugin.so
+  22939824  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Controls/Imagine/libqtquickcontrols2imaginestyle.isl0plugin.so
+   9317264  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Controls/Material/impl/libqtquickcontrols2materialstyleimpl.isl0plugin.so
+  24041088  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Controls/Material/libqtquickcontrols2materialstyle.isl0plugin.so
+   6123712  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Controls/Universal/impl/libqtquickcontrols2universalstyleimpl.isl0plugin.so
+  22981808  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Controls/Universal/libqtquickcontrols2universalstyle.isl0plugin.so
+    598400  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Controls/impl/libqtquickcontrols2impl.isl0plugin.so
+   1337592  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Controls/libqtquickcontrols2.isl0plugin.so
+    597976  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Dialogs/libqtquickdialogs.isl0plugin.so
+    598760  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Dialogs/quickimpl/libqtquickdialogs2quickimpl.isl0plugin.so
+    597856  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Effects/libeffects.isl0plugin.so
+    597920  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Layouts/libqquicklayouts.isl0plugin.so
+    598088  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/LocalStorage/libqmllocalstorage.isl0plugin.so
+  27314712  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/NativeStyle/libqtquickcontrols2nativestyle.isl0plugin.so
+    598080  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Particles/libparticles.isl0plugin.so
+   1245784  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Scene2D/libqtquickscene2d.isl0plugin.so
+   3539560  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Scene3D/libqtquickscene3d.isl0plugin.so
+    915696  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Shapes/libqmlshapes.isl0plugin.so
+    877208  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Templates/libqtquicktemplates2.isl0plugin.so
+    598024  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Timeline/libqtquicktimeline.isl0plugin.so
+  11993432  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/VirtualKeyboard/Components/libqtvkbcomponents.isl0plugin.so
+    677136  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/VirtualKeyboard/Layouts/libqtvkblayouts.isl0plugin.so
+   2223872  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/VirtualKeyboard/Plugins/Hangul/libqtvkbhangul.isl0plugin.so
+   8788872  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/VirtualKeyboard/Plugins/OpenWNN/libqtvkbopenwnn.isl0plugin.so
+   4458128  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/VirtualKeyboard/Plugins/Pinyin/libqtvkbpinyin.isl0plugin.so
+   4135880  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/VirtualKeyboard/Plugins/TCIme/libqtvkbtcime.isl0plugin.so
+   1600296  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/VirtualKeyboard/Plugins/Thai/libqtvkbthai.isl0plugin.so
+    624072  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/VirtualKeyboard/Plugins/libqtvkbplugins.isl0plugin.so
+   2143952  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/VirtualKeyboard/Settings/libqtvkbsettings.isl0plugin.so
+   1148288  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/VirtualKeyboard/Styles/Builtin/libqtvkbbuiltinstyles.isl0plugin.so
+   4147112  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/VirtualKeyboard/Styles/libqtvkbstyles.isl0plugin.so
+    598552  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/VirtualKeyboard/libqtvkb.isl0plugin.so
+    622592  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/Window/libquickwindow.isl0plugin.so
+    598008  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/libqtquick2.isl0plugin.so
+   3368504  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/qml/QtQuick/tooling/libquicktooling.isl0plugin.so
+   2556088  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/mochaPro2026.ofx.bundle/Contents/Linux-x86-64/mochaPro2026.ofx
+   2556088  /usr/OFX/Plugins/BorisFX/MochaPro2026.5/mochaVR2026.ofx.bundle/Contents/Linux-x86-64/mochaVR2026.ofx
+(base) 10:28AM flame @ flame6 ~> find /usr/OFX/Plugins /usr/local/OFX/Plugins /opt -ipath '*mocha*' -type f -perm -u+x -not -name '*.so*' -not -name '*.ofx' 2>/dev/null
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/bfx-license-tool/bfx-license-tool
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/base64.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/encodings/rot_13.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/platform.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/quopri.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/socket.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/timeit.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/uu.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/pylib/lib/python3.9/webbrowser.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/ChannelTestServer
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/EchoTestServer
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/HostTestServer
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/ServerNodeTestServer
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/mochaui
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/libexec/gstreamer-1.0/gst-plugin-scanner
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/bin/2to3-3.11
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/bin/idle3.11
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/bin/pip3
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/bin/pip3.11
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/bin/pydoc3.11
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/bin/python3.11
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/bin/python3.11-config
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/base64.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/cProfile.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/cgi.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/config-3.11-x86_64-linux-gnu/install-sh
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/config-3.11-x86_64-linux-gnu/makesetup
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/config-3.11-x86_64-linux-gnu/python-config.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/ctypes/macholib/fetch_macholib
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/encodings/rot_13.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/idlelib/pyshell.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/quopri.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/smtpd.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/smtplib.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib2to3/pgen2/token.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib2to3/tests/data/different_encoding.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib2to3/tests/data/false_encoding.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/lib2to3/tests/pytree_idempotency.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/pdb.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/platform.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/profile.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/pydoc.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/test/crashers/recursive_call.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/test/test_importlib/update-zips.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/test/test_uuid.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/test/ziptestdata/exe_with_z64
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/test/ziptestdata/exe_with_zip
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/test/bisect_cmd.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/test/curses_tests.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/test/re_tests.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/test/regrtest.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/test/test_array.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/__main__.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/bytedesign.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/clock.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/forest.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/fractalcurves.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/lindenmayer.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/minimal_hanoi.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/paint.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/peace.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/penrose.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/planet_and_moon.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/sorting_animate.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/tree.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/turtledemo/yinyang.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/tabnanny.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/tarfile.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/timeit.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/trace.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/lib/python3.11/webbrowser.py
+/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/python/config.status
+/opt/Autodesk/shared/python/import_mocha_track/.git/COMMIT_EDITMSG
+/opt/Autodesk/shared/python/import_mocha_track/.git/description
+/opt/Autodesk/shared/python/import_mocha_track/.git/FETCH_HEAD
+/opt/Autodesk/shared/python/import_mocha_track/.git/ORIG_HEAD
+/opt/Autodesk/shared/python/import_mocha_track/.git/info/exclude
+/opt/Autodesk/shared/python/import_mocha_track/.git/config
+/opt/Autodesk/shared/python/import_mocha_track/.git/logs/HEAD
+/opt/Autodesk/shared/python/import_mocha_track/.git/logs/refs/remotes/origin/main
+/opt/Autodesk/shared/python/import_mocha_track/.git/logs/refs/remotes/origin/refactor-cleanup
+/opt/Autodesk/shared/python/import_mocha_track/.git/logs/refs/heads/main
+/opt/Autodesk/shared/python/import_mocha_track/.git/logs/refs/heads/refactor-cleanup
+/opt/Autodesk/shared/python/import_mocha_track/.git/objects/46/aefadfc70dde6b0332c7b2b76dcbc05ff411f9
+/opt/Autodesk/shared/python/import_mocha_track/.git/objects/a0/cd1a4e757e90aadacc3a2904245168a0db8495
+/opt/Autodesk/shared/python/import_mocha_track/.git/objects/4e/4a70244c0a51d34f1a92becb41a2f43837c61a
+/opt/Autodesk/shared/python/import_mocha_track/.git/objects/b1/0246625544230de93bf8c803174d845e5330dc
+/opt/Autodesk/shared/python/import_mocha_track/.git/objects/62/41412864934851e5e967a762ddcc85df521841
+/opt/Autodesk/shared/python/import_mocha_track/.git/objects/e2/36159cf9e564cd370f8494c36093cf45ecd9df
+/opt/Autodesk/shared/python/import_mocha_track/.git/objects/23/fb472e6c66460d1e38a1bce1345c8ee08047df
+/opt/Autodesk/shared/python/import_mocha_track/.git/objects/92/53bfeb51ce3a36521836d54d1b9576d7c3cca5
+/opt/Autodesk/shared/python/import_mocha_track/.git/objects/ec/b529c9550cf393947e2e3b147edfc3ff2dadc1
+/opt/Autodesk/shared/python/import_mocha_track/.git/refs/remotes/origin/refactor-cleanup
+/opt/Autodesk/shared/python/import_mocha_track/.git/refs/heads/main
+/opt/Autodesk/shared/python/import_mocha_track/.git/refs/heads/refactor-cleanup
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/applypatch-msg.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/commit-msg.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/fsmonitor-watchman.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/post-update.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/pre-applypatch.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/pre-commit.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/pre-merge-commit.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/pre-push.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/pre-rebase.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/pre-receive.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/prepare-commit-msg.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/push-to-checkout.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/sendemail-validate.sample
+/opt/Autodesk/shared/python/import_mocha_track/.git/hooks/update.sample
+/opt/Autodesk/shared/python/import_mocha_track/import_mocha_track.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/bin/ChannelTestServer
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/bin/EchoTestServer
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/bin/HostTestServer
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/bin/ServerNodeTestServer
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/bin/mochaui
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/libexec/gstreamer-1.0/gst-plugin-scanner
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/bin/2to3-3.9
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/bin/idle3.9
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/bin/pip3
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/bin/pip3.9
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/bin/pydoc3.9
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/bin/python3.9
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/bin/python3.9-config
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/config-3.9-x86_64-linux-gnu/install-sh
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/config-3.9-x86_64-linux-gnu/makesetup
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/config-3.9-x86_64-linux-gnu/python-config.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/ctypes/macholib/fetch_macholib
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/encodings/rot_13.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/idlelib/pyshell.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib2to3/pgen2/token.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib2to3/tests/data/different_encoding.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib2to3/tests/data/false_encoding.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/lib2to3/tests/pytree_idempotency.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/test/ziptestdata/exe_with_z64
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/test/ziptestdata/exe_with_zip
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/test/curses_tests.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/test/bisect_cmd.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/test/re_tests.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/test/regrtest.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/test/test_array.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/test/test_socket.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/__main__.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/bytedesign.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/clock.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/forest.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/fractalcurves.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/lindenmayer.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/minimal_hanoi.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/paint.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/peace.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/penrose.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/planet_and_moon.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/sorting_animate.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/tree.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/turtledemo/yinyang.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/base64.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/cProfile.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/cgi.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/pdb.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/platform.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/profile.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/pydoc.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/quopri.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/smtpd.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/smtplib.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/socket.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/tabnanny.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/tarfile.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/timeit.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/trace.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/uu.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/Resources/mochaui/python/lib/python3.9/webbrowser.py
+/opt/BorisFX/SilhouettePlugin/resources/modules/Sapphire/sapphire-mocha/mocha-wrapper
+/opt/BorisFX/SapphireOFX/sapphire-mocha/mocha-wrapper
+/opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/bin/mocha4bcc_ui2025
+/opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/help/Sapphire Mocha Release Notes.pdf
+/opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/help/Sapphire Mocha UserGuide.pdf
+/opt/BorisFX/SapphireOFX/sapphire-mocha/MochaSapphire.app/libexec/gstreamer-1.0/gst-plugin-scanner
+(base) 10:31AM flame @ flame6 ~> find /usr/OFX/Plugins /usr/local/OFX/Plugins /opt -ipath '*mocha*' -name '*.ofx' -exec sh -c 'echo "== $1"; env -u LD_LIBRARY_PATH ldd "$1" 2>/dev/null | grep -iE "cuda|onnx|openvino|torch|cudnn|tensorrt" || echo "   no ML runtime linked directly (may still dlopen one)"' _ {} \; 2>/dev/null
+== /usr/OFX/Plugins/BorisFX/MochaPro2026.5/mochaPro2026.ofx.bundle/Contents/Linux-x86-64/mochaPro2026.ofx
+   no ML runtime linked directly (may still dlopen one)
+== /usr/OFX/Plugins/BorisFX/MochaPro2026.5/mochaVR2026.ofx.bundle/Contents/Linux-x86-64/mochaVR2026.ofx
+   no ML runtime linked directly (may still dlopen one)
+== /opt/BorisFX/SilhouettePlugin/resources/modules/MochaPro/mochaPro11.ofx.plugin/Contents/Linux-x86-64/mochaPro11.ofx
+   no ML runtime linked directly (may still dlopen one)
+

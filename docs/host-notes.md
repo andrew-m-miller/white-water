@@ -101,6 +101,76 @@ PAR 2, project size 9216x3164).
 
 ---
 
+## Measured — Mocha Pro's ML architecture
+
+Flame box `flame6`, Rocky Linux 9.5, **2026-08-20**. Mocha Pro 2026.5 installed at
+`/usr/OFX/Plugins/BorisFX/MochaPro2026.5/`. Filesystem inspection only; no process was
+observed running.
+
+### Mocha Pro runs its ML inference out of process
+
+| Evidence | Reading |
+|---|---|
+| `mochaPro2026.ofx` is **2.5 MB** and links **no** ML runtime (`ldd` with `LD_LIBRARY_PATH` cleared). Same for `mochaVR2026.ofx` and Silhouette's `mochaPro11.ofx`. | The OFX plugin is a shim. |
+| The entire ML stack lives in `Resources/mochaui/lib/ML/` — **outside** the `.ofx.bundle`, beside `Resources/mochaui/bin/mochaui`, an executable. | Inference belongs to the standalone application. |
+| `Resources/mochaui/bin/` also contains `HostTestServer`, `ChannelTestServer`, `EchoTestServer`, `ServerNodeTestServer`. | A client/server IPC architecture, with test harnesses for it — the same shape as warp-drive's `src/ipc/` frame channel. |
+
+**Do not over-read this.** It shows a major vendor shipping out-of-process ML from an OFX
+plugin on this exact platform. It does **not** show that in-process inference fails — Mocha
+is a standalone application with an OFX front end, so its process split is probably product
+history rather than a technical verdict. Phase 0 item 3 still needs our own probe.
+
+It does mean the `nvidia-smi` check will almost certainly show a `mochaui` pid rather than a
+Flame pid, so that test now confirms this finding rather than answering item 3.
+
+### ONNX Runtime is the right call, and their abstraction matches ours
+
+```
+Resources/mochaui/lib/ML/
+  libonnxruntime.so                    23 MB
+  libonnxruntime_providers_cuda.so    775 MB
+  libonnxruntime_providers_shared.so   16 KB
+  libMLBackend_ort_cpu.so             1.6 MB
+  libMLBackend_ort_cuda.so            2.7 MB
+  libMLPlugin.so                      3.0 MB
+  libcudart.so.12, libcublas.so.12, libcublasLt.so.12, libcudnn*.so.9.10.2
+```
+
+Boris FX ships **exactly** the runtime this project chose. Better, `libMLBackend_ort_cpu` /
+`libMLBackend_ort_cuda` behind `libMLPlugin` is the same pluggable-backend design as our
+`FlowEstimator` plus the `Device: Auto / GPU / CPU` parameter — arrived at independently.
+
+**They dropped TensorRT.** The older Sapphire-bundled Mocha carries TensorRT 8.5.3
+(`libnvinfer.so.8`, `libnvonnxparser.so.8`) on CUDA 11 / cuDNN 8. Mocha Pro 2026.5 has **no
+TensorRT at all** — plain ORT CUDA EP on CUDA 12 / cuDNN 9.10.2. That is a vendor with a
+shipping product moving away from the TensorRT EP, which supports the plan's choice of the
+plain CUDA EP over it.
+
+### The payload is 3 GB, not 80 MB
+
+**Measured: 21 files, 3.11 GB** in the ML directory alone; 4.12 GB across the whole
+MochaPro2026.5 tree counting only shared libraries. The bulk is `libcublasLt.so.12` (752 MB),
+`libonnxruntime_providers_cuda.so` (775 MB) and `libcudnn_engines_precompiled.so` (547 MB).
+
+The plan estimates the bundle growing "by roughly 20-80 MB" for models. That is right for
+*weights* and wrong for the thing that actually dominates, which is the CUDA/cuDNN/ORT
+runtime. **Three orders of magnitude out.** Consequences:
+
+- Not shippable inside a git-managed `.ofx.bundle`, and awkward even as a CI artifact.
+- Boris FX's answer is worth copying: install a sibling tree next to the bundle
+  (`/usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/...`) rather than inside it. The
+  bundle stays a bundle; the runtime is an installed component.
+- A CPU-only build is small and should probably be the default artifact, with GPU support a
+  separate, larger download.
+- Worth checking before accepting the number: **ONNX Runtime 1.22 made cuDNN and cuFFT
+  optional at runtime for the CUDA EP and stopped linking nvrtc**, specifically to cut this
+  footprint. Mocha's build may predate that. A current ORT could be dramatically smaller.
+
+*No `.onnx` files appear above — but the search matched only `*.so*`, `*.ofx` and `*.dat`,
+so weights were never in scope. That is not evidence of absence.*
+
+---
+
 ## Open — Phase 0
 
 Nothing in `docs/plan.md` past Phase 0 is worth building until these are answered on the
