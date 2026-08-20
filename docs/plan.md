@@ -286,11 +286,17 @@ WhiteWater.ofx.bundle/Contents/
 > runtime for the CUDA EP specifically to cut this footprint, and Mocha's build may predate
 > that. See `docs/host-notes.md`, *Measured — Mocha Pro's ML architecture*.
 
-- **Linux**: build in a `rockylinux:9` container (glibc 2.34, matching the stated target).
-  `-static-libstdc++ -static-libgcc`. Gate with `objdump -T`. Verify the bundled ORT libraries
-  resolve under `env -u LD_LIBRARY_PATH ldd` — warp-drive lost a release to a dropped ICU that
-  passed CI and failed at 127 on the host. *If EL8 Flame boxes must also be supported, the
-  container drops to `almalinux:8` and the ORT build must satisfy glibc 2.28.*
+- **Linux**: build in an `almalinux:8` container against a **glibc 2.28** baseline, with
+  `gcc-toolset-12`. This was originally specced as `rockylinux:9`/2.34 "matching the stated
+  target"; that produced a plugin Flame refused to load, because Rocky 9.5's `libgcc.a`
+  needs `_dl_find_object` (glibc 2.35) and the certified box — also nominally Rocky 9.5 —
+  has an older glibc. See `docs/context.md`, correction 3. A 2.28 binary loads on EL8 and
+  EL9 alike whatever point release, so this widens compatibility rather than narrowing it.
+  `-static-libstdc++ -static-libgcc`. Gate with `objdump -T` against a **hard-coded**
+  baseline, never one read off the build machine. Verify the bundled ORT libraries resolve
+  under `env -u LD_LIBRARY_PATH ldd` — warp-drive lost a release to a dropped ICU that
+  passed CI and failed at 127 on the host.
+  **Phase 3 constraint:** the ONNX Runtime build must itself satisfy glibc 2.28.
 - **macOS**: arm64 only, deployment target 12.0, `lipo -archs` asserted. Every `install_name_tool`
   rewrite invalidates the signature and **arm64 SIGKILLs an invalidly-signed image before
   `main()`** — re-sign every rewritten dylib ad-hoc, following `warp-drive/cmake/DeployEditor.cmake`.

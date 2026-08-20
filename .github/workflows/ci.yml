@@ -201,7 +201,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: whitewater-linux-rocky9
+          name: whitewater-linux-el8
           path: |
             whitewater-linux-*.tar.gz
             whitewater-linux-*.tar.gz.sha256
