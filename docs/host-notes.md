@@ -177,17 +177,34 @@ FX has shipped OpenVINO elsewhere), and which host the observation was made in.
 This is worth doing **first**, on the box, before the ONNX Runtime probe bundle exists. It
 costs minutes and it may be decisive.
 
-```bash
-# What does Mocha's OFX binary actually link? Look for libcudart, libonnxruntime,
-# libopenvino, libtorch, libcudnn.
-find /usr/OFX/Plugins /opt/Autodesk -name '*.ofx' -path '*ocha*'
-env -u LD_LIBRARY_PATH ldd <the .ofx> | grep -iE 'cuda|onnx|openvino|torch|cudnn|tensorrt'
+Every command below is runnable as written — no placeholders to substitute. (An earlier
+revision used `<the .ofx>` as a stand-in and the shell read the angle brackets as
+redirects, failing with `Missing name for redirect`.)
 
-# Does the bundle carry a separate executable? That is the in-process question, answered.
-find <the .ofx.bundle> -type f -perm -u+x
+**1. What ships inside the bundle.** The cheapest signal there is: a `libonnxruntime.so` or
+`libopenvino.so` sitting in the payload names the backend without running anything.
+
+```bash
+find /usr/OFX/Plugins /usr/local/OFX/Plugins /opt -ipath '*mocha*' \( -name '*.so*' -o -name '*.ofx' -o -name '*.dat' \) -printf '%10s  %p\n' 2>/dev/null | sort -k2
 ```
 
-Then, with Flame open and Mocha's ML matte actually running:
+**2. Does the bundle carry a separate executable?** This is the in-process question,
+answered directly — Mocha Pro's plugin is known to launch its own application, and finding
+that binary here is what confirms where inference could be happening.
+
+```bash
+find /usr/OFX/Plugins /usr/local/OFX/Plugins /opt -ipath '*mocha*' -type f -perm -u+x -not -name '*.so*' -not -name '*.ofx' 2>/dev/null
+```
+
+**3. What the OFX binary actually links.** `LD_LIBRARY_PATH` is cleared so `ldd` resolves
+only through the image's own `RPATH`/`RUNPATH`, which is what the host will do. Note that a
+negative result here is not conclusive: a plugin may `dlopen` a runtime rather than link it.
+
+```bash
+find /usr/OFX/Plugins /usr/local/OFX/Plugins /opt -ipath '*mocha*' -name '*.ofx' -exec sh -c 'echo "== $1"; env -u LD_LIBRARY_PATH ldd "$1" 2>/dev/null | grep -iE "cuda|onnx|openvino|torch|cudnn|tensorrt" || echo "   no ML runtime linked directly (may still dlopen one)"' _ {} \; 2>/dev/null
+```
+
+**4. Who holds the VRAM.** Then, with Flame open and Mocha's ML matte actually running:
 
 ```bash
 nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
