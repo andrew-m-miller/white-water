@@ -57,8 +57,31 @@ jobs:
           cmake --version
           ldd --version | head -1
 
+      # ONNX Runtime for the isolation probe. CPU build (~11 MB) rather than GPU (~3 GB):
+      # the question is symbol binding, and if RTLD_DEEPBIND isolates the CPU runtime it
+      # isolates the CUDA one.
+      #
+      # 1.29.0 is chosen because Flame 2026.2 carries 1.22.0 and the two MUST differ -- the
+      # probe uses the reported version string to tell our copy from the host's, and matching
+      # versions would make the entire measurement ambiguous.
+      #
+      # Verified 2026-08-20: this build's highest glibc requirement is 2.28, exactly the EL8
+      # baseline, with no slack. That is checked below rather than assumed.
+      - name: Fetch ONNX Runtime
+        run: |
+          dnf -y install curl
+          ver=1.29.0
+          curl -sSL -o ort.tgz \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ver}/onnxruntime-linux-x64-${ver}.tgz"
+          mkdir -p "$GITHUB_WORKSPACE/ort"
+          tar xzf ort.tgz -C "$GITHUB_WORKSPACE/ort" --strip-components=1
+          echo "WHITEWATER_ORT_ROOT=$GITHUB_WORKSPACE/ort" >> $GITHUB_ENV
+          echo "ORT_VERSION=$ver" >> $GITHUB_ENV
+
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DWHITEWATER_ORT_ROOT="$WHITEWATER_ORT_ROOT"
 
       - name: Build
         run: cmake --build build -j$(nproc)
@@ -127,6 +150,33 @@ jobs:
           done
           exit $fail
 
+      # The ORT probe's entire validity rests on NOT linking ONNX Runtime. A DT_NEEDED entry
+      # is resolved by the loader through the global scope, which would bind the probe to
+      # Flame's already-loaded copy before any of its code runs -- and it would still produce
+      # a confident-looking report, measuring nothing. This is cheap to check and impossible
+      # to notice by reading the output.
+      - name: Verify the ORT probe does not link ONNX Runtime
+        run: |
+          probe=build/bundles/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/WhiteWaterOrtProbe.ofx
+          test -f "$probe" || { echo "ORT probe was not built" >&2; exit 1; }
+          echo "== DT_NEEDED of $probe"
+          objdump -p "$probe" | grep NEEDED | sed 's/^/   /'
+          if objdump -p "$probe" | grep NEEDED | grep -qi onnxruntime; then
+            echo "FAIL: the probe links ONNX Runtime; it must only dlopen it." >&2
+            exit 1
+          fi
+          echo "OK: reached only through dlopen."
+
+      # ONNX Runtime is a third-party binary we redistribute inside the bundle, so it gets
+      # the same baseline check our own code does -- if it needs a newer glibc than the
+      # target, the bundle is as unloadable as a wrong-glibc plugin would be.
+      - name: Check ONNX Runtime glibc baseline
+        run: |
+          for lib in build/bundles/WhiteWaterOrtProbe.ofx.bundle/Contents/Libraries/*.so*; do
+            [ -f "$lib" ] || continue
+            scripts/check-glibc-baseline.sh "$lib" 2.28
+          done
+
       # A plugin in the wrong architecture directory is invisible, with no error message
       # anywhere -- the same class of failure as the glibc one, and just as silent.
       - name: Verify bundle layout
@@ -185,9 +235,19 @@ jobs:
 
           Then restart Flame.
 
-          WhiteWaterHostProbe is a diagnostic plugin, not the product: it passes frames
-          through untouched and writes a report on what this host actually supports.
-          Apply it in a Batch node and press "Run Probe".
+          Two diagnostic plugins, neither of them the product. Both pass frames through
+          untouched.
+
+          WhiteWaterHostProbe writes a report on what this host actually supports.
+          Apply it in a GENERAL-context Batch node, view it so it renders, then press
+          "Run Probe" and exercise the viewer with the pen.
+
+          WhiteWaterOrtProbe answers one question: whether a bundled ONNX Runtime can be
+          isolated from the copy Flame already has loaded. Apply it and press
+          "Run ORT Probe". Its report goes to $WHITEWATER_ORT_PROBE_LOG, else
+          $TMPDIR/whitewater-ortprobe.txt, else /tmp. Read the VERDICT block at the end;
+          the reported version must NOT match Flame's own ONNX Runtime, or the result is
+          ambiguous rather than positive.
 
           The report is written to $WHITEWATER_PROBE_LOG, else $TMPDIR/whitewater-hostprobe.txt,
           else /tmp/whitewater-hostprobe.txt -- and also to stderr, which Flame captures

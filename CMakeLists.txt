@@ -99,6 +99,11 @@ endif()
 
 include(OfxBundle)
 
+# Before any add_subdirectory: add_test() in a subdirectory is silently ignored unless
+# testing was enabled first, which presents as a suite that quietly has fewer tests in it
+# than it should -- the failure mode a test suite is least able to report.
+enable_testing()
+
 add_subdirectory(src/core)
 add_subdirectory(src/ofx)
 
@@ -106,7 +111,16 @@ if(WHITEWATER_BUILD_HOSTPROBE)
   add_subdirectory(tools/hostprobe)
 endif()
 
-enable_testing()
+# The ONNX Runtime isolation probe, built only when pointed at an unpacked ORT release.
+# Off by default and never a hard error: the capability probe and the core must stay
+# buildable on a machine that has never downloaded a 20 MB redistributable.
+include(OnnxRuntime)
+whitewater_find_onnxruntime()
+if(found)
+  add_subdirectory(tools/ortprobe)
+else()
+  message(STATUS "ORT probe       : skipped (set WHITEWATER_ORT_ROOT to build it)")
+endif()
 
 # The core boundary is a test rather than a comment, so it fails the build the first time
 # somebody reaches for an OFX or ONNX Runtime header from inside the flow algebra.
