@@ -124,8 +124,10 @@ is the right design.
   noted in the plan and not built.
 - **Occlusion is opt-in.** The forward-backward check doubles inference cost, so it is off
   by default. Until an artist turns it on, a warped insert smears through an occlusion.
-- **Nothing has been measured on the box.** Every host claim in this repo is inherited from
-  a different plugin asking different questions.
+- **One architectural decision is still unmeasured**: whether `RTLD_DEEPBIND` isolates a
+  bundled ONNX Runtime from Flame's, which decides in-process versus out-of-process
+  inference. Everything else Phase 0 asked is now measured on the box — see
+  `docs/host-notes.md`.
 - **Model licences are read, not audited.** RAFT is BSD-3 (princeton-vl); Practical-RIFE
   states its weights carry the same MIT licence as its code. Both need re-verifying against
   the exact checkpoints shipped, before anything goes to a client. See `models/MODELS.md`.

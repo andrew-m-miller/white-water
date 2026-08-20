@@ -280,33 +280,49 @@ is already known to work on this hardware.
 ## Measured — Phase 0 probe run in Flame
 
 Flame **2026.2** (`com.autodesk.flame`, OFX API 1.4, 72 CPUs) on `flame6`, Rocky 9.5,
-**2026-08-20**. General context, 3840x2160 PAR 1, 23.976 fps, 184-frame clip, float RGBA
-unpremultiplied source. Two sessions, consistent. Raw:
-`docs/measurements/2026-08-20-hostprobe-flame-2026.2.txt`.
+**2026-08-20**. General context Batch node, 3840x2160 PAR 1, 23.976 fps, 184-frame clip,
+float RGBA unpremultiplied. Raw:
+`docs/measurements/2026-08-20-hostprobe-flame-2026.2-complete.txt` (an earlier partial run
+is kept alongside it).
 
-**Four of the five questions are answered. Item 1 was not tested — a probe bug, not a host
-finding.**
+**All five questions are answered. Four are green; item 3 is a real constraint.**
+
+### 1. Two clips in the General context — WORKS ✅
+
+```
+Defined optional second clip 'Insert': clipDefine kOfxStatOK, OfxImageClipPropOptional kOfxStatOK
+clipGetHandle('Insert'): kOfxStatOK
+  OfxImageClipPropConnected  = 1
+  OfxImageClipPropOptional   = 1
+  PixelDepth "OfxBitDepthFloat", Components "OfxImageComponentRGBA",
+  PreMultiplication "OfxImageAlphaUnPremultiplied", PAR 1, FrameRange 0, 183
+```
+
+**Flame presents two RGBA clips as four sockets** — Front and Matte per clip — confirming the
+forum report, and matching the workflow an artist expects. `kOfxImageClipPropOptional` is
+accepted. The Insert clip reports the same format as Source.
+
+**Still unknown: what a genuinely *disconnected* optional clip does.** `Connected` read 1 in
+this run, so the disconnected path was never exercised. The render must therefore read
+`kOfxImageClipPropConnected` and must not infer connectedness from `clipGetImage` succeeding
+— which remains untested rather than disproven. Worth one more run with Insert deliberately
+left empty.
 
 ### 2. `clipGetImage` during render — WORKS ✅
 
-The load-bearing assumption. Every offset returned a full-bounds image from inside the
-render action, on a host thread, with no deadlock:
+`6 of 6 offsets returned an image, no deadlock.` Every one of ±1, ±10, ±100 returned full
+bounds `[0, 0, 3840, 2160]` from inside the render action, on a host thread.
 
-| offset | result |
-|---|---|
-| ±1, ±10, ±100 | `OK`, bounds `[0, 0, 3840, 2160]` — all six |
+**The on-demand flow chain is viable.** No mandatory Analyze pass, no disk cache.
 
-**The on-demand flow chain is viable.** No mandatory Analyze pass, no disk cache required.
+**But Flame clamps rather than failing.** The clip is `[0, 183]` and the render was at t=0,
+so `t-1`, `t-10` and `t-100` were all outside it — and each returned a valid full-bounds
+image. Consequences for the chain:
 
-**But note what did *not* happen.** The clip's frame range is `[0, 183]` and the render was
-at t=0, so `t-1`, `t-10` and `t-100` were all *outside the clip* — and Flame returned a
-valid full-bounds image for every one of them rather than an error. Flame clamps or holds
-rather than failing. Consequences:
-
-- The chain must consult `kOfxImageEffectPropFrameRange` itself and must **never** infer a
-  range boundary from `clipGetImage` failing, because it does not fail.
-- A reference frame near either end would otherwise silently accumulate flow against a held
-  frame — producing zero motion that looks like a correct static track.
+- Read `kOfxImageEffectPropFrameRange` and clamp deliberately; **never** infer a boundary
+  from `clipGetImage` failing, because it does not fail.
+- A reference frame near either end would otherwise accumulate flow against a held frame,
+  producing zero motion that looks like a correct static track.
 
 ### 3. ORT/CUDA symbol capture — the collision is REAL ⚠️
 
@@ -321,228 +337,121 @@ rather than failing. Consequences:
 | `cublasCreate_v2` | **VISIBLE** | `libcublas.so.12` |
 | `createInferBuilder_INTERNAL` | **VISIBLE** | `libnvinfer.so.10` |
 | `TBB_runtime_interface_version` | **VISIBLE** | `libtbb.so.12` |
-| `protobuf_shutdown`, `…ShutdownEveryN` | absent | — |
+| `protobuf_shutdown`, `…ShutdownEveryN` | **absent** | — |
 
-Flame loads its ONNX Runtime, CUDA, cuDNN, cuBLAS, TensorRT and TBB into the **global**
-scope. A bundled copy of any of them would have our references captured by Flame's,
-first-loaded-wins. **In-process bundling of ONNX Runtime is not safe as a default.**
+Flame loads ONNX Runtime, CUDA, cuDNN, cuBLAS, TensorRT and TBB into the **global** scope.
+A bundled copy of any of them has our references captured by Flame's, first-loaded-wins.
+**Bundling our own ONNX Runtime and simply linking it is not safe.**
 
-One piece of good news: **protobuf is not exposed**, so ORT 1.22 is keeping it private.
-That removes the nastiest of the classic collisions and leaves the ORT C API itself as the
-problem to solve.
+One real piece of good news: **protobuf is not exposed**, so ORT 1.22 keeps it private. That
+removes the worst of the classic collisions and leaves the ORT C API itself as the problem.
 
-Options unchanged, and now evidence-backed rather than speculative: out-of-process (what
-Mocha does, demonstrated on this box), `RTLD_LOCAL|RTLD_DEEPBIND`, or static with hidden
-visibility.
+This is the one open architectural decision. See *The inference-loading decision* below.
 
 ### 4. `SupportsTiles = 0` — HONOURED ✅
 
-Eight renders across the session, every one `window [0 0 3840 2160]` against
-`rod [0 0 3840 2160]`. Flame advertises `SupportsTiles = 1` as a host but respects a plugin
-declaring 0. **No tile-assembly logic needed**, and whole-frame inference is safe.
+**47 renders, every one** `window [0 0 3840 2160]` against `rod [0 0 3840 2160]`. Flame
+advertises `SupportsTiles = 1` as a host but respects a plugin declaring 0. No tile-assembly
+logic needed; whole-frame inference is safe.
 
-### 5. `getFramesNeeded` — CALLED, and declaring `{N}` is fine ✅
+### 5. `getFramesNeeded` — CALLED, and `{N}` is fine ✅
 
-Called 5 times per session. We declared `OfxImageClipPropFrameRange_Source = [0 0]` each
-time and got `kOfxStatOK` — **and item 2's distant pulls still succeeded afterwards**. So
-declaring the honest minimum does not restrict what `clipGetImage` will serve during render.
-The over-fetching worry that motivated the whole question does not arise.
+**Called 256 times** against 47 renders, declaring
+`OfxImageClipPropFrameRange_Source = [0 0]` and `…_Insert = [0 0]` each time, all
+`kOfxStatOK` — **and item 2's distant pulls still succeeded**. Declaring the honest minimum
+does not restrict what `clipGetImage` will serve during render, so the over-fetching worry
+does not arise.
 
-### 1. Second optional clip — NOT TESTED (probe bug)
+**Note the 5:1 ratio.** Flame calls this action far more often than it renders, so the real
+plugin's handler must be cheap: no document work, no cache lookups, no allocation. Same rule
+warp-drive applies to `getRegionsOfInterest`.
 
-The report reads `Context is not General; second input clip not defined` inside a section
-headed `Describe in context "OfxImageEffectContextGeneral"`. The context *was* General; the
-check was broken.
+### Overlay — pen confirmed, keyboard confirmed absent
 
-Cause: the probe compared the result of its own display formatter against the OFX constant.
-`readProp` quotes strings for human reading, so the value under test was
-`"OfxImageEffectContextGeneral"` **including quote characters**, which never matches. Fixed
-by reading the property with `propGetString` for the comparison and keeping `readProp` for
-display only.
+This run exercised the viewer properly and supersedes the earlier inconclusive result:
 
-Nothing was learned about Flame here, and nothing should be inferred: Mocha Pro and
-Silhouette both take multiple inputs, so multi-input OFX plainly works in this host. Re-run
-required.
+| Action | Count | |
+|---|---|---|
+| `PenMotion` | 904 | |
+| `Draw` | 66 | |
+| `PenDown` | **10** | with pressure (0.248, 0.423, 0.610, 0.544 …) — a tablet |
+| `PenUp` | **10** | |
+| `GainFocus` / `LoseFocus` | 1 each | |
+| `KeyDown` / `KeyUp` | **0** | never received |
 
-### Other results worth keeping
+Matches warp-drive on both counts. **A Flame overlay has a pen and no keyboard.** Also
+observed: pen canonical coordinates go **negative** (−5.5, −14.6) when the pen leaves the
+image area, so an overlay must tolerate out-of-bounds positions rather than assuming they
+are inside the frame.
 
-- **Half float confirmed**: `SupportedPixelDepths` includes `OfxBitDepthHalf`.
-- **1 MB string parameter survives save/reload byte-identical** — checksum matched across a
-  setup reload, in the General context, on a secret parameter. Re-confirms warp-drive.
-- **`OfxImageEffectPropCudaEnabled` / `Metal` / `OpenCL` are absent at render**
-  (`kOfxStatErrUnknown`), while `OpenGLEnabled = 0`. Consistent with the host advertising
-  only OpenGL.
-- **`SequentialRenderStatus = 1`, `InteractiveRenderStatus = 0`** on first render.
-- **Overlay**: `Draw` and `PenMotion` received in volume (253 and 130 events across two
-  sessions). **`PenDown` and `PenUp` were NEVER received** in either session — which differs
-  from warp-drive's measurement that both arrive with a pressure value. Most likely the
-  viewer was hovered rather than clicked, so treat this as inconclusive rather than as a
-  contradiction, and re-test deliberately if an overlay is ever built.
-- `MaxPages = 0` and `PageRowColumnCount = 0, 0` — pages are unusable, as documented.
-- Parametric parameters rejected; every other parameter type accepted, including `Custom`,
-  `Group` and `Page` (acceptance is not proof of rendering).
+### Other results
+
+- **Half float confirmed** in `SupportedPixelDepths`.
+- **1 MB string parameter survives save/reload byte-identical** (checksum matched across a
+  setup reload, General context, secret parameter). Re-confirms warp-drive.
+- `CudaEnabled` / `MetalEnabled` / `OpenCLEnabled` **absent** at render
+  (`kOfxStatErrUnknown`); `OpenGLEnabled = 0`.
+- `SequentialRenderStatus = 1`, `InteractiveRenderStatus = 0` on first render.
+- `MaxPages = 0`, `PageRowColumnCount = 0, 0` — pages unusable.
+- Parametric parameters rejected; all other types accepted, including `Custom`, `Group` and
+  `Page` — acceptance is not proof of rendering.
 
 ---
 
-## Open — Phase 0
+## The inference-loading decision
 
-Nothing in `docs/plan.md` past Phase 0 is worth building until these are answered on the
-actual Rocky 9 Flame box. Items 2 and 3 are the project's real risk: either one failing
-changes the architecture, not the schedule.
+Phase 0 leaves exactly one architectural question open, and it is now well posed.
 
-### 1. General context with two clips
+Flame has ONNX Runtime 1.22.0 in its global symbol scope. Three ways to live with that:
 
-Define a mandatory `Source` and an optional `Insert`, both RGBA.
+| Option | Cost | Confidence |
+|---|---|---|
+| **Out of process** | An IPC boundary and a supervised helper. warp-drive has both (`src/ofx/EditorProcess.cpp`, `src/ipc/`); Mocha ships exactly this shape and it is measured working on this box. | **Known to work** |
+| **`RTLD_LOCAL` + `RTLD_DEEPBIND`** | Keeps one process, much less machinery. But `DEEPBIND` breaks malloc interposition and can misroute exceptions across the boundary. | **Unmeasured** |
+| **Static ORT, hidden visibility** | Collision gone at the source. Awkward to build; ORT's static build is not a well-trodden path. | Unmeasured |
 
-- Do both appear in the Batch node, and as how many sockets? (A forum report says Flame
-  splits an RGBA clip into Front + Matte sockets, which would make two clips four sockets.
-  Unverified.)
-- What does `clipGetImage` return on the disconnected optional clip — a null handle, an
-  error, or a black image?
-- Does `kOfxImageClipPropConnected` read correctly on it?
+**Next measurement, and the last one before Phase 1:** a second probe bundle that links a
+real ONNX Runtime and attempts `RTLD_LOCAL|RTLD_DEEPBIND`, reporting whether
+`OrtGetApiBase` resolves to *ours* rather than Flame's, and whether a trivial CUDA session
+then initialises. Kept as a separate bundle so a runtime that refuses to load cannot take
+the capability probe down with it.
 
-### 2. `clipGetImage` at arbitrary times *during* the render action
+A clean result makes in-process available and much simpler. A dirty one costs nothing,
+because out-of-process is already known to work.
 
-**The load-bearing assumption of the whole design.** warp-drive measured out-of-render
-frame access from an instance-changed action, which is a different situation: the host was
-idle and waiting on us. Pulling a frame from *inside* a render, on a host thread, while the
-host holds whatever locks a render holds, is not the same question.
+## Open
 
-Test offsets ±1, ±10, ±100 and past both ends of the clip. Record the status code, whether
-the returned image has plausible content, and whether the host deadlocks or complains.
+Phase 0's five questions are closed — see *Measured — Phase 0 probe run in Flame*. What
+remains:
 
-**If this fails:** the on-demand chain is impossible. The design becomes a mandatory
-`Analyze` pass that pulls frames from an instance-changed action (which is measured to
-work) and writes a disk-backed cache the render reads.
-
-### 3. ONNX Runtime inside Flame's process
-
-Ship a second, separate bundle that links ONNX Runtime and runs a trivial model on a
-button press. Separate so that a runtime which refuses to initialise cannot take the
-capability probe down with it.
-
-- Does `Ort::Env` construct at all inside Flame?
-- ~~Does the CUDA execution provider find a device, given that Flame already owns one?~~
-  **Answered 2026-08-20** — see *Measured — Mocha Pro's ML architecture*. A second process
-  holds 4.9 GB alongside a running Flame. Device contention is not the problem.
-- Does Flame's own rendering degrade while inference runs?
-- Does anything collide at the dynamic-linker level — Flame ships its own CUDA runtime and
-  quite possibly its own protobuf. (`cmake/ofx.map` keeps *our* symbols private; it does
-  not stop us from binding to *theirs*.)
-- On macOS: does the CoreML EP initialise, and how much of a RAFT graph does it actually
-  take rather than falling back to CPU?
-
-**If this fails:** inference is CPU-only, which makes RAFT at 4K unusable and promotes RIFE
-from the fast option to the only option.
-
-#### Prior evidence: Mocha Pro does ML matting in an OFX plugin
-
-*Reported 2026-08-19 from regular production use, not instrumented.* Boris FX Mocha Pro
-ships an OFX plugin whose ML matte feature is believed to run GPU inference, and it is used
-routinely on this facility's boxes. That is the strongest evidence available short of
-measuring: an ML model doing real work from inside an OFX plugin, on this hardware, in
-production.
-
-It raises the prior considerably. It does **not** close this item, for one specific reason
-worth stating before anyone treats it as settled.
-
-**Mocha Pro's OFX plugin launches its own separate application process.** That is its
-defining architectural quirk — the plugin is a shim and the actual Mocha interface is a
-standalone program. So the inference may well be happening in *Mocha's* process, with its
-own address space, its own CUDA context and its own runtime, and not inside the host's
-process at all. If so it is evidence for a **different** architecture than the one this item
-is asking about, and the fact that it works says nothing about whether ONNX Runtime can get
-a CUDA device inside Flame's own process while Flame holds one.
-
-Two further unknowns: which backend it uses (CUDA, OpenVINO and CPU are all plausible; Boris
-FX has shipped OpenVINO elsewhere), and which host the observation was made in.
-
-#### Cheapest way to answer this: inspect Mocha's bundle before building anything
-
-This is worth doing **first**, on the box, before the ONNX Runtime probe bundle exists. It
-costs minutes and it may be decisive.
-
-**Run these under `bash`.** Measured 2026-08-20: the Flame box's interactive shell is
-**tcsh**, which is traditional in Flame environments and is not what any of this is written
-for. tcsh does not understand `2>` — it reads the `2` as an argument and `>/dev/null` as a
-*stdout* redirect, so a command that also pipes has two destinations for stdout and dies
-with `Ambiguous output redirect.` A `<` or `>` with no filename after it gives
-`Missing name for redirect.` instead. Neither message mentions the shell, which is what
-makes this cost twenty minutes rather than one.
-
-```bash
-bash
-```
-
-Then run the rest as written. No placeholders to substitute — an earlier revision used
-`<the .ofx>` as a stand-in, which fails for the second reason above even under bash.
-
-**1. What ships inside the bundle.** The cheapest signal there is: a `libonnxruntime.so` or
-`libopenvino.so` sitting in the payload names the backend without running anything.
-
-```bash
-find /usr/OFX/Plugins /usr/local/OFX/Plugins /opt -ipath '*mocha*' \( -name '*.so*' -o -name '*.ofx' -o -name '*.dat' \) -printf '%10s  %p\n' 2>/dev/null | sort -k2
-```
-
-**2. Does the bundle carry a separate executable?** This is the in-process question,
-answered directly — Mocha Pro's plugin is known to launch its own application, and finding
-that binary here is what confirms where inference could be happening.
-
-```bash
-find /usr/OFX/Plugins /usr/local/OFX/Plugins /opt -ipath '*mocha*' -type f -perm -u+x -not -name '*.so*' -not -name '*.ofx' 2>/dev/null
-```
-
-**3. What the OFX binary actually links.** `LD_LIBRARY_PATH` is cleared so `ldd` resolves
-only through the image's own `RPATH`/`RUNPATH`, which is what the host will do. Note that a
-negative result here is not conclusive: a plugin may `dlopen` a runtime rather than link it.
-
-```bash
-find /usr/OFX/Plugins /usr/local/OFX/Plugins /opt -ipath '*mocha*' -name '*.ofx' -exec sh -c 'echo "== $1"; env -u LD_LIBRARY_PATH ldd "$1" 2>/dev/null | grep -iE "cuda|onnx|openvino|torch|cudnn|tensorrt" || echo "   no ML runtime linked directly (may still dlopen one)"' _ {} \; 2>/dev/null
-```
-
-**4. Who holds the VRAM.** Then, with Flame open and Mocha's ML matte actually running:
-
-```bash
-nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
-```
-
-**Read it like this.** If `nvidia-smi` shows the *Flame* pid holding the extra VRAM, ML
-inference runs in-process in Flame and this item is close to answered in our favour. If it
-shows a separate Mocha process, the evidence supports out-of-process inference instead —
-which is still useful, because warp-drive already has a proven fork/exec supervisor for
-exactly that shape (`src/ofx/EditorProcess.cpp`, with environment scrubbing), and it would
-become the fallback architecture rather than a rewrite.
-
-### 4. Does `setSupportsTiles(false)` yield whole-frame render windows?
-
-Flame reports `SupportsTiles = 1` as a host. A plugin declaring `false` is legal OFX and
-the host must then hand over the full region of definition. Optical flow is inherently
-whole-frame, so this is worth a lot — but if Flame ignores it and tiles anyway, the render
-path needs the tile-assembly logic warp-drive has and this plan currently does not.
-
-### 5. `getFramesNeeded` honesty
-
-Declaring only `{N}` while pulling `{R..N}` with `clipGetImage` is out of contract. The
-alternative — declaring the true range — risks Flame materialising hundreds of upstream
-frames for one output frame.
-
-Measure both: does declaring only `{N}` still let the pulls in item 2 succeed, and what
-does Flame actually do when a long range *is* declared?
+1. **Does `RTLD_DEEPBIND` isolate a bundled ONNX Runtime from Flame's?** The last blocking
+   measurement. See *The inference-loading decision*.
+2. **What does a genuinely disconnected optional clip report?** `Connected` read 1 in every
+   run so far, so the disconnected path is untested. One run with Insert left empty settles
+   it.
+3. **Whether render scale is ever anything but 1.** Every observation so far is `[1, 1]`.
+4. **Whether `kOfxImagePropRowBytes` can be negative** in Flame, and whether images are ever
+   windows into larger allocations. The vendored `HostImage` handles both; nothing has
+   confirmed Flame exercises either.
+5. **Anamorphic behaviour.** Every measurement here is PAR 1. warp-drive measured PAR 2
+   separately; White Water has not.
 
 ### Procedure
 
-Build the probe bundle, install it, and in a **Batch node** (repeat on a **timeline soft
-effect**, and ideally once on an **anamorphic clip**):
+Build the probe, install it, and open it in a **General-context Batch node**. It must
+actually render — view it in the viewer — because items 2, 4 and 5 are driven from the
+render action. Then press **Run Probe**, and exercise the viewer with the pen.
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-cp -R build/bundles/WhiteWaterHostProbe.ofx.bundle /usr/OFX/Plugins/
+sha256sum -c whitewater-linux-*.tar.gz.sha256
 ```
 
-Apply **White Water → White Water Host Probe**, press **Run Probe**, then move the playhead
-and scrub. The report goes to `$WHITEWATER_PROBE_LOG`, else `$TMPDIR/whitewater-hostprobe.txt`,
-else `/tmp/whitewater-hostprobe.txt`. Flame's own copy of the plugin's stderr is in
-`/opt/Autodesk/log/`.
+```bash
+cp -R WhiteWaterHostProbe.ofx.bundle /usr/OFX/Plugins/
+```
 
-Paste the results into this file under a **Measured** heading with the host build and date,
-and move each closed item out of the Open section.
+Report goes to `$WHITEWATER_PROBE_LOG`, else `$TMPDIR/whitewater-hostprobe.txt`, else
+`/tmp/whitewater-hostprobe.txt`, and to stderr which Flame captures in `/opt/Autodesk/log/`.
+
+Paste results here under a **Measured** heading with the host build and date, and archive the
+raw transcript in `docs/measurements/`.

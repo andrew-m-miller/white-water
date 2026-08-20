@@ -13,4 +13,5 @@ Named `YYYY-MM-DD-<subject>.txt`. Each should be referenced from the entry in
 | `2026-08-20-mocha-investigation.txt` | Mocha Pro 2026.5 ML stack on `flame6`, Rocky 9.5. Supports *Measured — Mocha Pro's ML architecture*. |
 | `2026-08-20-nvidia-smi-compute-apps.csv` | Per-process VRAM with Flame open and Mocha's ML matte running. Same section. |
 | `2026-08-20-flame-loaded-libraries.txt` | Libraries mapped by the live Flame 2026.2.1 process. Supports *Measured — Flame already runs ONNX Runtime*. |
-| `2026-08-20-hostprobe-flame-2026.2.txt` | Phase 0 probe, two sessions in Flame 2026.2. Supports *Measured — Phase 0 probe run in Flame*. |
+| `2026-08-20-hostprobe-flame-2026.2.txt` | Phase 0 probe, first run. Item 1 skipped by a probe bug; kept because items 2-5 were valid. |
+| `2026-08-20-hostprobe-flame-2026.2-complete.txt` | Phase 0 probe, all five items. The authoritative run for *Measured — Phase 0 probe run in Flame*. |

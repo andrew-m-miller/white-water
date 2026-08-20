@@ -1,0 +1,463 @@
+
+=========================================================================
+White Water host probe -- session started 2026-08-20 13:41:13 (pid 2742894)
+Report file: /tmp/whitewater-hostprobe.txt
+Host used OfxSetHost entry point: yes
+=========================================================================
+
+== Suites ==
+  OfxImageEffectSuite                v1  available
+  OfxPropertySuite                   v1  available
+  OfxParameterSuite                  v1  available
+  OfxMemorySuite                     v1  available
+  OfxMultiThreadSuite                v1  available
+  OfxMessageSuite                    v1  available
+  OfxMessageSuite                    v2  available
+  OfxProgressSuite                   v1  available
+  OfxProgressSuite                   v2  available
+  OfxTimeLineSuite                   v1  available
+  OfxParametricParameterSuite        v1  MISSING
+  OfxInteractSuite                   v1  available
+  OfxDrawSuite                       v1  available
+  OfxImageEffectOpenGLRenderSuite    v1  available
+  OfxOpenCLProgramSuite              v1  MISSING
+  multiThreadNumCPUs                      = 72
+
+== Host properties ==
+  OfxPropName                                          = "com.autodesk.flame"
+  OfxPropLabel                                         = "Flame"
+  OfxPropVersion                                       = 2026, 2
+  OfxPropVersionLabel                                  = "2026.2"
+  OfxPropAPIVersion                                    = 1, 4
+  OfxImageEffectHostPropIsBackground                   = 0
+  OfxImageEffectHostPropNativeOrigin                   = <present, dimension 0>
+  OfxImageEffectPropSupportsOverlays                   = 1
+  OfxImageEffectPropSupportsMultiResolution            = 0
+  OfxImageEffectPropSupportsTiles                      = 1
+  OfxImageEffectPropTemporalClipAccess                 = 1
+  OfxImageEffectPropMultipleClipDepths                 = 0
+  OfxImageEffectPropSupportsMultipleClipPARs           = 0
+  OfxImageEffectPropSetableFrameRate                   = 0
+  OfxImageEffectPropSetableFielding                    = 0
+  OfxImageEffectInstancePropSequentialRender           = 0
+  OfxImageEffectPropSupportedContexts                  = "OfxImageEffectContextFilter", "OfxImageEffectContextGeneral", "OfxImageEffectContextGenerator", "OfxImageEffectContextTransition"
+  OfxImageEffectPropSupportedPixelDepths               = "OfxBitDepthByte", "OfxBitDepthShort", "OfxBitDepthFloat", "OfxBitDepthHalf"
+  OfxImageEffectPropSupportedComponents                = "OfxImageComponentRGBA", "OfxImageComponentRGB", "OfxImageComponentAlpha"
+  OfxImageEffectPropRenderQualityDraft                 = 0
+  OfxParamHostPropSupportsCustomInteract               = 0
+  OfxParamHostPropSupportsStringAnimation              = 0
+  OfxParamHostPropSupportsChoiceAnimation              = 1
+  OfxParamHostPropSupportsStrChoice                    = 1
+  OfxParamHostPropSupportsStrChoiceAnimation           = 1
+  OfxParamHostPropSupportsBooleanAnimation             = 1
+  OfxParamHostPropSupportsCustomAnimation              = 0
+  OfxParamHostPropMaxParameters                        = -1
+  OfxParamHostPropMaxPages                             = 0
+  OfxParamHostPropPageRowColumnCount                   = 0, 0
+  OfxImageEffectPropOpenGLRenderSupported              = "true"
+  OfxImageEffectPropCudaRenderSupported                = "false"
+  OfxImageEffectPropCudaStreamSupported                = "false"
+  OfxImageEffectPropMetalRenderSupported               = "false"
+  OfxImageEffectPropOpenCLRenderSupported              = "false"
+  OfxImageEffectPropOpenCLSupported                    = <absent: kOfxStatErrUnknown>
+  -- GPU render support, re-read as int --
+  OfxImageEffectPropOpenGLRenderSupported              = <kOfxStatErrUnknown>
+  OfxImageEffectPropCudaRenderSupported                = <kOfxStatErrUnknown>
+  OfxImageEffectPropMetalRenderSupported               = <kOfxStatErrUnknown>
+  OfxImageEffectPropOpenCLRenderSupported              = <kOfxStatErrUnknown>
+
+== Global symbol scope (would our bundled libraries be captured?) ==
+  dlsym(RTLD_DEFAULT, ...) from inside the loaded plugin. A hit means the host's
+  copy is visible to us and our references would bind to it, first-loaded-wins.
+  A miss means the host loaded it privately (RTLD_LOCAL) and there is no collision.
+  VISIBLE  OrtGetApiBase                                  (ONNX Runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  VISIBLE  OrtSessionOptionsAppendExecutionProvider_CUDA  (ONNX Runtime CUDA EP)
+           from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  VISIBLE  cudaRuntimeGetVersion                          (CUDA runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  VISIBLE  cudaMalloc                                     (CUDA runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  VISIBLE  cudnnGetVersion                                (cuDNN)
+           from /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+  VISIBLE  cublasCreate_v2                                (cuBLAS)
+           from /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+  VISIBLE  createInferBuilder_INTERNAL                    (TensorRT)
+           from /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+  absent   protobuf_shutdown                              (protobuf (old ABI))
+  absent   _ZN6google8protobuf8internal14ShutdownEveryN   (protobuf (C++ ABI))
+  VISIBLE  TBB_runtime_interface_version                  (TBB)
+           from /opt/Autodesk/lib64/2026.2.1/libtbb.so.12
+
+  At least one symbol is globally visible. Bundling our own copy of that library
+  risks our calls binding to the host's while our state came from ours -- a
+  version-skew crash with no useful backtrace. Mitigations, in order: run
+  inference out of process; or dlopen ours RTLD_LOCAL|RTLD_DEEPBIND; or link it
+  statically with hidden visibility.
+
+== Loaded objects of interest (from inside the host process) ==
+  /opt/Autodesk/lib64/2026.2.1/libcublasLt.so.12
+  /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+  /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  /opt/Autodesk/lib64/libicudata.so.77
+  /opt/Autodesk/lib64/2026.2.1/libtbb.so.12
+  /opt/Autodesk/lib64/2026.2.1/libtbbmalloc.so.2
+  /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+  /opt/Autodesk/lib64/2026.2.1/libnvinfer_plugin.so.10
+  /opt/Autodesk/lib64/2026.2.1/libnvonnxparser.so.10
+  /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+  /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  /lib64/libcuda.so.1
+  /opt/Autodesk/lib64/libicudata.so.60
+  /lib64/libtbb.so.2
+  /opt/Autodesk/lib64/2026.2.1/libArriImageSdkTransformsCuda_module.9.0.0.so
+Registered overlay entry point via OfxImageEffectPluginPropOverlayInteractV2: kOfxStatOK
+
+== Describe in context "OfxImageEffectContextGeneral" ==
+  Defined optional second clip 'Insert': clipDefine kOfxStatOK, OfxImageClipPropOptional kOfxStatOK
+
+== Parameter types accepted by paramDefine ==
+  OfxParamTypeInteger      accepted
+  OfxParamTypeInteger2D    accepted
+  OfxParamTypeInteger3D    accepted
+  OfxParamTypeDouble       accepted
+  OfxParamTypeDouble2D     accepted
+  OfxParamTypeDouble3D     accepted
+  OfxParamTypeRGB          accepted
+  OfxParamTypeRGBA         accepted
+  OfxParamTypeBoolean      accepted
+  OfxParamTypeChoice       accepted
+  OfxParamTypeStrChoice    accepted
+  OfxParamTypeString       accepted
+  OfxParamTypeCustom       accepted
+  OfxParamTypeGroup        accepted
+  OfxParamTypePage         accepted
+  OfxParamTypePushButton   accepted
+  OfxParamTypeParametric   kOfxStatErrUnsupported
+Action: create instance
+  INTERACT ACTION: OfxActionDescribe  (handle 0x382eaaa0)
+  INTERACT ACTION: OfxActionCreateInstance  (handle 0x38386c00)
+Action: getFramesNeeded at t=0.000 (call 1) -- declaring only {N}
+  OfxImageClipPropFrameRange_Source = [0 0]: kOfxStatOK
+  OfxImageClipPropFrameRange_Insert = [0 0]: kOfxStatOK
+Action: getFramesNeeded at t=0.000 (call 2) -- declaring only {N}
+  OfxImageClipPropFrameRange_Source = [0 0]: kOfxStatOK
+  OfxImageClipPropFrameRange_Insert = [0 0]: kOfxStatOK
+  INTERACT ACTION: OfxInteractActionLoseFocus  (handle 0x38386c00)
+Action: getFramesNeeded at t=0.000 (call 3) -- declaring only {N}
+  OfxImageClipPropFrameRange_Source = [0 0]: kOfxStatOK
+  OfxImageClipPropFrameRange_Insert = [0 0]: kOfxStatOK
+  INTERACT ACTION: OfxInteractActionGainFocus  (handle 0x38386c00)
+
+== First render ==
+  OfxPropTime                                          = 0
+  OfxImageEffectPropFieldToRender                      = "OfxFieldNone"
+  OfxImageEffectPropRenderWindow                       = 0, 0, 3840, 2160
+  OfxImageEffectPropRenderScale                        = 1, 1
+  OfxImageEffectPropSequentialRenderStatus             = 1
+  OfxImageEffectPropInteractiveRenderStatus            = 0
+  OfxImageEffectPropRenderQualityDraft                 = 0
+  OfxImageEffectPropOpenGLEnabled                      = 0
+  OfxImageEffectPropCudaEnabled                        = <absent: kOfxStatErrUnknown>
+  OfxImageEffectPropMetalEnabled                       = <absent: kOfxStatErrUnknown>
+  OfxImageEffectPropOpenCLEnabled                      = <absent: kOfxStatErrUnknown>
+
+== Effect instance properties ==
+  OfxImageEffectPropContext                            = "OfxImageEffectContextGeneral"
+  OfxImageEffectPropProjectSize                        = 3840, 2160
+  OfxImageEffectPropProjectExtent                      = 3840, 2160
+  OfxImageEffectPropProjectOffset                      = 0, 0
+  OfxImageEffectPropPixelAspectRatio                   = 1
+  OfxImageEffectInstancePropEffectDuration             = 184
+  OfxImageEffectPropFrameRate                          = 23.976
+  OfxPropIsInteractive                                 = 0
+  -- Source clip --
+  OfxImageEffectPropPixelDepth                         = "OfxBitDepthFloat"
+  OfxImageEffectPropComponents                         = "OfxImageComponentRGBA"
+  OfxImageEffectPropPreMultiplication                  = "OfxImageAlphaUnPremultiplied"
+  OfxImagePropPixelAspectRatio                         = 1
+  OfxImageEffectPropFrameRate                          = 23.976
+  OfxImageEffectPropFrameRange                         = 0, 183
+  OfxImageClipPropConnected                            = 1
+  OfxImageClipPropContinuousSamples                    = 0
+
+== Optional second input clip ==
+  clipGetHandle('Insert'): kOfxStatOK
+  OfxImageClipPropConnected                            = 1
+  OfxImageClipPropOptional                             = 1
+  OfxImageEffectPropPixelDepth                         = "OfxBitDepthFloat"
+  OfxImageEffectPropComponents                         = "OfxImageComponentRGBA"
+  OfxImageEffectPropPreMultiplication                  = "OfxImageAlphaUnPremultiplied"
+  OfxImagePropPixelAspectRatio                         = 1
+  OfxImageEffectPropFrameRange                         = 0, 183
+  clipGetImage returned an image: bounds [0, 0, 3840, 2160], components "OfxImageComponentRGBA"
+  If this clip is NOT connected in the node, note that carefully: the host is
+  handing over an image for an unconnected optional input, so connectedness must
+  be read from the property, never inferred from clipGetImage succeeding.
+  render 1: window [0 0 3840 2160] rod [0 0 3840 2160] full frame
+
+== In-render frame access (clipGetImage DURING kOfxImageEffectActionRender) ==
+  This is the assumption the on-demand flow chain rests on. warp-drive only ever
+  measured the equivalent from an instance-changed action, which is a host at rest.
+  requesting t-1 ...
+  t-1: OK  bounds [0, 0, 3840, 2160]
+  requesting t+1 ...
+  t+1: OK  bounds [0, 0, 3840, 2160]
+  requesting t-10 ...
+  t-10: OK  bounds [0, 0, 3840, 2160]
+  requesting t+10 ...
+  t+10: OK  bounds [0, 0, 3840, 2160]
+  requesting t-100 ...
+  t-100: OK  bounds [0, 0, 3840, 2160]
+  requesting t+100 ...
+  t+100: OK  bounds [0, 0, 3840, 2160]
+  NOTE: check these against the clip's frame range. A host that clamps rather than
+  failing will return a valid image for a time outside the clip, so the chain must
+  consult kOfxImageEffectPropFrameRange itself and never infer range from failure.
+  Survived every pull without deadlocking. If this line is missing from the report,
+  the host hung or died on one of the requests above -- which is itself the answer.
+  INTERACT ACTION: OfxInteractActionDraw  (handle 0x38386c00)
+    draw: pixel scale [1, 1]  render scale [1, 1]  background [0, 0, 0]
+  INTERACT ACTION: OfxInteractActionPenMotion  (handle 0x38386c00)
+    pen: canonical [1521.69, 707.807]  viewport [1521, 707]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 0
+    pen: canonical [1519.86, 707.807]  viewport [1519, 707]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 0
+    pen: canonical [782.794, -5.48688]  viewport [782, -5]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 0
+    pen: canonical [782.794, -7.31583]  viewport [782, -7]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 0
+    pen: canonical [782.794, -9.14479]  viewport [782, -9]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 0
+    pen: canonical [782.794, -10.9738]  viewport [782, -10]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 0
+    pen: canonical [782.794, -12.8027]  viewport [782, -12]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 0
+    pen: canonical [782.794, -14.6317]  viewport [782, -14]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 0
+    draw: pixel scale [1, 1]  render scale [1, 1]  background [0, 0, 0]
+    draw: pixel scale [1, 1]  render scale [1, 1]  background [0, 0, 0]
+  render 2: window [0 0 3840 2160] rod [0 0 3840 2160] full frame
+  render 3: window [0 0 3840 2160] rod [0 0 3840 2160] full frame
+  render 4: window [0 0 3840 2160] rod [0 0 3840 2160] full frame
+  render 5: window [0 0 3840 2160] rod [0 0 3840 2160] full frame
+  render 6: window [0 0 3840 2160] rod [0 0 3840 2160] full frame
+  render 7: window [0 0 3840 2160] rod [0 0 3840 2160] full frame
+  render 8: window [0 0 3840 2160] rod [0 0 3840 2160] full frame
+  INTERACT ACTION: OfxInteractActionPenDown  (handle 0x38386c00)
+    pen: canonical [1481.46, 799.255]  viewport [1481, 799]  pressure 0.247694
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+  INTERACT ACTION: OfxInteractActionPenUp  (handle 0x38386c00)
+    pen: canonical [2035.63, 1271.13]  viewport [2035, 1271]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [2183.78, 1099.2]  viewport [2183, 1099]  pressure 0.422848
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [2540.42, 735.241]  viewport [2540, 735]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [2929.99, 565.148]  viewport [2929, 565]  pressure 0.315025
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [2929.99, 565.148]  viewport [2929, 565]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [2836.71, 404.2]  viewport [2836, 404]  pressure 0.610355
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [2836.71, 404.2]  viewport [2836, 404]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [2330.09, 257.883]  viewport [2330, 257]  pressure 0.544164
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [2330.09, 257.883]  viewport [2330, 257]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [1775.92, 230.449]  viewport [1775, 230]  pressure 0.570505
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [1775.92, 230.449]  viewport [1775, 230]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [155.461, 91.4479]  viewport [155, 91]  pressure 0.397792
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [232.278, 170.093]  viewport [232, 170]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [409.687, 129.856]  viewport [409, 129]  pressure 0.330444
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+    pen: canonical [460.898, 95.1058]  viewport [460, 95]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 152
+
+== Host properties ==
+  OfxPropName                                          = "com.autodesk.flame"
+  OfxPropLabel                                         = "Flame"
+  OfxPropVersion                                       = 2026, 2
+  OfxPropVersionLabel                                  = "2026.2"
+  OfxPropAPIVersion                                    = 1, 4
+  OfxImageEffectHostPropIsBackground                   = 0
+  OfxImageEffectHostPropNativeOrigin                   = <present, dimension 0>
+  OfxImageEffectPropSupportsOverlays                   = 1
+  OfxImageEffectPropSupportsMultiResolution            = 0
+  OfxImageEffectPropSupportsTiles                      = 1
+  OfxImageEffectPropTemporalClipAccess                 = 1
+  OfxImageEffectPropMultipleClipDepths                 = 0
+  OfxImageEffectPropSupportsMultipleClipPARs           = 0
+  OfxImageEffectPropSetableFrameRate                   = 0
+  OfxImageEffectPropSetableFielding                    = 0
+  OfxImageEffectInstancePropSequentialRender           = 0
+  OfxImageEffectPropSupportedContexts                  = "OfxImageEffectContextFilter", "OfxImageEffectContextGeneral", "OfxImageEffectContextGenerator", "OfxImageEffectContextTransition"
+  OfxImageEffectPropSupportedPixelDepths               = "OfxBitDepthByte", "OfxBitDepthShort", "OfxBitDepthFloat", "OfxBitDepthHalf"
+  OfxImageEffectPropSupportedComponents                = "OfxImageComponentRGBA", "OfxImageComponentRGB", "OfxImageComponentAlpha"
+  OfxImageEffectPropRenderQualityDraft                 = 0
+  OfxParamHostPropSupportsCustomInteract               = 0
+  OfxParamHostPropSupportsStringAnimation              = 0
+  OfxParamHostPropSupportsChoiceAnimation              = 1
+  OfxParamHostPropSupportsStrChoice                    = 1
+  OfxParamHostPropSupportsStrChoiceAnimation           = 1
+  OfxParamHostPropSupportsBooleanAnimation             = 1
+  OfxParamHostPropSupportsCustomAnimation              = 0
+  OfxParamHostPropMaxParameters                        = -1
+  OfxParamHostPropMaxPages                             = 0
+  OfxParamHostPropPageRowColumnCount                   = 0, 0
+  OfxImageEffectPropOpenGLRenderSupported              = "true"
+  OfxImageEffectPropCudaRenderSupported                = "false"
+  OfxImageEffectPropCudaStreamSupported                = "false"
+  OfxImageEffectPropMetalRenderSupported               = "false"
+  OfxImageEffectPropOpenCLRenderSupported              = "false"
+  OfxImageEffectPropOpenCLSupported                    = <absent: kOfxStatErrUnknown>
+  -- GPU render support, re-read as int --
+  OfxImageEffectPropOpenGLRenderSupported              = <kOfxStatErrUnknown>
+  OfxImageEffectPropCudaRenderSupported                = <kOfxStatErrUnknown>
+  OfxImageEffectPropMetalRenderSupported               = <kOfxStatErrUnknown>
+  OfxImageEffectPropOpenCLRenderSupported              = <kOfxStatErrUnknown>
+
+== Effect instance properties ==
+  OfxImageEffectPropContext                            = "OfxImageEffectContextGeneral"
+  OfxImageEffectPropProjectSize                        = 3840, 2160
+  OfxImageEffectPropProjectExtent                      = 3840, 2160
+  OfxImageEffectPropProjectOffset                      = 0, 0
+  OfxImageEffectPropPixelAspectRatio                   = 1
+  OfxImageEffectInstancePropEffectDuration             = 184
+  OfxImageEffectPropFrameRate                          = 23.976
+  OfxPropIsInteractive                                 = 0
+  -- Source clip --
+  OfxImageEffectPropPixelDepth                         = "OfxBitDepthFloat"
+  OfxImageEffectPropComponents                         = "OfxImageComponentRGBA"
+  OfxImageEffectPropPreMultiplication                  = "OfxImageAlphaUnPremultiplied"
+  OfxImagePropPixelAspectRatio                         = 1
+  OfxImageEffectPropFrameRate                          = 23.976
+  OfxImageEffectPropFrameRange                         = 0, 183
+  OfxImageClipPropConnected                            = 1
+  OfxImageClipPropContinuousSamples                    = 0
+
+== Optional second input clip ==
+  clipGetHandle('Insert'): kOfxStatOK
+  OfxImageClipPropConnected                            = 1
+  OfxImageClipPropOptional                             = 1
+  OfxImageEffectPropPixelDepth                         = "OfxBitDepthFloat"
+  OfxImageEffectPropComponents                         = "OfxImageComponentRGBA"
+  OfxImageEffectPropPreMultiplication                  = "OfxImageAlphaUnPremultiplied"
+  OfxImagePropPixelAspectRatio                         = 1
+  OfxImageEffectPropFrameRange                         = 0, 183
+  clipGetImage returned an image: bounds [0, 0, 3840, 2160], components "OfxImageComponentRGBA"
+  If this clip is NOT connected in the node, note that carefully: the host is
+  handing over an image for an unconnected optional input, so connectedness must
+  be read from the property, never inferred from clipGetImage succeeding.
+
+== Out-of-render frame access (clipGetImage outside kOfxImageEffectActionRender) ==
+  A working fast path here means the editor can pull frames on demand. If every
+  offset fails, the frame cache must be filled by a pass-through render instead.
+  t+0: OK  bounds [0, 0, 3840, 2160]
+  t-1: OK  bounds [0, 0, 3840, 2160]
+  t+1: OK  bounds [0, 0, 3840, 2160]
+  t-5: OK  bounds [0, 0, 3840, 2160]
+  t+5: OK  bounds [0, 0, 3840, 2160]
+  t-24: OK  bounds [0, 0, 3840, 2160]
+  t+24: OK  bounds [0, 0, 3840, 2160]
+
+== Global symbol scope (would our bundled libraries be captured?) ==
+  dlsym(RTLD_DEFAULT, ...) from inside the loaded plugin. A hit means the host's
+  copy is visible to us and our references would bind to it, first-loaded-wins.
+  A miss means the host loaded it privately (RTLD_LOCAL) and there is no collision.
+  VISIBLE  OrtGetApiBase                                  (ONNX Runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  VISIBLE  OrtSessionOptionsAppendExecutionProvider_CUDA  (ONNX Runtime CUDA EP)
+           from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  VISIBLE  cudaRuntimeGetVersion                          (CUDA runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  VISIBLE  cudaMalloc                                     (CUDA runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  VISIBLE  cudnnGetVersion                                (cuDNN)
+           from /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+  VISIBLE  cublasCreate_v2                                (cuBLAS)
+           from /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+  VISIBLE  createInferBuilder_INTERNAL                    (TensorRT)
+           from /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+  absent   protobuf_shutdown                              (protobuf (old ABI))
+  absent   _ZN6google8protobuf8internal14ShutdownEveryN   (protobuf (C++ ABI))
+  VISIBLE  TBB_runtime_interface_version                  (TBB)
+           from /opt/Autodesk/lib64/2026.2.1/libtbb.so.12
+
+  At least one symbol is globally visible. Bundling our own copy of that library
+  risks our calls binding to the host's while our state came from ours -- a
+  version-skew crash with no useful backtrace. Mitigations, in order: run
+  inference out of process; or dlopen ours RTLD_LOCAL|RTLD_DEEPBIND; or link it
+  statically with hidden visibility.
+
+== Loaded objects of interest (from inside the host process) ==
+  /opt/Autodesk/lib64/2026.2.1/libcublasLt.so.12
+  /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+  /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  /opt/Autodesk/lib64/libicudata.so.77
+  /opt/Autodesk/lib64/2026.2.1/libtbb.so.12
+  /opt/Autodesk/lib64/2026.2.1/libtbbmalloc.so.2
+  /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+  /opt/Autodesk/lib64/2026.2.1/libnvinfer_plugin.so.10
+  /opt/Autodesk/lib64/2026.2.1/libnvonnxparser.so.10
+  /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+  /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  /lib64/libcuda.so.1
+  /opt/Autodesk/lib64/libicudata.so.60
+  /lib64/libtbb.so.2
+  /opt/Autodesk/lib64/2026.2.1/libArriImageSdkTransformsCuda_module.9.0.0.so
+
+== Overlay interact ==
+  Host reports OfxImageEffectPropSupportsOverlays = 1
+  Overlay entry point registered at describe time: yes
+  Actions received (count is every event, not just the sampled ones):
+    OfxActionDescribe                        1
+    OfxActionCreateInstance                  1
+    OfxInteractActionLoseFocus               1
+    OfxInteractActionGainFocus               1
+    OfxInteractActionDraw                    66
+    OfxInteractActionPenMotion               904
+    OfxInteractActionPenDown                 10
+    OfxInteractActionPenUp                   10
+  Editing capability check:
+    OfxInteractActionDraw                    received
+    OfxInteractActionPenDown                 received
+    OfxInteractActionPenUp                   received
+    OfxInteractActionPenMotion               received
+    OfxInteractActionKeyDown                 NEVER RECEIVED
+    OfxInteractActionKeyUp                   NEVER RECEIVED
+  If key actions were never received, exercise the viewer with the pen and the
+  keyboard before trusting that result -- then treat it as final.
+
+== PHASE 0 SUMMARY ==
+  1. Second optional clip     : defined -- see 'Optional second input clip' above
+  2. clipGetImage in render   : WORKS -- 6 of 6 offsets returned an image, no deadlock. The on-demand flow chain is viable.
+  3. ORT/CUDA symbol capture  : see 'Global symbol scope' above.
+       VISIBLE lines mean a bundled copy would be captured by the host's, so
+       inference goes out of process or through RTLD_DEEPBIND. All absent means
+       in-process bundling is clean.
+  4. Tiles (SupportsTiles=0)  : honoured -- 47 render(s) so far, all full frame. Renders after this point are logged individually below.
+  5. getFramesNeeded          : called 256 times; we declared only {N} each time. Cross-check against whether item 2's pulls still succeeded.
+
+  Paste this report into docs/host-notes.md under a Measured heading, with the
+  host build and the date. Items 2 and 3 decide the architecture.
+
+Probe complete.
+
+== String parameter persistence: write ==
+  paramSetValue of 1048576 bytes: kOfxStatOK
+  expected checksum: 13779301421395268869
+  immediate read back: 1048576 bytes, checksum 13779301421395268869, IDENTICAL
+  Now save the setup, reload it, and press Verify.
+
+== String parameter persistence: verify ==
+  got 1048576 bytes (expected 1048576), checksum 13779301421395268869 (expected 13779301421395268869)
+  RESULT: payload survived intact -- the spline document can live in a string param.
+  INTERACT ACTION: OfxActionDestroyInstance  (handle 0x38386c00)
+Action: destroy instance
+Action: unload
