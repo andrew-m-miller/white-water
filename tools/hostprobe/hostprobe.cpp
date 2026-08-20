@@ -1253,18 +1253,48 @@ OfxStatus onRender(OfxImageEffectHandle instance, OfxPropertySetHandle inArgs) {
     for (int i = 0; i < 4; ++i)
       gProp->propGetInt(inArgs, kOfxImageEffectPropRenderWindow, i, &window[i]);
 
+    double renderScale[2] = {1.0, 1.0};
+    gProp->propGetDouble(inArgs, kOfxImageEffectPropRenderScale, 0, &renderScale[0]);
+    gProp->propGetDouble(inArgs, kOfxImageEffectPropRenderScale, 1, &renderScale[1]);
+
     OfxImageClipHandle out = nullptr;
     OfxRectD rod = {0, 0, 0, 0};
     if (gEffect->clipGetHandle(instance, kOfxImageEffectOutputClipName, &out, nullptr) ==
             kOfxStatOK &&
         out && gEffect->clipGetRegionOfDefinition(out, time, &rod) == kOfxStatOK) {
-      const bool partial = window[0] > (int)rod.x1 || window[1] > (int)rod.y1 ||
-                           window[2] < (int)rod.x2 || window[3] < (int)rod.y2;
+      // These two rectangles are NOT in the same coordinate system, and comparing them
+      // directly is wrong on any anamorphic clip. The render window is in PIXELS; the
+      // region of definition comes back in CANONICAL (square-pixel) coordinates. They
+      // coincide only when the pixel aspect ratio is 1, which is exactly why a PAR-1
+      // measurement made this look correct and a PAR-2 one reported every render as
+      // tiled. Measured 2026-08-20: a 4608x3164 PAR-2 source has a 9216x3164 RoD --
+      // the same region, twice as wide in canonical units.
+      //
+      //   x_pixel = x_canonical * renderScale.x / par
+      double par = 1.0;
+      OfxPropertySetHandle outProps = nullptr;
+      if (gEffect->clipGetPropertySet(out, &outProps) == kOfxStatOK && outProps)
+        gProp->propGetDouble(outProps, kOfxImagePropPixelAspectRatio, 0, &par);
+      if (!(par > 0.0))
+        par = 1.0;
+
+      const double rodPixelX1 = rod.x1 * renderScale[0] / par;
+      const double rodPixelX2 = rod.x2 * renderScale[0] / par;
+      const double rodPixelY1 = rod.y1 * renderScale[1];
+      const double rodPixelY2 = rod.y2 * renderScale[1];
+
+      // One pixel of slack: the conversion is a rounding boundary, not an exact integer
+      // relationship, and a half-pixel disagreement is not a tile.
+      const double kSlack = 1.0;
+      const bool partial = window[0] > rodPixelX1 + kSlack || window[1] > rodPixelY1 + kSlack ||
+                           window[2] < rodPixelX2 - kSlack || window[3] < rodPixelY2 - kSlack;
       if (partial)
         ++gPartialWindowRenders;
       if (gRenderCalls <= 8 || partial) {
-        emitf("  render %ld: window [%d %d %d %d] rod [%.0f %.0f %.0f %.0f] %s", gRenderCalls,
-              window[0], window[1], window[2], window[3], rod.x1, rod.y1, rod.x2, rod.y2,
+        emitf("  render %ld: window [%d %d %d %d] rod(canonical) [%.0f %.0f %.0f %.0f]"
+              " par %.3f -> rod(pixels) [%.0f %.0f %.0f %.0f] %s",
+              gRenderCalls, window[0], window[1], window[2], window[3], rod.x1, rod.y1,
+              rod.x2, rod.y2, par, rodPixelX1, rodPixelY1, rodPixelX2, rodPixelY2,
               partial ? "PARTIAL -- host tiled us despite SupportsTiles=0" : "full frame");
       }
     }

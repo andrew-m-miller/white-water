@@ -15,3 +15,4 @@ Named `YYYY-MM-DD-<subject>.txt`. Each should be referenced from the entry in
 | `2026-08-20-flame-loaded-libraries.txt` | Libraries mapped by the live Flame 2026.2.1 process. Supports *Measured — Flame already runs ONNX Runtime*. |
 | `2026-08-20-hostprobe-flame-2026.2.txt` | Phase 0 probe, first run. Item 1 skipped by a probe bug; kept because items 2-5 were valid. |
 | `2026-08-20-hostprobe-flame-2026.2-complete.txt` | Phase 0 probe, all five items. The authoritative run for *Measured — Phase 0 probe run in Flame*. |
+| `2026-08-20-hostprobe-anamorphic-no-insert.txt` | PAR-2 clip with Insert disconnected. Source for the anamorphic and disconnected-clip findings; its tile verdict is wrong, see correction 5. |

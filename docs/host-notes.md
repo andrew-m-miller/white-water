@@ -302,11 +302,21 @@ clipGetHandle('Insert'): kOfxStatOK
 forum report, and matching the workflow an artist expects. `kOfxImageClipPropOptional` is
 accepted. The Insert clip reports the same format as Source.
 
-**Still unknown: what a genuinely *disconnected* optional clip does.** `Connected` read 1 in
-this run, so the disconnected path was never exercised. The render must therefore read
-`kOfxImageClipPropConnected` and must not infer connectedness from `clipGetImage` succeeding
-— which remains untested rather than disproven. Worth one more run with Insert deliberately
-left empty.
+**Disconnected behaviour measured 2026-08-20**, second run with Insert deliberately empty:
+
+```
+OfxImageClipPropConnected = 0
+OfxImageClipPropOptional  = 1
+clipGetImage: kOfxStatFailed
+```
+
+**It fails cleanly — there is no trap here.** An earlier note in this file speculated that
+Flame might hand back a black image for an unconnected optional input; it does not.
+
+But note what *is* misleading: the clip still reports `PixelDepth`, `Components`,
+`PreMultiplication`, `PixelAspectRatio` and `FrameRange` as though it were connected
+(float RGBA, PAR 2, `0, 5562`). **Only `kOfxImageClipPropConnected` is authoritative.**
+Format properties on a disconnected clip are stale values, not evidence of a connection.
 
 ### 2. `clipGetImage` during render — WORKS ✅
 
@@ -350,9 +360,17 @@ This is the one open architectural decision. See *The inference-loading decision
 
 ### 4. `SupportsTiles = 0` — HONOURED ✅
 
-**47 renders, every one** `window [0 0 3840 2160]` against `rod [0 0 3840 2160]`. Flame
-advertises `SupportsTiles = 1` as a host but respects a plugin declaring 0. No tile-assembly
-logic needed; whole-frame inference is safe.
+**47 renders at PAR 1**, every one `window [0 0 3840 2160]` against `rod [0 0 3840 2160]`.
+Flame advertises `SupportsTiles = 1` as a host but respects a plugin declaring 0. No
+tile-assembly logic needed; whole-frame inference is safe.
+
+**A PAR-2 run reported "NOT HONOURED -- 21 of 21 renders were partial". That was a probe
+bug, not a host finding.** The render window is in *pixels* and `clipGetRegionOfDefinition`
+returns *canonical* (square-pixel) coordinates; the probe compared them directly. On the
+anamorphic clip the window was `[0 0 4608 3164]` and the RoD `[0 0 9216 3164]` — the same
+region, since 4608 x PAR 2 = 9216. Every one of those renders was a full frame. Fixed by
+converting the RoD to pixels (`x_pixel = x_canonical * renderScale.x / par`) before
+comparing. **Tiles are honoured at both pixel aspect ratios.**
 
 ### 5. `getFramesNeeded` — CALLED, and `{N}` is fine ✅
 
@@ -365,6 +383,29 @@ does not arise.
 **Note the 5:1 ratio.** Flame calls this action far more often than it renders, so the real
 plugin's handler must be cheap: no document work, no cache lookups, no allocation. Same rule
 warp-drive applies to `getRegionsOfInterest`.
+
+### Anamorphic (PAR 2) — measured
+
+Second run on a 4608x3164 PAR-2 clip, 5563 frames:
+
+| Property | Value |
+|---|---|
+| `ProjectSize`, `ProjectExtent` | `9216, 3164` — **canonical**, square-pixel |
+| `ProjectPixelAspectRatio` | 2 |
+| Source clip bounds | `4608 x 3164` — **real pixels** |
+| Source `PixelAspectRatio` | 2 |
+| `FrameRange` | `0, 5562` |
+| Render window | `[0 0 4608 3164]` — pixels |
+| Region of definition | `[0 0 9216 3164]` — canonical |
+
+Confirms warp-drive's finding on this project's own probe: **image bounds are in real
+pixels, project size and RoD are in square-pixel terms.** Everything else behaved as at
+PAR 1 — in-render pulls returned `[0, 0, 4608, 3164]` at all six offsets, tiles honoured,
+`getFramesNeeded` called 101 times against ~25 renders.
+
+**Pen coordinates are canonical, not pixel.** On this clip they ranged past 7357, which only
+fits the 9216-wide canonical space. Any overlay must divide by PAR to reach pixels — and
+must tolerate negative values, which appeared here again (−592).
 
 ### Overlay — pen confirmed, keyboard confirmed absent
 
@@ -426,15 +467,13 @@ remains:
 
 1. **Does `RTLD_DEEPBIND` isolate a bundled ONNX Runtime from Flame's?** The last blocking
    measurement. See *The inference-loading decision*.
-2. **What does a genuinely disconnected optional clip report?** `Connected` read 1 in every
-   run so far, so the disconnected path is untested. One run with Insert left empty settles
-   it.
-3. **Whether render scale is ever anything but 1.** Every observation so far is `[1, 1]`.
-4. **Whether `kOfxImagePropRowBytes` can be negative** in Flame, and whether images are ever
+2. **Whether render scale is ever anything but 1.** Every observation so far is `[1, 1]`,
+   at both pixel aspect ratios.
+3. **Whether `kOfxImagePropRowBytes` can be negative** in Flame, and whether images are ever
    windows into larger allocations. The vendored `HostImage` handles both; nothing has
    confirmed Flame exercises either.
-5. **Anamorphic behaviour.** Every measurement here is PAR 1. warp-drive measured PAR 2
-   separately; White Water has not.
+4. **Re-run the tile check on an anamorphic clip** with the PAR fix in place, to confirm
+   what the corrected arithmetic already shows: that those renders were full frames.
 
 ### Procedure
 

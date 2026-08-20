@@ -249,3 +249,38 @@ Also worth noting: the user said immediately that multi-input OFX must work, bec
 and Silhouette both do it. That was right, and it is the reason this got looked at rather
 than written down as a Flame limitation.
 
+### 5. Comparing pixel coordinates against canonical coordinates invented a host limitation
+
+**Symptom:** an anamorphic probe run reported `NOT HONOURED -- 21 of 21 renders were
+partial. The render path needs tile assembly.` Every render was in fact a full frame.
+
+```
+render 1: window [0 0 4608 3164] rod [0 0 9216 3164] PARTIAL -- host tiled us
+```
+
+`kOfxImageEffectPropRenderWindow` is in **pixels**. `clipGetRegionOfDefinition` returns
+**canonical** (square-pixel) coordinates. The clip is PAR 2, so 4608 pixels wide is 9216
+canonical wide — the same rectangle, stated twice in different units, and the check compared
+them directly. Fixed by converting the RoD to pixels
+(`x_pixel = x_canonical * renderScale.x / par`) with a one-pixel slack before comparing.
+
+**This is correction 4 again in a different costume.** Both are the same mistake: taking a
+value out of one system and comparing it against a value from another without converting.
+There the systems were "display string" and "property value"; here they are "pixel space"
+and "canonical space". The second one is worse, because the wrong answer was *plausible* —
+"Flame ignores SupportsTiles on anamorphic" is exactly the sort of quirk this host produces,
+and it would have driven the render path to grow tile-assembly logic it does not need.
+
+Two things that should have caught it earlier and now do:
+
+1. **PAR 1 makes the two spaces identical**, so the first 47 renders passed by coincidence.
+   Anything comparing rectangles in this codebase must be tested at PAR != 1, and the
+   anamorphic clip has now earned a permanent place in the probe procedure.
+2. **The probe printed only the conclusion**, not the conversion. It now prints the RoD in
+   both canonical and pixel terms with the PAR it used, so the arithmetic is visible in the
+   report and a wrong verdict can be checked rather than believed.
+
+The warp-drive note that image bounds are in real pixels while project size is square-pixel
+was already in `docs/host-notes.md`, inherited, and I had read it. Knowing a fact is not the
+same as applying it at the one site where it matters.
+
