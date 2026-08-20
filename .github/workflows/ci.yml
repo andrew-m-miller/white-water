@@ -48,9 +48,12 @@ jobs:
         with:
           submodules: recursive
 
+      # $CXX, not bare g++: gcc-toolset installs outside PATH by design, so the compiler
+      # the build uses and the one a bare `g++` would find are different things -- and on
+      # EL8 the latter does not exist at all.
       - name: Report toolchain
         run: |
-          g++ --version
+          "$CXX" --version
           cmake --version
           ldd --version | head -1
 
