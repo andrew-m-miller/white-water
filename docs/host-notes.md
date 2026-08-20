@@ -177,9 +177,20 @@ FX has shipped OpenVINO elsewhere), and which host the observation was made in.
 This is worth doing **first**, on the box, before the ONNX Runtime probe bundle exists. It
 costs minutes and it may be decisive.
 
-Every command below is runnable as written — no placeholders to substitute. (An earlier
-revision used `<the .ofx>` as a stand-in and the shell read the angle brackets as
-redirects, failing with `Missing name for redirect`.)
+**Run these under `bash`.** Measured 2026-08-20: the Flame box's interactive shell is
+**tcsh**, which is traditional in Flame environments and is not what any of this is written
+for. tcsh does not understand `2>` — it reads the `2` as an argument and `>/dev/null` as a
+*stdout* redirect, so a command that also pipes has two destinations for stdout and dies
+with `Ambiguous output redirect.` A `<` or `>` with no filename after it gives
+`Missing name for redirect.` instead. Neither message mentions the shell, which is what
+makes this cost twenty minutes rather than one.
+
+```bash
+bash
+```
+
+Then run the rest as written. No placeholders to substitute — an earlier revision used
+`<the .ofx>` as a stand-in, which fails for the second reason above even under bash.
 
 **1. What ships inside the bundle.** The cheapest signal there is: a `libonnxruntime.so` or
 `libopenvino.so` sitting in the payload names the backend without running anything.

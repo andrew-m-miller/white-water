@@ -191,9 +191,12 @@ jobs:
 
               cp -R *.ofx.bundle /usr/OFX/Plugins/
 
-          Or, without root, point the host at the bundles before launching it:
+          Or, without root, point the host at the bundles before launching it. Flame
+          boxes are conventionally tcsh, so the syntax is probably the first of these --
+          check with "echo $SHELL" if the first one errors:
 
-              export OFX_PLUGIN_PATH=/path/to/this/directory
+              setenv OFX_PLUGIN_PATH /path/to/this/directory     # tcsh / csh
+              export OFX_PLUGIN_PATH=/path/to/this/directory     # bash / zsh
 
           Then restart Flame.
 
