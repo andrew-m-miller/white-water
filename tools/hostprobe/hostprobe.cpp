@@ -72,6 +72,16 @@
 
 #include <unistd.h>
 
+// dlfcn is libc, and the link-map walk is libc too (glibc's link.h on Linux, dyld's own
+// API on macOS). Neither adds a dependency, which is the property this file exists to
+// preserve: nothing between the probe and the host.
+#include <dlfcn.h>
+#ifdef __linux__
+#include <link.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+
 #include "ofxCore.h"
 #include "ofxDrawSuite.h"
 #include "ofxGPURender.h"
@@ -107,6 +117,30 @@ bool gHostSupportsOverlays = false;
 bool gOverlayRegistered = false;
 bool gRenderLogged = false;
 bool gHostCalledOfxSetHost = false;
+
+// --- Phase 0 state -----------------------------------------------------------------
+//
+// The name of the optional second input. Arbitrary in the General context, and short
+// because Flame truncates labels; it appears in the node's socket list, so it should read
+// as what it is.
+const char *const kProbeInsertClipName = "Insert";
+
+bool gSecondClipDefined = false;
+
+// Item 2: whether clipGetImage at a distant time works from *inside* a render, on a host
+// thread, while the host holds whatever a render holds. Done once -- repeating it every
+// tile would flood the log and slow a real comp to a crawl.
+bool gInRenderPullDone = false;
+
+// Item 4: does declaring SupportsTiles=0 actually get us whole frames? Answered by
+// comparing each render window against the output clip's region of definition. Tracked
+// across every render rather than sampled once, because one full-frame render proves
+// nothing if the next twenty are strips.
+long gRenderCalls = 0;
+long gPartialWindowRenders = 0;
+
+// Item 5: is getFramesNeeded even called, and does declaring only {N} hold?
+long gFramesNeededCalls = 0;
 
 // Parameter names.
 const char *kParamRunProbe = "runProbe";
@@ -558,6 +592,143 @@ void defineProbeControls(OfxParamSetHandle paramSet) {
 }
 
 // ---------------------------------------------------------------------------
+// Host address space: what is already loaded, and what we would collide with
+// ---------------------------------------------------------------------------
+//
+// Phase 0 item 3. Flame 2026.2.1 was measured carrying libonnxruntime.so.1.22.0, CUDA 12.8
+// and TensorRT 10.8 in its own process. That is good news -- ONNX Runtime demonstrably
+// initialises inside Flame -- and a hazard, because a plugin that bundles its own ORT then
+// has two copies in one address space.
+//
+// The hazard is only real if the host's copy is *globally visible* to us. A library the
+// host dlopened with RTLD_LOCAL is not in our resolution scope and cannot capture our
+// references; one loaded RTLD_GLOBAL, or pulled in as a DT_NEEDED of the executable, is.
+// dlsym(RTLD_DEFAULT, ...) asks exactly that question from exactly the right place: inside
+// a plugin the host has already loaded.
+//
+// This costs nothing and settles whether the expensive experiment -- bundling a real ORT
+// and testing RTLD_DEEPBIND -- is needed at all.
+
+// Symbols whose presence in the global scope would capture our references. OrtGetApiBase is
+// the entire ONNX Runtime C entry point, so if it resolves here, ours would never be called.
+struct GlobalSymbolProbe {
+  const char *symbol;
+  const char *belongsTo;
+};
+
+void probeGlobalSymbolScope() {
+  section("Global symbol scope (would our bundled libraries be captured?)");
+  emit("  dlsym(RTLD_DEFAULT, ...) from inside the loaded plugin. A hit means the host's");
+  emit("  copy is visible to us and our references would bind to it, first-loaded-wins.");
+  emit("  A miss means the host loaded it privately (RTLD_LOCAL) and there is no collision.");
+
+  static const GlobalSymbolProbe symbols[] = {
+      {"OrtGetApiBase", "ONNX Runtime"},
+      {"OrtSessionOptionsAppendExecutionProvider_CUDA", "ONNX Runtime CUDA EP"},
+      {"cudaRuntimeGetVersion", "CUDA runtime"},
+      {"cudaMalloc", "CUDA runtime"},
+      {"cudnnGetVersion", "cuDNN"},
+      {"cublasCreate_v2", "cuBLAS"},
+      {"createInferBuilder_INTERNAL", "TensorRT"},
+      {"protobuf_shutdown", "protobuf (old ABI)"},
+      {"_ZN6google8protobuf8internal14ShutdownEveryN", "protobuf (C++ ABI)"},
+      {"TBB_runtime_interface_version", "TBB"},
+  };
+
+  bool anyCaptured = false;
+  for (const GlobalSymbolProbe &s : symbols) {
+    dlerror();
+    void *addr = dlsym(RTLD_DEFAULT, s.symbol);
+    if (addr) {
+      anyCaptured = true;
+      // Which object it came from is the actionable half -- a path under /opt/Autodesk
+      // names the host as the owner, which is a different problem from a system library.
+      const char *from = "<origin unknown>";
+      Dl_info info;
+      if (dladdr(addr, &info) && info.dli_fname)
+        from = info.dli_fname;
+      emitf("  VISIBLE  %-46s (%s)", s.symbol, s.belongsTo);
+      emitf("           from %s", from);
+    } else {
+      emitf("  absent   %-46s (%s)", s.symbol, s.belongsTo);
+    }
+  }
+
+  emit("");
+  if (anyCaptured) {
+    emit("  At least one symbol is globally visible. Bundling our own copy of that library");
+    emit("  risks our calls binding to the host's while our state came from ours -- a");
+    emit("  version-skew crash with no useful backtrace. Mitigations, in order: run");
+    emit("  inference out of process; or dlopen ours RTLD_LOCAL|RTLD_DEEPBIND; or link it");
+    emit("  statically with hidden visibility.");
+  } else {
+    emit("  Nothing captured. The host keeps these private, so a bundled copy resolves to");
+    emit("  itself and in-process inference has no symbol problem to solve.");
+  }
+}
+
+// Case-insensitive substring match against the libraries we might end up duplicating.
+// Hand-rolled rather than reaching for <algorithm> or strcasestr: the first adds a header
+// for one call, the second is not portable.
+bool objectIsInteresting(const char *name) {
+  if (!name || !name[0])
+    return false;
+  static const char *kNeedles[] = {"onnxruntime", "cuda",     "cublas", "cudnn",
+                                   "nvinfer",     "nvonnx",   "tbb",    "protobuf",
+                                   "torch",       "openvino"};
+  for (const char *needle : kNeedles) {
+    for (const char *p = name; *p; ++p) {
+      const char *a = p;
+      const char *b = needle;
+      while (*a && *b && (*a | 0x20) == (*b | 0x20)) {
+        ++a;
+        ++b;
+      }
+      if (!*b)
+        return true;
+    }
+  }
+  return false;
+}
+
+// What is actually mapped into this process, filtered to things we might duplicate. This is
+// the same information /proc/<pid>/maps gives, but obtainable without sudo because we are
+// running inside the process rather than looking at it from outside.
+void reportLoadedObjects() {
+  section("Loaded objects of interest (from inside the host process)");
+
+  int shown = 0;
+
+#ifdef __linux__
+  dl_iterate_phdr(
+      [](struct dl_phdr_info *info, size_t, void *data) -> int {
+        if (info->dlpi_name && objectIsInteresting(info->dlpi_name)) {
+          emitf("  %s", info->dlpi_name);
+          ++*static_cast<int *>(data);
+        }
+        return 0;
+      },
+      &shown);
+#elif defined(__APPLE__)
+  const uint32_t count = _dyld_image_count();
+  for (uint32_t i = 0; i < count; ++i) {
+    const char *name = _dyld_get_image_name(i);
+    if (objectIsInteresting(name)) {
+      emitf("  %s", name);
+      ++shown;
+    }
+  }
+#else
+  emit("  <no link-map API on this platform>");
+#endif
+
+  if (shown == 0) {
+    emit("  None. The host has no ML or CUDA runtime mapped at this moment -- note that a");
+    emit("  library the host loads lazily would not appear until it has been used once.");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Runtime probes, driven from the buttons
 // ---------------------------------------------------------------------------
 
@@ -584,6 +755,97 @@ void probeOutOfRenderFrameAccess(OfxImageEffectHandle instance, double time) {
     } else {
       emitf("  t%+.0f: %s", dt, statusName(st));
     }
+  }
+}
+
+// Phase 0 item 2 -- the load-bearing one.
+//
+// warp-drive measured clipGetImage at arbitrary offsets from an instance-changed action,
+// where the host is idle and waiting on us. Doing it from inside a render is a different
+// question: we are on a host thread, mid-render, while the host holds whatever locks a
+// render holds. White Water's whole on-demand flow chain assumes this works. If it does
+// not, the design becomes a mandatory Analyze pass writing a disk cache.
+//
+// Deliberately conservative: one call per offset, image released immediately, no attempt to
+// read pixels. If this is going to deadlock a host it should do so having done the least
+// possible damage.
+void probeInRenderFrameAccess(OfxImageEffectHandle instance, double time) {
+  section("In-render frame access (clipGetImage DURING kOfxImageEffectActionRender)");
+  emit("  This is the assumption the on-demand flow chain rests on. warp-drive only ever");
+  emit("  measured the equivalent from an instance-changed action, which is a host at rest.");
+
+  OfxImageClipHandle clip = nullptr;
+  OfxStatus st =
+      gEffect->clipGetHandle(instance, kOfxImageEffectSimpleSourceClipName, &clip, nullptr);
+  if (st != kOfxStatOK || !clip) {
+    emitf("  clipGetHandle failed: %s", statusName(st));
+    return;
+  }
+
+  // Includes offsets past the likely ends of a clip on purpose: an out-of-range pull has to
+  // fail cleanly rather than take the host with it, and the chain will ask for exactly that
+  // whenever the reference frame sits near a boundary.
+  const double offsets[] = {-1.0, 1.0, -10.0, 10.0, -100.0, 100.0};
+  for (double dt : offsets) {
+    OfxPropertySetHandle image = nullptr;
+    emitf("  requesting t%+.0f ...", dt);
+    st = gEffect->clipGetImage(clip, time + dt, nullptr, &image);
+    if (st == kOfxStatOK && image) {
+      std::string bounds = readProp(image, kOfxImagePropBounds, kInt);
+      emitf("  t%+.0f: OK  bounds [%s]", dt, bounds.c_str());
+      gEffect->clipReleaseImage(image);
+    } else {
+      emitf("  t%+.0f: %s", dt, statusName(st));
+    }
+  }
+  emit("  Survived every pull without deadlocking. If this line is missing from the report,");
+  emit("  the host hung or died on one of the requests above -- which is itself the answer.");
+}
+
+// Phase 0 item 1, the runtime half: what the host says about a second, optional clip and
+// what it hands over when that clip is not connected.
+void probeSecondClip(OfxImageEffectHandle instance, double time) {
+  section("Optional second input clip");
+  if (!gSecondClipDefined) {
+    emit("  Not defined in this context -- open the probe in a General-context node.");
+    return;
+  }
+
+  OfxImageClipHandle clip = nullptr;
+  OfxStatus st = gEffect->clipGetHandle(instance, kProbeInsertClipName, &clip, nullptr);
+  emitf("  clipGetHandle('%s'): %s", kProbeInsertClipName, statusName(st));
+  if (st != kOfxStatOK || !clip)
+    return;
+
+  OfxPropertySetHandle clipProps = nullptr;
+  if (gEffect->clipGetPropertySet(clip, &clipProps) == kOfxStatOK && clipProps) {
+    static const PropSpec specs[] = {
+        {kOfxImageClipPropConnected, kInt},
+        {kOfxImageClipPropOptional, kInt},
+        {kOfxImageEffectPropPixelDepth, kStr},
+        {kOfxImageEffectPropComponents, kStr},
+        {kOfxImageEffectPropPreMultiplication, kStr},
+        {kOfxImagePropPixelAspectRatio, kDbl},
+        {kOfxImageEffectPropFrameRange, kDbl},
+    };
+    dumpProps(clipProps, specs, sizeof(specs) / sizeof(specs[0]));
+  }
+
+  // The question that decides how the render path branches: what comes back when nobody
+  // has plugged anything in. A clean failure is easy to handle; a black image that claims
+  // success is a trap, because the comp would silently be over black.
+  OfxPropertySetHandle image = nullptr;
+  st = gEffect->clipGetImage(clip, time, nullptr, &image);
+  if (st == kOfxStatOK && image) {
+    emitf("  clipGetImage returned an image: bounds [%s], components %s",
+          readProp(image, kOfxImagePropBounds, kInt).c_str(),
+          readProp(image, kOfxImageEffectPropComponents, kStr).c_str());
+    emit("  If this clip is NOT connected in the node, note that carefully: the host is");
+    emit("  handing over an image for an unconnected optional input, so connectedness must");
+    emit("  be read from the property, never inferred from clipGetImage succeeding.");
+    gEffect->clipReleaseImage(image);
+  } else {
+    emitf("  clipGetImage: %s", statusName(st));
   }
 }
 
@@ -626,6 +888,55 @@ void probeInstanceProperties(OfxImageEffectHandle instance) {
       dumpProps(clipProps, clipSpecs, sizeof(clipSpecs) / sizeof(clipSpecs[0]));
     }
   }
+}
+
+// The five Phase 0 questions, answered in one block at the end of the report.
+//
+// The detail above is what gets pasted into docs/host-notes.md, but a reader on the box
+// needs to know whether to keep going or stop, and scrolling a few hundred lines to work
+// that out is how a measurement session turns into an afternoon. Every line here restates
+// something already logged; nothing is computed only here.
+void reportPhaseZeroSummary() {
+  section("PHASE 0 SUMMARY");
+
+  emitf("  1. Second optional clip     : %s",
+        gSecondClipDefined ? "defined -- see 'Optional second input clip' above"
+                           : "NOT DEFINED (open the probe in a General-context node)");
+
+  emitf("  2. clipGetImage in render   : %s",
+        gInRenderPullDone
+            ? "attempted -- read the per-offset results above"
+            : "NOT ATTEMPTED (the node never rendered; view it in the viewer)");
+
+  emit("  3. ORT/CUDA symbol capture  : see 'Global symbol scope' above.");
+  emit("       VISIBLE lines mean a bundled copy would be captured by the host's, so");
+  emit("       inference goes out of process or through RTLD_DEEPBIND. All absent means");
+  emit("       in-process bundling is clean.");
+
+  if (gRenderCalls == 0) {
+    emit("  4. Tiles (SupportsTiles=0)  : NO RENDERS YET");
+  } else if (gPartialWindowRenders == 0) {
+    emitf("  4. Tiles (SupportsTiles=0)  : honoured -- %ld renders, all full frame",
+          gRenderCalls);
+  } else {
+    emitf("  4. Tiles (SupportsTiles=0)  : NOT HONOURED -- %ld of %ld renders were partial."
+          " The render path needs tile assembly.",
+          gPartialWindowRenders, gRenderCalls);
+  }
+
+  if (gFramesNeededCalls == 0) {
+    emit("  5. getFramesNeeded          : NEVER CALLED. The host does not ask, so what we");
+    emit("       declare cannot cause over-fetching -- and pulls in render are the only");
+    emit("       way to get other frames regardless.");
+  } else {
+    emitf("  5. getFramesNeeded          : called %ld times; we declared only {N} each time."
+          " Cross-check against whether item 2's pulls still succeeded.",
+          gFramesNeededCalls);
+  }
+
+  emit("");
+  emit("  Paste this report into docs/host-notes.md under a Measured heading, with the");
+  emit("  host build and the date. Items 2 and 3 decide the architecture.");
 }
 
 void reportOverlayStatus() {
@@ -746,6 +1057,10 @@ OfxStatus onLoad() {
     return kOfxStatErrMissingHostFeature;
   }
   probeHostProperties();
+  // Before anything of ours is in the process, record what already is. Doing this at load
+  // rather than on the button means the answer is not contaminated by our own dependencies.
+  probeGlobalSymbolScope();
+  reportLoadedObjects();
   return kOfxStatOK;
 }
 
@@ -793,6 +1108,32 @@ OfxStatus onDescribeInContext(OfxImageEffectHandle effect, OfxPropertySetHandle 
   gProp->propSetString(clipProps, kOfxImageEffectPropSupportedComponents, 1, kOfxImageComponentAlpha);
   gProp->propSetInt(clipProps, kOfxImageEffectPropSupportsTiles, 0, 0);
 
+  // Phase 0 item 1: a second, optional input. White Water needs one for the insert layer,
+  // and nothing has ever confirmed that Flame shows it, how the sockets present, or what a
+  // disconnected optional clip returns. Only the General context may have extra inputs --
+  // Filter is defined as exactly one source -- so defining it there would be an error, and
+  // an error out of describeInContext means Flame shows no plugin at all.
+  gSecondClipDefined = (context == kOfxImageEffectContextGeneral);
+  if (gSecondClipDefined) {
+    OfxPropertySetHandle insertProps = nullptr;
+    OfxStatus st = gEffect->clipDefine(effect, kProbeInsertClipName, &insertProps);
+    if (st == kOfxStatOK && insertProps) {
+      gProp->propSetString(insertProps, kOfxImageEffectPropSupportedComponents, 0, kOfxImageComponentRGBA);
+      gProp->propSetString(insertProps, kOfxImageEffectPropSupportedComponents, 1, kOfxImageComponentAlpha);
+      gProp->propSetInt(insertProps, kOfxImageEffectPropSupportsTiles, 0, 0);
+      // The property that makes it legal to leave it unconnected. Set non-fatally: a host
+      // that refuses it must not take the whole plugin down with it.
+      OfxStatus opt = gProp->propSetInt(insertProps, kOfxImageClipPropOptional, 0, 1);
+      emitf("  Defined optional second clip '%s': clipDefine %s, %s %s", kProbeInsertClipName,
+            statusName(st), kOfxImageClipPropOptional, statusName(opt));
+    } else {
+      gSecondClipDefined = false;
+      emitf("  clipDefine('%s') failed: %s", kProbeInsertClipName, statusName(st));
+    }
+  } else {
+    emit("  Context is not General; second input clip not defined (Filter takes one source).");
+  }
+
   gEffect->clipDefine(effect, kOfxImageEffectOutputClipName, &clipProps);
   gProp->propSetString(clipProps, kOfxImageEffectPropSupportedComponents, 0, kOfxImageComponentRGBA);
   gProp->propSetString(clipProps, kOfxImageEffectPropSupportedComponents, 1, kOfxImageComponentAlpha);
@@ -802,6 +1143,46 @@ OfxStatus onDescribeInContext(OfxImageEffectHandle effect, OfxPropertySetHandle 
   gEffect->getParamSet(effect, &paramSet);
   defineProbeControls(paramSet);
   probeParamTypes(paramSet);
+  return kOfxStatOK;
+}
+
+// Phase 0 item 5.
+//
+// White Water plans to declare only {N} here while pulling {R..N} with clipGetImage during
+// render, which is out of contract. The alternative -- declaring the true range -- risks
+// Flame materialising hundreds of upstream frames to produce one output frame, which would
+// be far worse. This handler declares the honest minimum so that item 2's pulls are being
+// tested under exactly the conditions the real plugin would create.
+//
+// It also answers a prior question: whether Flame calls this action at all. A host that
+// never calls it cannot be over-fetching because of what we declare here.
+OfxStatus onGetFramesNeeded(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs,
+                            OfxPropertySetHandle outArgs) {
+  double time = 0.0;
+  gProp->propGetDouble(inArgs, kOfxPropTime, 0, &time);
+
+  ++gFramesNeededCalls;
+  if (gFramesNeededCalls <= 3)
+    emitf("Action: getFramesNeeded at t=%.3f (call %ld) -- declaring only {N}", time,
+          gFramesNeededCalls);
+
+  // The property is "OfxImageClipPropFrameRange_" post-pended with the clip's name, one per
+  // input clip, as a pair of doubles per requested range.
+  const double range[2] = {time, time};
+  std::string prop = std::string("OfxImageClipPropFrameRange_") + kOfxImageEffectSimpleSourceClipName;
+  OfxStatus st = gProp->propSetDoubleN(outArgs, prop.c_str(), 2, range);
+  if (gFramesNeededCalls <= 3)
+    emitf("  %s = [%.0f %.0f]: %s", prop.c_str(), range[0], range[1], statusName(st));
+
+  if (gSecondClipDefined) {
+    std::string insertProp = std::string("OfxImageClipPropFrameRange_") + kProbeInsertClipName;
+    OfxStatus ist =
+        gProp->propSetDoubleN(outArgs, insertProp.c_str(), 2, range);
+    if (gFramesNeededCalls <= 3)
+      emitf("  %s = [%.0f %.0f]: %s", insertProp.c_str(), range[0], range[1], statusName(ist));
+  }
+
+  (void)effect;
   return kOfxStatOK;
 }
 
@@ -829,6 +1210,42 @@ OfxStatus onRender(OfxImageEffectHandle instance, OfxPropertySetHandle inArgs) {
     };
     dumpProps(inArgs, specs, sizeof(specs) / sizeof(specs[0]));
     probeInstanceProperties(instance);
+    probeSecondClip(instance, time);
+  }
+
+  // Item 4: tiles. We declared SupportsTiles=0; the host is then obliged to give us whole
+  // frames. Compare every render window against the output region of definition rather than
+  // trusting the first one -- a single full-frame render proves nothing if the next twenty
+  // are strips, which is exactly what a progressive viewer refresh looks like.
+  ++gRenderCalls;
+  {
+    int window[4] = {0, 0, 0, 0};
+    for (int i = 0; i < 4; ++i)
+      gProp->propGetInt(inArgs, kOfxImageEffectPropRenderWindow, i, &window[i]);
+
+    OfxImageClipHandle out = nullptr;
+    OfxRectD rod = {0, 0, 0, 0};
+    if (gEffect->clipGetHandle(instance, kOfxImageEffectOutputClipName, &out, nullptr) ==
+            kOfxStatOK &&
+        out && gEffect->clipGetRegionOfDefinition(out, time, &rod) == kOfxStatOK) {
+      const bool partial = window[0] > (int)rod.x1 || window[1] > (int)rod.y1 ||
+                           window[2] < (int)rod.x2 || window[3] < (int)rod.y2;
+      if (partial)
+        ++gPartialWindowRenders;
+      if (gRenderCalls <= 8 || partial) {
+        emitf("  render %ld: window [%d %d %d %d] rod [%.0f %.0f %.0f %.0f] %s", gRenderCalls,
+              window[0], window[1], window[2], window[3], rod.x1, rod.y1, rod.x2, rod.y2,
+              partial ? "PARTIAL -- host tiled us despite SupportsTiles=0" : "full frame");
+      }
+    }
+  }
+
+  // Item 2, done once. Placed after the pass-through work below would be safer for the
+  // host, but it is placed here on purpose: if this deadlocks we want to know it deadlocked
+  // in the pull and not in the copy.
+  if (!gInRenderPullDone) {
+    gInRenderPullDone = true;
+    probeInRenderFrameAccess(instance, time);
   }
 
   OfxImageClipHandle sourceClip = nullptr, outputClip = nullptr;
@@ -920,8 +1337,12 @@ OfxStatus onInstanceChanged(OfxImageEffectHandle instance, OfxPropertySetHandle 
   if (std::strcmp(name, kParamRunProbe) == 0) {
     probeHostProperties();
     probeInstanceProperties(instance);
+    probeSecondClip(instance, time);
     probeOutOfRenderFrameAccess(instance, time);
+    probeGlobalSymbolScope();
+    reportLoadedObjects();
     reportOverlayStatus();
+    reportPhaseZeroSummary();
     emit("");
     emit("Probe complete.");
     showMessage(instance, ("White Water probe written to:\n" + reportPath()).c_str());
@@ -947,7 +1368,7 @@ OfxStatus onInstanceChanged(OfxImageEffectHandle instance, OfxPropertySetHandle 
 void setHostFunc(OfxHost *host) { gHost = host; }
 
 OfxStatus pluginMain(const char *action, const void *handle, OfxPropertySetHandle inArgs,
-                     OfxPropertySetHandle /*outArgs*/) {
+                     OfxPropertySetHandle outArgs) {
   try {
     OfxImageEffectHandle effect = (OfxImageEffectHandle)handle;
 
@@ -967,6 +1388,8 @@ OfxStatus pluginMain(const char *action, const void *handle, OfxPropertySetHandl
     }
     if (std::strcmp(action, kOfxImageEffectActionRender) == 0)
       return onRender(effect, inArgs);
+    if (std::strcmp(action, kOfxImageEffectActionGetFramesNeeded) == 0)
+      return onGetFramesNeeded(effect, inArgs, outArgs);
     if (std::strcmp(action, kOfxActionInstanceChanged) == 0)
       return onInstanceChanged(effect, inArgs);
     if (std::strcmp(action, kOfxActionUnload) == 0) {
