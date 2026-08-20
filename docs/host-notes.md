@@ -277,6 +277,113 @@ is already known to work on this hardware.
 
 ---
 
+## Measured — Phase 0 probe run in Flame
+
+Flame **2026.2** (`com.autodesk.flame`, OFX API 1.4, 72 CPUs) on `flame6`, Rocky 9.5,
+**2026-08-20**. General context, 3840x2160 PAR 1, 23.976 fps, 184-frame clip, float RGBA
+unpremultiplied source. Two sessions, consistent. Raw:
+`docs/measurements/2026-08-20-hostprobe-flame-2026.2.txt`.
+
+**Four of the five questions are answered. Item 1 was not tested — a probe bug, not a host
+finding.**
+
+### 2. `clipGetImage` during render — WORKS ✅
+
+The load-bearing assumption. Every offset returned a full-bounds image from inside the
+render action, on a host thread, with no deadlock:
+
+| offset | result |
+|---|---|
+| ±1, ±10, ±100 | `OK`, bounds `[0, 0, 3840, 2160]` — all six |
+
+**The on-demand flow chain is viable.** No mandatory Analyze pass, no disk cache required.
+
+**But note what did *not* happen.** The clip's frame range is `[0, 183]` and the render was
+at t=0, so `t-1`, `t-10` and `t-100` were all *outside the clip* — and Flame returned a
+valid full-bounds image for every one of them rather than an error. Flame clamps or holds
+rather than failing. Consequences:
+
+- The chain must consult `kOfxImageEffectPropFrameRange` itself and must **never** infer a
+  range boundary from `clipGetImage` failing, because it does not fail.
+- A reference frame near either end would otherwise silently accumulate flow against a held
+  frame — producing zero motion that looks like a correct static track.
+
+### 3. ORT/CUDA symbol capture — the collision is REAL ⚠️
+
+`dlsym(RTLD_DEFAULT, …)` from inside the loaded plugin:
+
+| Symbol | Result | Owner |
+|---|---|---|
+| `OrtGetApiBase` | **VISIBLE** | `/opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1` |
+| `OrtSessionOptionsAppendExecutionProvider_CUDA` | **VISIBLE** | same |
+| `cudaRuntimeGetVersion`, `cudaMalloc` | **VISIBLE** | `libcudart.so.12` |
+| `cudnnGetVersion` | **VISIBLE** | `libcudnn.so.9` |
+| `cublasCreate_v2` | **VISIBLE** | `libcublas.so.12` |
+| `createInferBuilder_INTERNAL` | **VISIBLE** | `libnvinfer.so.10` |
+| `TBB_runtime_interface_version` | **VISIBLE** | `libtbb.so.12` |
+| `protobuf_shutdown`, `…ShutdownEveryN` | absent | — |
+
+Flame loads its ONNX Runtime, CUDA, cuDNN, cuBLAS, TensorRT and TBB into the **global**
+scope. A bundled copy of any of them would have our references captured by Flame's,
+first-loaded-wins. **In-process bundling of ONNX Runtime is not safe as a default.**
+
+One piece of good news: **protobuf is not exposed**, so ORT 1.22 is keeping it private.
+That removes the nastiest of the classic collisions and leaves the ORT C API itself as the
+problem to solve.
+
+Options unchanged, and now evidence-backed rather than speculative: out-of-process (what
+Mocha does, demonstrated on this box), `RTLD_LOCAL|RTLD_DEEPBIND`, or static with hidden
+visibility.
+
+### 4. `SupportsTiles = 0` — HONOURED ✅
+
+Eight renders across the session, every one `window [0 0 3840 2160]` against
+`rod [0 0 3840 2160]`. Flame advertises `SupportsTiles = 1` as a host but respects a plugin
+declaring 0. **No tile-assembly logic needed**, and whole-frame inference is safe.
+
+### 5. `getFramesNeeded` — CALLED, and declaring `{N}` is fine ✅
+
+Called 5 times per session. We declared `OfxImageClipPropFrameRange_Source = [0 0]` each
+time and got `kOfxStatOK` — **and item 2's distant pulls still succeeded afterwards**. So
+declaring the honest minimum does not restrict what `clipGetImage` will serve during render.
+The over-fetching worry that motivated the whole question does not arise.
+
+### 1. Second optional clip — NOT TESTED (probe bug)
+
+The report reads `Context is not General; second input clip not defined` inside a section
+headed `Describe in context "OfxImageEffectContextGeneral"`. The context *was* General; the
+check was broken.
+
+Cause: the probe compared the result of its own display formatter against the OFX constant.
+`readProp` quotes strings for human reading, so the value under test was
+`"OfxImageEffectContextGeneral"` **including quote characters**, which never matches. Fixed
+by reading the property with `propGetString` for the comparison and keeping `readProp` for
+display only.
+
+Nothing was learned about Flame here, and nothing should be inferred: Mocha Pro and
+Silhouette both take multiple inputs, so multi-input OFX plainly works in this host. Re-run
+required.
+
+### Other results worth keeping
+
+- **Half float confirmed**: `SupportedPixelDepths` includes `OfxBitDepthHalf`.
+- **1 MB string parameter survives save/reload byte-identical** — checksum matched across a
+  setup reload, in the General context, on a secret parameter. Re-confirms warp-drive.
+- **`OfxImageEffectPropCudaEnabled` / `Metal` / `OpenCL` are absent at render**
+  (`kOfxStatErrUnknown`), while `OpenGLEnabled = 0`. Consistent with the host advertising
+  only OpenGL.
+- **`SequentialRenderStatus = 1`, `InteractiveRenderStatus = 0`** on first render.
+- **Overlay**: `Draw` and `PenMotion` received in volume (253 and 130 events across two
+  sessions). **`PenDown` and `PenUp` were NEVER received** in either session — which differs
+  from warp-drive's measurement that both arrive with a pressure value. Most likely the
+  viewer was hovered rather than clicked, so treat this as inconclusive rather than as a
+  contradiction, and re-test deliberately if an overlay is ever built.
+- `MaxPages = 0` and `PageRowColumnCount = 0, 0` — pages are unusable, as documented.
+- Parametric parameters rejected; every other parameter type accepted, including `Custom`,
+  `Group` and `Page` (acceptance is not proof of rendering).
+
+---
+
 ## Open — Phase 0
 
 Nothing in `docs/plan.md` past Phase 0 is worth building until these are answered on the

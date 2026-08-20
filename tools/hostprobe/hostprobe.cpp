@@ -131,6 +131,8 @@ bool gSecondClipDefined = false;
 // thread, while the host holds whatever a render holds. Done once -- repeating it every
 // tile would flood the log and slow a real comp to a crawl.
 bool gInRenderPullDone = false;
+long gInRenderPullsOK = 0;
+long gInRenderPullsFailed = 0;
 
 // Item 4: does declaring SupportsTiles=0 actually get us whole frames? Answered by
 // comparing each render window against the output clip's region of definition. Tracked
@@ -791,13 +793,22 @@ void probeInRenderFrameAccess(OfxImageEffectHandle instance, double time) {
     emitf("  requesting t%+.0f ...", dt);
     st = gEffect->clipGetImage(clip, time + dt, nullptr, &image);
     if (st == kOfxStatOK && image) {
+      ++gInRenderPullsOK;
       std::string bounds = readProp(image, kOfxImagePropBounds, kInt);
       emitf("  t%+.0f: OK  bounds [%s]", dt, bounds.c_str());
       gEffect->clipReleaseImage(image);
     } else {
+      ++gInRenderPullsFailed;
       emitf("  t%+.0f: %s", dt, statusName(st));
     }
   }
+
+  // An offset past the end of the clip returning an image rather than an error is a real
+  // result and easy to misread as success. Say so where it is observed, not only in a
+  // document nobody has open at the time.
+  emit("  NOTE: check these against the clip's frame range. A host that clamps rather than");
+  emit("  failing will return a valid image for a time outside the clip, so the chain must");
+  emit("  consult kOfxImageEffectPropFrameRange itself and never infer range from failure.");
   emit("  Survived every pull without deadlocking. If this line is missing from the report,");
   emit("  the host hung or died on one of the requests above -- which is itself the answer.");
 }
@@ -903,10 +914,19 @@ void reportPhaseZeroSummary() {
         gSecondClipDefined ? "defined -- see 'Optional second input clip' above"
                            : "NOT DEFINED (open the probe in a General-context node)");
 
-  emitf("  2. clipGetImage in render   : %s",
-        gInRenderPullDone
-            ? "attempted -- read the per-offset results above"
-            : "NOT ATTEMPTED (the node never rendered; view it in the viewer)");
+  if (!gInRenderPullDone) {
+    emit("  2. clipGetImage in render   : NOT ATTEMPTED (the node never rendered; view it"
+         " in the viewer)");
+  } else if (gInRenderPullsFailed == 0) {
+    emitf("  2. clipGetImage in render   : WORKS -- %ld of %ld offsets returned an image,"
+          " no deadlock. The on-demand flow chain is viable.",
+          gInRenderPullsOK, gInRenderPullsOK + gInRenderPullsFailed);
+  } else {
+    emitf("  2. clipGetImage in render   : PARTIAL -- %ld ok, %ld failed. Read the"
+          " per-offset results; which offsets failed decides whether this is a range"
+          " limit or a real refusal.",
+          gInRenderPullsOK, gInRenderPullsFailed);
+  }
 
   emit("  3. ORT/CUDA symbol capture  : see 'Global symbol scope' above.");
   emit("       VISIBLE lines mean a bundled copy would be captured by the host's, so");
@@ -916,7 +936,8 @@ void reportPhaseZeroSummary() {
   if (gRenderCalls == 0) {
     emit("  4. Tiles (SupportsTiles=0)  : NO RENDERS YET");
   } else if (gPartialWindowRenders == 0) {
-    emitf("  4. Tiles (SupportsTiles=0)  : honoured -- %ld renders, all full frame",
+    emitf("  4. Tiles (SupportsTiles=0)  : honoured -- %ld render(s) so far, all full"
+          " frame. Renders after this point are logged individually below.",
           gRenderCalls);
   } else {
     emitf("  4. Tiles (SupportsTiles=0)  : NOT HONOURED -- %ld of %ld renders were partial."
@@ -1099,8 +1120,17 @@ OfxStatus onDescribe(OfxImageEffectHandle effect) {
 }
 
 OfxStatus onDescribeInContext(OfxImageEffectHandle effect, OfxPropertySetHandle inArgs) {
-  const std::string context = readProp(inArgs, kOfxImageEffectPropContext, kStr);
-  section(("Describe in context " + context).c_str());
+  // Two reads of the same property on purpose. readProp renders a value for a human and
+  // quotes strings to do it, so its result is a display string and must never be compared
+  // against anything -- doing exactly that is what made the first run report "context is
+  // not General" inside a section headed 'Describe in context "OfxImageEffectContextGeneral"'
+  // and silently skip the second clip.
+  const std::string contextForDisplay = readProp(inArgs, kOfxImageEffectPropContext, kStr);
+  section(("Describe in context " + contextForDisplay).c_str());
+
+  char *contextValue = nullptr;
+  gProp->propGetString(inArgs, kOfxImageEffectPropContext, 0, &contextValue);
+  const std::string context = contextValue ? contextValue : "";
 
   OfxPropertySetHandle clipProps = nullptr;
   gEffect->clipDefine(effect, kOfxImageEffectSimpleSourceClipName, &clipProps);

@@ -215,3 +215,35 @@ Three lessons, in descending order of how much they would have saved:
 3. **Departing from a sibling project's proven configuration needs a stronger reason than
    "our target is newer".** warp-drive's EL8 choice looked like over-caution for a Rocky 9.5
    target. It is the thing that makes the artifact load.
+
+### 4. Comparing against a display string skipped a whole Phase 0 question
+
+**Symptom:** the probe report reads `Context is not General; second input clip not defined`
+inside a section headed `Describe in context "OfxImageEffectContextGeneral"`. The header and
+the verdict contradict each other on the same line of output, which is what gave it away.
+
+The probe has a `readProp` helper that renders any property for a human, and it quotes
+strings to do that. I fed its result straight into a comparison:
+
+```cpp
+const std::string context = readProp(inArgs, kOfxImageEffectPropContext, kStr);
+gSecondClipDefined = (context == kOfxImageEffectContextGeneral);   // never true
+```
+
+The value under test was `"OfxImageEffectContextGeneral"` **with quote characters in it**, so
+the branch could not fire in any context. The optional second clip was never defined, and a
+whole Phase 0 item silently reported itself as untested rather than failing.
+
+Fixed by reading the raw value with `propGetString` for the comparison and keeping `readProp`
+for display, with a comment at the site saying why there are two reads of one property.
+
+**The lesson is about the report, not the bug.** The probe printed both facts next to each
+other and the contradiction was visible on inspection — a diagnostic that states what it
+observed *and* what it concluded catches its own errors, where one printing only the
+conclusion would have read as a clean host finding. That is worth preserving deliberately as
+more probes get written.
+
+Also worth noting: the user said immediately that multi-input OFX must work, because Mocha
+and Silhouette both do it. That was right, and it is the reason this got looked at rather
+than written down as a Flame limitation.
+
