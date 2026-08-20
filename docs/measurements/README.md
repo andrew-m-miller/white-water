@@ -11,3 +11,4 @@ Named `YYYY-MM-DD-<subject>.txt`. Each should be referenced from the entry in
 | File | Subject |
 |---|---|
 | `2026-08-20-mocha-investigation.txt` | Mocha Pro 2026.5 ML stack on `flame6`, Rocky 9.5. Supports *Measured — Mocha Pro's ML architecture*. |
+| `2026-08-20-nvidia-smi-compute-apps.csv` | Per-process VRAM with Flame open and Mocha's ML matte running. Same section. |

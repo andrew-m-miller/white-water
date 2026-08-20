@@ -115,13 +115,52 @@ observed running.
 | The entire ML stack lives in `Resources/mochaui/lib/ML/` — **outside** the `.ofx.bundle`, beside `Resources/mochaui/bin/mochaui`, an executable. | Inference belongs to the standalone application. |
 | `Resources/mochaui/bin/` also contains `HostTestServer`, `ChannelTestServer`, `EchoTestServer`, `ServerNodeTestServer`. | A client/server IPC architecture, with test harnesses for it — the same shape as warp-drive's `src/ipc/` frame channel. |
 
-**Do not over-read this.** It shows a major vendor shipping out-of-process ML from an OFX
-plugin on this exact platform. It does **not** show that in-process inference fails — Mocha
-is a standalone application with an OFX front end, so its process split is probably product
-history rather than a technical verdict. Phase 0 item 3 still needs our own probe.
+**Confirmed at runtime**, with Flame open and Mocha's ML matte working
+(`docs/measurements/2026-08-20-nvidia-smi-compute-apps.csv`):
 
-It does mean the `nvidia-smi` check will almost certainly show a `mochaui` pid rather than a
-Flame pid, so that test now confirms this finding rather than answering item 3.
+| pid | process | VRAM |
+|---|---|---|
+| 2159577 | `/opt/Autodesk/flame_2026.2.1/bin/flame` | 1,523 MiB |
+| 2187840 | `…/MochaPro2026.5/Resources/mochaui/bin/mochaui` | **4,903 MiB** |
+| 79812 | `./rgsender` (remote graphics) | 204 MiB |
+
+Two separate processes hold CUDA allocations on the same GPU at the same time, and the ML
+one holds three times what the host does.
+
+### What this retires, and what it leaves
+
+**Retired: device contention.** A second process demonstrably gets a large CUDA allocation
+alongside a running Flame, on this box. That was the open worry behind Phase 0 item 3 — that
+Flame owning the GPU would leave nothing to work with — and it is answered. It also means
+GPU inference on a Flame box is not merely plausible but *demonstrated by a shipping
+product* on this exact hardware.
+
+**Still open, and now narrower.** Item 3 asked two questions bundled together. Only one
+remains, and it is the linker question, not the device question: can ONNX Runtime's CUDA EP
+load and initialise **inside Flame's own address space**, given that Flame has its own CUDA
+runtime and quite possibly its own protobuf, at versions we do not control? Mocha never has
+to answer that, because it never loads any of it into Flame.
+
+Suggestive: Mocha Pro 2026.5 uses **CUDA 12 / cuDNN 9.10.2**. If Flame 2026.2.1 links CUDA
+11, then two CUDA runtimes coexisting in one process is exactly the collision `cmake/ofx.map`
+cannot prevent — it keeps *our* symbols private, it does not stop our references binding to
+*theirs*. Out of process, the question does not arise. Worth checking what Flame itself
+links before designing around in-process.
+
+**Do not over-read the architecture.** Mocha is a standalone application with an OFX front
+end, so its process split is probably product history rather than a technical verdict on
+in-process inference. But the practical consequence stands either way: **the project now has
+a path that is known to work.** If in-process fails, out-of-process is not a fallback we
+would be inventing under pressure — it is a shape a vendor ships, and warp-drive already has
+the machinery (`src/ofx/EditorProcess.cpp`, `src/ipc/`).
+
+**Budget number worth keeping:** 4.9 GB is what ML matting actually costs in VFX practice.
+Our own budget should be planned against that order of magnitude, not against a paper figure.
+Total GPU capacity was not captured — run this to get the headroom:
+
+```bash
+nvidia-smi --query-gpu=name,memory.total,memory.used,memory.free --format=csv
+```
 
 ### ONNX Runtime is the right call, and their abstraction matches ours
 
@@ -209,8 +248,10 @@ button press. Separate so that a runtime which refuses to initialise cannot take
 capability probe down with it.
 
 - Does `Ort::Env` construct at all inside Flame?
-- Does the CUDA execution provider find a device, given that Flame already owns one?
-- What does VRAM look like before and after, and does Flame's own rendering degrade?
+- ~~Does the CUDA execution provider find a device, given that Flame already owns one?~~
+  **Answered 2026-08-20** — see *Measured — Mocha Pro's ML architecture*. A second process
+  holds 4.9 GB alongside a running Flame. Device contention is not the problem.
+- Does Flame's own rendering degrade while inference runs?
 - Does anything collide at the dynamic-linker level — Flame ships its own CUDA runtime and
   quite possibly its own protobuf. (`cmake/ofx.map` keeps *our* symbols private; it does
   not stop us from binding to *theirs*.)

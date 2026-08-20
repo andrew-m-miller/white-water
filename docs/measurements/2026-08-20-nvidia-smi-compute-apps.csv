@@ -1,0 +1,5 @@
+pid, process_name, used_gpu_memory [MiB]
+79812, ./rgsender, 204 MiB
+2159577, /opt/Autodesk/flame_2026.2.1/bin/flame, 1523 MiB
+2187840, /usr/OFX/Plugins/BorisFX/MochaPro2026.5/Resources/mochaui/bin/mochaui, 4903 MiB
+
