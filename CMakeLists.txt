@@ -105,6 +105,18 @@ include(OfxBundle)
 # than it should -- the failure mode a test suite is least able to report.
 enable_testing()
 
+# Phase 0B's model provenance is executable data, not prose. Keep the structural gate
+# dependency-free so the normal probe/core build does not need PyTorch or ONNX installed.
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME models::searaft_manifest
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/check_searaft_manifest.py"
+      "${CMAKE_SOURCE_DIR}/models/sea-raft-m.json")
+else()
+  message(STATUS "SEA-RAFT manifest gate skipped (Python 3 not found)")
+endif()
+
 add_subdirectory(src/core)
 add_subdirectory(src/ofx)
 

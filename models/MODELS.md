@@ -242,6 +242,41 @@ FuryTMP/RIFE_fp32) and are worth reading for their tensor contracts. Do not ship
 export whose provenance and preprocessing we did not pin is an export whose failure mode we
 cannot reason about.
 
+### Phase 0B export status
+
+Work started 2026-08-20. `sea-raft-m.json` now pins the official SEA-RAFT source at commit
+`9137517ba24e628442aec097d3afe71d03503b75` and the author's Hugging Face M checkpoint at
+its file-producing revision `ea21e467a7076978b251e09d55751fcce166c2f8`. The checkpoint
+was downloaded and measured as 78,778,760 bytes with SHA256
+`cb8cfbf14c5e0f6734b64add383708b7ff68cc6089a0007c67165d4761346102`.
+
+The manifest records the exact tensor contract and export settings. `export_searaft.py`
+refuses a source or checkpoint mismatch, exports only the final `image1 -> image2` flow,
+and checks PyTorch/ONNX parity, identity, positive-X translation, and the reverse negative-X
+translation before publishing the artifact.
+
+The first export completed on macOS arm64 with PyTorch 2.2.0 and ONNX Runtime 1.29.0 CPU.
+The 78,840,944-byte opset-17 artifact has SHA256
+`23cc2c850d3c116df193a24ff9ae7722d5635cd04e75dd8aeb20d7e13e4f59f1`; it contains 1,969
+standard `ai.onnx` nodes and no custom or ATen domain. A second 160x256 input proved the
+dynamic spatial axes. On a four-pixel synthetic translation, the exported model reported
+median flow `(4.0042, 0.0087)` forward and `(-4.0097, -0.0004)` reverse; identical inputs
+had median EPE 0.0039 px. The manifest holds the full parity distribution and thresholds.
+
+This closes the export portion only. The artifact remains ignored by git and must be staged
+from a qualified build input. CPU/CUDA execution inside Flame, cancellation, repeated
+lifecycle, provider/OOM fallback, VRAM/latency, and CUDA payload closure remain open.
+
+```bash
+python3.10 -m venv /path/to/searaft-export-env
+/path/to/searaft-export-env/bin/pip install -r models/requirements-searaft-export.txt
+/path/to/searaft-export-env/bin/python models/export_searaft.py \
+  --upstream /path/to/SEA-RAFT-at-9137517 \
+  --checkpoint /path/to/model.safetensors \
+  --output models/sea-raft-m-opset17.onnx \
+  --update-manifest
+```
+
 ## Resolution at runtime
 
 The plugin looks for weights in this order, and prints which one won to stderr — which

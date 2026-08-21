@@ -1,0 +1,9 @@
+# SEA-RAFT upstream documents Python 3.10, PyTorch 2.2.0 and CUDA 12.2. Export itself is
+# device-independent; use the appropriate PyTorch wheel index for the export machine.
+torch==2.2.0
+torchvision==0.17.0
+numpy==1.26.4
+scipy==1.12.0
+onnx==1.15.0
+onnxruntime==1.29.0
+safetensors==0.4.2

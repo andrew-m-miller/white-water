@@ -13,6 +13,8 @@ Testing/
 .vscode/
 .idea/
 compile_commands.json
+__pycache__/
+*.py[cod]
 
 whitewater-hostprobe*.txt
 
