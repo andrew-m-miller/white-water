@@ -311,11 +311,15 @@ jobs:
           checks runtime isolation, CPU and CUDA identity/direction, mapped provider/CUDA
           libraries, VRAM checkpoints, warm/steady 480x640 timing, repeated session lifecycle,
           cross-thread cancellation, and provider-init failure with CPU fallback. Extended
-          measurements are enabled in Flame by default and can take time. Set
+          measurements are enabled in Flame by default and can take time; they include a
+          controlled CUDA arena-limit test using a 64 MiB gpu_mem_limit at 480x640, followed
+          by numerical recovery in a fresh CPU session. The limit is not a device-wide CUDA
+          allocation fence, and the CPU check is not an automatic production fallback. Set
           WHITEWATER_ORT_PROBE_SIZES before launching Flame to select other bounded HxW sizes.
-          Physical GPU exhaustion is deliberately not attempted on a live Flame. Duplicate
-          the node and run the probe on each copy; instance handles and process-live counts
-          in the reports make that manual lifecycle check observable. Its report goes to
+          Set WHITEWATER_ORT_REQUIRE_GPU_MEM_LIMIT=1 to make a missing or failed arena-limit
+          result fail the probe action while qualifying 0B.
+          Duplicate the node and run the probe on each copy; instance handles and process-live
+          counts in the reports make that manual lifecycle check observable. Its report goes to
           $WHITEWATER_ORT_PROBE_LOG, else
           $TMPDIR/whitewater-ortprobe.txt, else /tmp. Read the VERDICT block at the end;
           the reported version must NOT match Flame's own ONNX Runtime, or the result is

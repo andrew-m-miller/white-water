@@ -18,6 +18,10 @@ __pycache__/
 
 whitewater-hostprobe*.txt
 
+# ORT's macOS telemetry persistence fallback creates this literal filename during the local
+# probe-driver test when no platform device identifier is available.
+/:memory:.ses
+
 # Model weights are staged into the bundle at build time from a pinned checkpoint, never
 # committed. They are tens of megabytes of binary that git cannot diff and that a licence
 # audit has to be able to trace back to an upstream release, which a checked-in blob makes

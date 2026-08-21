@@ -566,33 +566,100 @@ the Flame runtime user was distinct and could not read it. It was corrected to *
 the probe then loaded it. Model staging and CI must assert mode **0644** (or an equivalent
 ACL that lets the Flame runtime user read the file) so this failure cannot recur.
 
+## Measured — Phase 0B multiresolution and duplicated-node run
+
+Flame **2026.2** on `flame6`, Rocky 9.5, **2026-08-21**. The supplied reports
+`whitewater-ortprobe-multisize.txt` and `whitewater-ortprobe-multisize-duplicatednode.txt`
+ran the same manifest-verified SEA-RAFT M probe at three real-model resolutions. The second
+report is cumulative: it repeats the first node's 176-line report, then records the run from
+the duplicated OFX node. The supplied reports are not archived in this repository; the
+filenames, host and date identify the source of the measurements below.
+
+### Warmed steady timings
+
+The first and duplicated nodes both passed numerical identity/direction checks. Each timing
+is the median of three steady samples after the reported warm run:
+
+| Resolution | CPU node 1 | CPU duplicate | CUDA node 1 | CUDA duplicate |
+|---|---:|---:|---:|---:|
+| 480×640 | 6651.3 ms | 6705.4 ms | 40.7 ms | 40.9 ms |
+| 720×1280 | 21818.7 ms | 21865.2 ms | 114.3 ms | 114.7 ms |
+| 1080×1920 | 56299.6 ms | 56480.9 ms | 277.9 ms | 278.4 ms |
+
+### VRAM, lifecycle and fallback observations
+
+Both CUDA runs used a 24,564 MiB device and passed the VRAM check. Node 1 measured a
+2,188.5 MiB baseline, 14,709.6 MiB peak/steady usage and a 12,521.1 MiB observed delta;
+the duplicate measured a 2,445.6 MiB baseline, 14,771.6 MiB peak and 14,751.6 MiB steady
+usage, with a 12,326.0 MiB observed delta. The baseline difference is a whole-device NVML
+sample and does not, by itself, establish a leak. The 1080p steady samples left 9,854.4 MiB
+free for node 1 and 9,812.4 MiB for the duplicate.
+
+CPU and CUDA repeated create/run/destroy completed **3/3** in each report. Cross-thread
+cancellation observed provider termination on both nodes. The injected invalid-device
+provider-init failure then ran the CPU fallback and passed its numerical check on both nodes.
+The post-run map identifies `libcurand.so.10` as Flame-owned at
+`/opt/Autodesk/lib64/2026.2.1/libcurand.so.10`. The reported 3,253.1 MiB mapped-file total
+includes Flame's already-loaded CUDA/cuDNN/TensorRT libraries; it is not the distributable
+payload size.
+
+The two node handles were distinct (`0x2168c940` and `0x1f030640`), and the second run saw
+the probe's live-instance counter at 2. Comparing the cumulative reports supports equivalent
+behavior for this duplicated-node run. The probe's own per-instance summary still prints
+"node duplication equivalence: NOT TESTED" because it does not automate a cross-report
+comparison; this evidence does not answer Flame process/restart lifetime, which remains a
+0C question.
+
+## Implementation status — next 0B probe, not yet measured
+
+The next probe revision adds a controlled CUDA-arena failure exercise. It sets
+`OrtCUDAProviderOptions::gpu_mem_limit` to a fixed **64 MiB** and attempts the real SEA-RAFT
+M model at **480×640**. Only a recognisable allocator-limit diagnostic while creating the
+limited CUDA session or during its first run qualifies; provider initialization and other
+errors are reported separately by stage and kind. The probe then tears down that limited
+CUDA attempt and requires numerical identity/direction recovery through a fresh CPU session
+at **128×192**. It also records device-wide NVML use before and after cleanup, requires the
+baseline CUDA inference to pass first, and skips the exercise if a cancellation timeout left
+CUDA resources alive. `gpu_mem_limit` bounds ORT's
+CUDA arena, not every CUDA/cuDNN allocation, and the fresh CPU session is recovery evidence,
+not an automatic production-fallback test. Set
+`WHITEWATER_ORT_REQUIRE_GPU_MEM_LIMIT=1` to make this result gate the probe action. A new
+Flame measurement is required before this item can be marked measured.
+
 ## Open
 
 Phase 0A's five questions are closed — see *Measured — Phase 0 probe run in Flame*. The
-real SEA-RAFT M network now passes on both CPU and CUDA in Phase 0B, but the rest of that
-gate remains open. The outstanding questions below are grouped by the gate they block
-(`docs/plan.md`, *Phase 0*).
+real SEA-RAFT M network now passes on both CPU and CUDA in Phase 0B. The follow-up run above
+closes the measured 480p–1080p timing/VRAM, lifecycle, cancellation and provider-init
+fallback checks for the reported nodes. The outstanding questions below are grouped by the
+gate they block (`docs/plan.md`, *Phase 0*).
 
 ### 0B — blocks the inference implementation
 
 **Measured status (2026-08-21):** the pinned SEA-RAFT M export passes identity and both
 translation directions through private ORT 1.29 on CPU and CUDA inside Flame 2026.2. The
-provider libraries and initial timings are recorded above. This does not choose the shipping
-model or close the remaining operational and packaging tests.
+provider libraries, multiresolution timings/VRAM, lifecycle, cancellation, provider-init
+fallback and duplicated-node comparison are recorded above for the supplied run. This does
+not choose the shipping model or close the remaining packaging, controlled CUDA arena-limit
+and CPU recovery measurement, or higher production-resolution tests.
 
-1. **Exact CUDA dependency closure and ownership.** Resolve the shell-closure misses,
-   especially `libcurand.so.10`, record the owner of every dependency, and record the final
-   on-disk size. The probe's map omitted `libcurand`, so this question is not answered by the
-   successful run.
-2. **Peak and steady VRAM** beside a live Batch, at the resolutions and model settings that
-   production will use.
-3. **Repeated create/run/destroy and node duplication**, including whether providers or CUDA
-   allocations leak or duplicate across lifecycle events.
-4. **Cross-thread cancellation** through a per-run `RunOptions`.
-5. **Fallbacks** after provider initialization failure and after GPU OOM, including the
-   documented CPU path and artist-visible diagnostic.
-6. **Warmed production-resolution performance**, separate from the tiny 128×192 first-run
-   timings above; include the effect of the nine inserted Memcpy nodes and CPU shape ops.
+1. **Complete CUDA dependency closure and packaging ownership.** The supplied run identifies
+   `libcurand.so.10` as the host file above, but the shell closure still reports unresolved
+   CUDA names. Record the owner of every dependency and the final on-disk size before making
+   the packaging decision.
+2. **Higher warmed production-resolution performance and VRAM.** The 480×640, 720×1280 and
+   1080×1920 measurements are recorded above. UHD, DCI 4K and the 4608×3164 Alexa 35
+   open-gate case remain to be measured with the selected model/settings; none is a hard
+   plugin-resolution cap.
+3. **Broader lifecycle scope.** Repeated create/run/destroy passed 3/3 on CPU and CUDA, and
+   the duplicate-node comparison supports equivalent behavior for this run. Flame process
+   restart/foreground-versus-background lifetime remains the separate 0C question.
+4. **Cross-thread cancellation** passed through a per-run `RunOptions` in both reports; keep
+   it in regression coverage.
+5. **Fallbacks.** Provider-init failure plus numerical CPU fallback passed. The controlled
+   64 MiB `gpu_mem_limit` arena-limit/CPU-recovery exercise is implemented in the next probe
+   but is pending a new Flame measurement; no device-wide GPU-OOM or automatic fallback
+   result should be inferred yet.
 
 ### 0C — blocks ST map and cache integration
 

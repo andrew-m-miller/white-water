@@ -329,6 +329,41 @@ struct FallbackResult {
   std::string failure;
 };
 
+enum class ArenaLimitFailureStage {
+  None,
+  CreateSessionOptions,
+  ConfigureSessionOptions,
+  AppendProvider,
+  CreateSession,
+  CreateMemoryInfo,
+  Run,
+};
+
+enum class ArenaLimitFailureKind {
+  None,
+  ProviderInit,
+  AllocatorLimit,
+  UnexpectedSuccess,
+  Other,
+};
+
+struct ArenaLimitResult {
+  bool attempted = false;
+  bool allocatorFailureObserved = false;
+  bool cpuRecoveryRan = false;
+  bool vramBeforeAvailable = false;
+  bool vramAfterAvailable = false;
+  std::uint64_t vramBeforeBytes = 0;
+  std::uint64_t vramAfterBytes = 0;
+  std::size_t gpuMemoryLimitBytes = 0;
+  int targetHeight = 0;
+  int targetWidth = 0;
+  ArenaLimitFailureStage failureStage = ArenaLimitFailureStage::None;
+  ArenaLimitFailureKind failureKind = ArenaLimitFailureKind::None;
+  ProbeState state = ProbeState::NotTested;
+  std::string failure;
+};
+
 struct ModeResult {
   bool opened = false;
   bool distinctFromHost = false;
@@ -352,9 +387,8 @@ struct ModeResult {
   LifecycleResult cpuLifecycle;
   LifecycleResult cudaLifecycle;
   FallbackResult providerFallback;
-  ProbeState gpuOomFallbackState = ProbeState::NotTested;
+  ArenaLimitResult gpuArenaLimit;
   ProbeState nodeDuplicationState = ProbeState::NotTested;
-  std::string gpuOomFallbackFailure;
   std::string nodeDuplicationFailure;
   std::string version;
   std::string failure;
@@ -583,6 +617,21 @@ void sampleVram(VramMonitor *monitor, FlowRun::VramMetrics &metrics, const char 
 #endif
 }
 
+bool sampleVramUsed(VramMonitor *monitor, std::uint64_t &usedBytes) {
+  if (!monitor || !monitor->available)
+    return false;
+#if defined(__linux__)
+  NvmlMemoryInfo memory = {};
+  if (!monitor->sample(memory))
+    return false;
+  usedBytes = memory.used;
+  return true;
+#else
+  (void)usedBytes;
+  return false;
+#endif
+}
+
 struct ProbeSize {
   int height = 0;
   int width = 0;
@@ -785,6 +834,57 @@ bool looksLikeTermination(const std::string &message) {
   }
   return lower.find("terminat") != std::string::npos ||
          lower.find("cancel") != std::string::npos || lower.find("abort") != std::string::npos;
+}
+
+bool looksLikeExplicitCudaArenaLimitFailure(const std::string &message) {
+  std::string lower = message;
+  for (char &character : lower) {
+    if (character >= 'A' && character <= 'Z')
+      character = static_cast<char>(character - 'A' + 'a');
+  }
+  const bool allocationSpecific = lower.find("out of memory") != std::string::npos ||
+                                  lower.find("failed to allocate") != std::string::npos ||
+                                  lower.find("memory allocation") != std::string::npos ||
+                                  lower.find("available memory") != std::string::npos;
+  return lower.find("gpu_mem_limit") != std::string::npos ||
+         lower.find("bfcarena") != std::string::npos ||
+         (lower.find("arena") != std::string::npos && allocationSpecific);
+}
+
+const char *arenaLimitFailureStage(ArenaLimitFailureStage stage) {
+  switch (stage) {
+  case ArenaLimitFailureStage::None:
+    return "none";
+  case ArenaLimitFailureStage::CreateSessionOptions:
+    return "CreateSessionOptions";
+  case ArenaLimitFailureStage::ConfigureSessionOptions:
+    return "ConfigureSessionOptions";
+  case ArenaLimitFailureStage::AppendProvider:
+    return "AppendProvider";
+  case ArenaLimitFailureStage::CreateSession:
+    return "CreateSession";
+  case ArenaLimitFailureStage::CreateMemoryInfo:
+    return "CreateMemoryInfo";
+  case ArenaLimitFailureStage::Run:
+    return "Run";
+  }
+  return "unknown";
+}
+
+const char *arenaLimitFailureKind(ArenaLimitFailureKind kind) {
+  switch (kind) {
+  case ArenaLimitFailureKind::None:
+    return "none";
+  case ArenaLimitFailureKind::ProviderInit:
+    return "provider-init";
+  case ArenaLimitFailureKind::AllocatorLimit:
+    return "allocator-limit";
+  case ArenaLimitFailureKind::UnexpectedSuccess:
+    return "unexpected-success";
+  case ArenaLimitFailureKind::Other:
+    return "other";
+  }
+  return "unknown";
 }
 
 void releaseCancellationInputs(const std::shared_ptr<CancellationCall> &call) {
@@ -1118,6 +1218,145 @@ FallbackResult exerciseProviderFailureFallback(const OrtApi *api, OrtEnv *env,
   return result;
 }
 
+ArenaLimitResult exerciseGpuArenaLimitRecovery(const OrtApi *api, OrtEnv *env,
+                                               const std::string &path,
+                                               VramMonitor *vramMonitor) {
+  // gpu_mem_limit bounds ONNX Runtime's CUDA arena, not every CUDA/cuDNN allocation in the
+  // process.  This is therefore a controlled arena-limit exercise rather than a device-wide
+  // allocation fence.  NVML samples before and after make unexpected physical pressure
+  // visible in the report.  A qualifying result must be a recognisable allocator-limit
+  // diagnostic from CreateSession or Run; provider setup failures do not count.
+  constexpr std::size_t kGpuMemoryLimitBytes = 64u * 1024u * 1024u;
+  constexpr int kTargetHeight = 480;
+  constexpr int kTargetWidth = 640;
+
+  ArenaLimitResult result;
+  result.attempted = true;
+  result.gpuMemoryLimitBytes = kGpuMemoryLimitBytes;
+  result.targetHeight = kTargetHeight;
+  result.targetWidth = kTargetWidth;
+
+  OrtSessionOptions *options = nullptr;
+  OrtSession *limitedSession = nullptr;
+  OrtMemoryInfo *memory = nullptr;
+  bool setupReady = true;
+
+  result.vramBeforeAvailable = sampleVramUsed(vramMonitor, result.vramBeforeBytes);
+
+  result.failureStage = ArenaLimitFailureStage::CreateSessionOptions;
+  OrtStatus *status = api->CreateSessionOptions(&options);
+  if (status) {
+    result.failure = "CreateSessionOptions: " + takeStatus(api, status);
+    result.failureKind = ArenaLimitFailureKind::Other;
+    setupReady = false;
+  }
+  if (setupReady) {
+    result.failureStage = ArenaLimitFailureStage::ConfigureSessionOptions;
+    status = api->SetIntraOpNumThreads(options, 1);
+    if (status) {
+      result.failure = "SetIntraOpNumThreads: " + takeStatus(api, status);
+      result.failureKind = ArenaLimitFailureKind::Other;
+      setupReady = false;
+    }
+  }
+  if (setupReady) {
+    OrtCUDAProviderOptions limitedCuda{};
+    limitedCuda.device_id = 0;
+    limitedCuda.arena_extend_strategy = 1; // kSameAsRequested: do not round growth upward.
+    limitedCuda.gpu_mem_limit = kGpuMemoryLimitBytes;
+    limitedCuda.cudnn_conv_algo_search = OrtCudnnConvAlgoSearchHeuristic;
+    limitedCuda.do_copy_in_default_stream = 1;
+    result.failureStage = ArenaLimitFailureStage::AppendProvider;
+    status = api->SessionOptionsAppendExecutionProvider_CUDA(options, &limitedCuda);
+    if (status) {
+      result.failure = "append limited CUDA provider: " + takeStatus(api, status);
+      result.failureKind = ArenaLimitFailureKind::ProviderInit;
+      setupReady = false;
+    }
+  }
+  if (setupReady) {
+    result.failureStage = ArenaLimitFailureStage::CreateSession;
+    status = api->CreateSession(env, path.c_str(), options, &limitedSession);
+    if (status) {
+      const std::string detail = takeStatus(api, status);
+      result.allocatorFailureObserved = looksLikeExplicitCudaArenaLimitFailure(detail);
+      result.failureKind = result.allocatorFailureObserved
+                               ? ArenaLimitFailureKind::AllocatorLimit
+                               : ArenaLimitFailureKind::Other;
+      result.failure = "limited CUDA CreateSession: " + detail;
+      setupReady = false;
+    }
+  }
+  if (setupReady) {
+    result.failureStage = ArenaLimitFailureStage::CreateMemoryInfo;
+    status = api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory);
+    if (status) {
+      result.failure = "CreateCpuMemoryInfo for limited CUDA run: " + takeStatus(api, status);
+      result.failureKind = ArenaLimitFailureKind::Other;
+      setupReady = false;
+    }
+  }
+  if (setupReady) {
+    result.failureStage = ArenaLimitFailureStage::Run;
+    const std::vector<float> first = makeTexture(kTargetHeight, kTargetWidth);
+    const std::vector<float> second =
+        translateRight(first, kTargetHeight, kTargetWidth, 4);
+    std::vector<float> flow;
+    double milliseconds = 0.0;
+    std::string detail;
+    if (!runFlowOnce(api, limitedSession, memory, first, second, kTargetHeight, kTargetWidth,
+                     flow, milliseconds, detail)) {
+      result.allocatorFailureObserved = looksLikeExplicitCudaArenaLimitFailure(detail);
+      result.failureKind = result.allocatorFailureObserved
+                               ? ArenaLimitFailureKind::AllocatorLimit
+                               : ArenaLimitFailureKind::Other;
+      result.failure = "limited CUDA Run: " + detail;
+    } else {
+      result.failureKind = ArenaLimitFailureKind::UnexpectedSuccess;
+      result.failure = "limited CUDA Run unexpectedly succeeded; gpu_mem_limit did not "
+                       "produce the required allocator failure";
+    }
+  }
+
+  if (memory)
+    api->ReleaseMemoryInfo(memory);
+  if (limitedSession)
+    api->ReleaseSession(limitedSession);
+  if (options)
+    api->ReleaseSessionOptions(options);
+
+  result.vramAfterAvailable = sampleVramUsed(vramMonitor, result.vramAfterBytes);
+
+  // This is process/session recovery, not an automatic production fallback path.  It starts
+  // a fresh CPU session after the limited CUDA objects are gone and repeats the real model's
+  // 128x192 identity/direction checks as numerical evidence that recovery remains possible.
+  FlowRun recovery = runSeaRaft(api, env, path, false, false, nullptr);
+  result.cpuRecoveryRan = recovery.ran && recovery.correct;
+  if (result.allocatorFailureObserved && result.cpuRecoveryRan) {
+    result.state = ProbeState::Pass;
+  } else {
+    result.state = ProbeState::Fail;
+    if (!recovery.failure.empty())
+      result.failure += "; CPU recovery: " + recovery.failure;
+  }
+
+  emitf("    controlled CUDA arena limit + CPU recovery: gpu_mem_limit %.1f MiB | "
+        "target %dx%d | stage %s | kind %s | allocator failure %s | CPU recovery %s | %s",
+        static_cast<double>(result.gpuMemoryLimitBytes) / (1024.0 * 1024.0),
+        result.targetHeight, result.targetWidth, arenaLimitFailureStage(result.failureStage),
+        arenaLimitFailureKind(result.failureKind), yesNo(result.allocatorFailureObserved),
+        yesNo(result.cpuRecoveryRan), probeState(result.state));
+  if (result.vramBeforeAvailable && result.vramAfterAvailable)
+    emitf("      device VRAM used before %.1f MiB | after cleanup %.1f MiB (NVML, device-wide)",
+          static_cast<double>(result.vramBeforeBytes) / (1024.0 * 1024.0),
+          static_cast<double>(result.vramAfterBytes) / (1024.0 * 1024.0));
+  else
+    emit("      device VRAM before/after: NOT TESTED (NVML unavailable)");
+  if (!result.failure.empty())
+    emitf("      arena-limit detail: %s", result.failure.c_str());
+  return result;
+}
+
 bool providerAvailable(const OrtApi *api, const char *wanted) {
   char **providers = nullptr;
   int count = 0;
@@ -1427,72 +1666,93 @@ ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void 
     if (!cpu.failure.empty() && result.failure.empty())
       result.failure = "SEA-RAFT CPU: " + cpu.failure;
 
-    result.cudaProviderChecked = true;
-    result.cudaAvailable = providerAvailable(api, "CUDAExecutionProvider");
-    if (result.cudaAvailable) {
-      VramMonitor vram;
-      vram.initialize();
-      reportAccelerationLibraries("before CUDA session creation");
-      result.cudaFlow =
-          runSeaRaft(api, env, seaRaftPath, true, runExtendedMeasurements, &vram);
-      result.cudaFlowAvailable = true;
-      const FlowRun &cuda = result.cudaFlow;
-      reportAccelerationLibraries("after CUDA session/run/teardown");
-      result.cudaRan = cuda.ran;
-      result.cudaCorrect = cuda.correct;
-      if (cuda.ran) {
-        emitf("    CUDA session %.1f ms | first run %.1f ms", cuda.sessionMilliseconds,
-              cuda.firstRunMilliseconds);
-        emitf("    CUDA identity median EPE %.4f px", cuda.identityMedianEpe);
-        emitf("    CUDA forward median (%.4f, %.4f) | reverse (%.4f, %.4f)",
-              cuda.forwardMedianX, cuda.forwardMedianY, cuda.reverseMedianX,
-              cuda.reverseMedianY);
-        emitf("    CUDA direction/identity: %s", cuda.correct ? "CORRECT" : "FAILED");
-      } else {
-        emitf("    CUDA FAILED: %s", cuda.failure.c_str());
-      }
-      if (!cuda.failure.empty() && result.failure.empty())
-        result.failure = "SEA-RAFT CUDA: " + cuda.failure;
-
-      if (cuda.vram.attempted && !cuda.vram.available)
-        emitf("    VRAM result: %s (%s)", probeState(cuda.vram.state),
-              cuda.vram.failure.empty() ? "NVML unavailable" : cuda.vram.failure.c_str());
-      else if (cuda.vram.hasSample) {
-        const double observedDeltaMiB =
-            (static_cast<double>(cuda.vram.peakUsedBytes) -
-             static_cast<double>(cuda.vram.baselineUsedBytes)) /
-            (1024.0 * 1024.0);
-        emitf("    VRAM result: %s | baseline %.1f MiB | observed peak %.1f MiB | steady %.1f MiB | "
-              "observed delta %.1f MiB",
-              probeState(cuda.vram.state),
-              static_cast<double>(cuda.vram.baselineUsedBytes) / (1024.0 * 1024.0),
-              static_cast<double>(cuda.vram.peakUsedBytes) / (1024.0 * 1024.0),
-              static_cast<double>(cuda.vram.steadyUsedBytes) / (1024.0 * 1024.0),
-              observedDeltaMiB);
-      }
-
-      if (runExtendedMeasurements) {
-        result.cudaLifecycle = runLifecycle(api, env, seaRaftPath, true);
-        result.providerFallback = exerciseProviderFailureFallback(api, env, seaRaftPath);
-      }
+    if (cpu.leakedResources) {
+      const char *reason = "NOT TESTED because the CPU cancellation probe retained live "
+                           "resources";
+      result.cpuLifecycle.failure = reason;
+      result.cudaLifecycle.failure = reason;
+      result.providerFallback.failure = reason;
+      result.gpuArenaLimit.failure = reason;
+      emitf("    CUDA and follow-on lifecycle/recovery checks: %s", reason);
     } else {
-      emit("    CUDAExecutionProvider not present in this runtime -- CUDA lifecycle, VRAM, "
-           "provider-failure and GPU-OOM checks are NOT TESTED.");
+      result.cudaProviderChecked = true;
+      result.cudaAvailable = providerAvailable(api, "CUDAExecutionProvider");
+      if (result.cudaAvailable) {
+        VramMonitor vram;
+        vram.initialize();
+        reportAccelerationLibraries("before CUDA session creation");
+        result.cudaFlow =
+            runSeaRaft(api, env, seaRaftPath, true, runExtendedMeasurements, &vram);
+        result.cudaFlowAvailable = true;
+        const FlowRun &cuda = result.cudaFlow;
+        reportAccelerationLibraries("after CUDA session/run/teardown");
+        result.cudaRan = cuda.ran;
+        result.cudaCorrect = cuda.correct;
+        if (cuda.ran) {
+          emitf("    CUDA session %.1f ms | first run %.1f ms", cuda.sessionMilliseconds,
+                cuda.firstRunMilliseconds);
+          emitf("    CUDA identity median EPE %.4f px", cuda.identityMedianEpe);
+          emitf("    CUDA forward median (%.4f, %.4f) | reverse (%.4f, %.4f)",
+                cuda.forwardMedianX, cuda.forwardMedianY, cuda.reverseMedianX,
+                cuda.reverseMedianY);
+          emitf("    CUDA direction/identity: %s", cuda.correct ? "CORRECT" : "FAILED");
+        } else {
+          emitf("    CUDA FAILED: %s", cuda.failure.c_str());
+        }
+        if (!cuda.failure.empty() && result.failure.empty())
+          result.failure = "SEA-RAFT CUDA: " + cuda.failure;
+
+        if (cuda.vram.attempted && !cuda.vram.available)
+          emitf("    VRAM result: %s (%s)", probeState(cuda.vram.state),
+                cuda.vram.failure.empty() ? "NVML unavailable" : cuda.vram.failure.c_str());
+        else if (cuda.vram.hasSample) {
+          const double observedDeltaMiB =
+              (static_cast<double>(cuda.vram.peakUsedBytes) -
+               static_cast<double>(cuda.vram.baselineUsedBytes)) /
+              (1024.0 * 1024.0);
+          emitf("    VRAM result: %s | baseline %.1f MiB | observed peak %.1f MiB | steady %.1f MiB | "
+                "observed delta %.1f MiB",
+                probeState(cuda.vram.state),
+                static_cast<double>(cuda.vram.baselineUsedBytes) / (1024.0 * 1024.0),
+                static_cast<double>(cuda.vram.peakUsedBytes) / (1024.0 * 1024.0),
+                static_cast<double>(cuda.vram.steadyUsedBytes) / (1024.0 * 1024.0),
+                observedDeltaMiB);
+        }
+
+        if (runExtendedMeasurements && cuda.ran && cuda.correct &&
+            !cuda.leakedResources) {
+          result.cudaLifecycle = runLifecycle(api, env, seaRaftPath, true);
+          result.providerFallback = exerciseProviderFailureFallback(api, env, seaRaftPath);
+          result.gpuArenaLimit =
+              exerciseGpuArenaLimitRecovery(api, env, seaRaftPath, &vram);
+        } else if (runExtendedMeasurements) {
+          const char *reason = cuda.leakedResources
+                                   ? "NOT TESTED because the CUDA cancellation probe retained "
+                                     "live GPU resources"
+                                   : "NOT TESTED because baseline CUDA inference did not pass";
+          result.cudaLifecycle.failure = reason;
+          result.providerFallback.failure = reason;
+          result.gpuArenaLimit.failure = reason;
+          if (cuda.leakedResources)
+            result.cpuLifecycle.failure = reason;
+          emitf("    CUDA lifecycle, provider-failure and arena-limit recovery: %s", reason);
+        }
+      } else {
+        emit("    CUDAExecutionProvider not present in this runtime -- CUDA lifecycle, VRAM, "
+             "provider-failure and arena-limit checks are NOT TESTED.");
+      }
     }
-    if (runExtendedMeasurements)
+    if (runExtendedMeasurements && !cpu.leakedResources &&
+        !result.cudaFlow.leakedResources)
       result.cpuLifecycle = runLifecycle(api, env, seaRaftPath, false);
-    else
+    else if (!runExtendedMeasurements)
       emit("    extended Phase 0B measurements disabled (set WHITEWATER_ORT_EXTENDED=1 to run)");
-    result.gpuOomFallbackState = ProbeState::NotTested;
-    result.gpuOomFallbackFailure =
-        "not safely exercised: consuming device memory to force a physical OOM could take "
-        "down Flame; provider-init fallback above is the deterministic safe exercise";
     result.nodeDuplicationState = ProbeState::NotTested;
     result.nodeDuplicationFailure =
         "duplicate the OFX node in Flame and run this probe on each copy; compare the "
         "instance handles, process counters and verdicts printed in both reports";
-    emitf("    GPU OOM fallback: %s (%s)", probeState(result.gpuOomFallbackState),
-          result.gpuOomFallbackFailure.c_str());
+    if (!result.gpuArenaLimit.attempted)
+      emit("    controlled CUDA arena limit + CPU recovery: NOT TESTED");
     emitf("    node duplication equivalence: %s (%s)", probeState(result.nodeDuplicationState),
           result.nodeDuplicationFailure.c_str());
   }
@@ -1662,10 +1922,26 @@ bool runProbe(OfxImageEffectHandle instance) {
             r.cudaLifecycle.completed, r.cudaLifecycle.requested);
       emitf("      provider-init failure + CPU fallback: attempted %s | %s",
             yesNo(r.providerFallback.attempted), probeState(r.providerFallback.state));
-      emitf("      GPU OOM fallback: attempted %s | %s (%s)",
-            r.gpuOomFallbackState == ProbeState::NotTested ? "no" : "yes",
-            probeState(r.gpuOomFallbackState),
-            r.gpuOomFallbackFailure.empty() ? "no safe exercise" : r.gpuOomFallbackFailure.c_str());
+      if (r.gpuArenaLimit.attempted)
+        emitf("      controlled CUDA arena limit + CPU recovery: attempted yes | %s | "
+              "gpu_mem_limit %.1f MiB | target %dx%d | stage %s | kind %s | "
+              "allocator failure %s | CPU recovery %s",
+              probeState(r.gpuArenaLimit.state),
+              static_cast<double>(r.gpuArenaLimit.gpuMemoryLimitBytes) / (1024.0 * 1024.0),
+              r.gpuArenaLimit.targetHeight, r.gpuArenaLimit.targetWidth,
+              arenaLimitFailureStage(r.gpuArenaLimit.failureStage),
+              arenaLimitFailureKind(r.gpuArenaLimit.failureKind),
+              yesNo(r.gpuArenaLimit.allocatorFailureObserved),
+              yesNo(r.gpuArenaLimit.cpuRecoveryRan));
+      else
+        emit("      controlled CUDA arena limit + CPU recovery: attempted no | NOT TESTED");
+      if (r.gpuArenaLimit.vramBeforeAvailable && r.gpuArenaLimit.vramAfterAvailable)
+        emitf("        device VRAM used before %.1f MiB | after cleanup %.1f MiB "
+              "(NVML, device-wide)",
+              static_cast<double>(r.gpuArenaLimit.vramBeforeBytes) / (1024.0 * 1024.0),
+              static_cast<double>(r.gpuArenaLimit.vramAfterBytes) / (1024.0 * 1024.0));
+      if (!r.gpuArenaLimit.failure.empty())
+        emitf("        arena-limit detail: %s", r.gpuArenaLimit.failure.c_str());
       emitf("      node duplication equivalence: attempted %s | %s (%s)",
             r.nodeDuplicationState == ProbeState::NotTested ? "no" : "yes",
             probeState(r.nodeDuplicationState),
@@ -1703,7 +1979,9 @@ bool runProbe(OfxImageEffectHandle instance) {
       emitf("  Phase 0B CPU real-network result: attempted %s | %s", yesNo(r.realModelRan),
             probeState(stateFor(r.realModelRan, r.realModelCorrect)));
     }
-    if (r.realModelConfigured && !r.cudaAvailable)
+    if (r.realModelConfigured && !r.cudaProviderChecked)
+      emit("  Phase 0B CUDA result: NOT TESTED (provider check skipped; see mode detail)");
+    else if (r.realModelConfigured && !r.cudaAvailable)
       emit("  Phase 0B CUDA result: NOT TESTED (CUDA EP absent from this runtime)");
     else if (r.realModelConfigured)
       emitf("  Phase 0B CUDA real-network result: attempted %s | %s", yesNo(r.cudaRan),
@@ -1730,6 +2008,16 @@ bool runProbe(OfxImageEffectHandle instance) {
           results[i].cpuLifecycle.state != ProbeState::Pass)
         return false;
     }
+  }
+  const char *requireGpuMemLimit = std::getenv("WHITEWATER_ORT_REQUIRE_GPU_MEM_LIMIT");
+  if (requireGpuMemLimit && std::strcmp(requireGpuMemLimit, "0") != 0) {
+    bool arenaLimitPassed = false;
+    for (std::size_t i = 0; i < modes.size(); ++i)
+      if (modes[i].runRealModel)
+        arenaLimitPassed = results[i].gpuArenaLimit.state == ProbeState::Pass;
+    emitf("  Required CUDA arena-limit gate: %s", arenaLimitPassed ? "PASS" : "FAIL");
+    if (!arenaLimitPassed)
+      return false;
   }
   return true;
 }
