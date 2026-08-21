@@ -503,8 +503,8 @@ worth re-checking whenever the bundled runtime version changes.
   now exercises a substantial network through both CPU and CUDA, so that narrow result is
   no longer the evidence for the inference decision.
 - This isolation result does not establish lifecycle behaviour, VRAM headroom, cancellation,
-  provider-init or GPU-OOM fallback, or warmed production-resolution performance. Those are
-  still Phase 0B measurements.
+  provider-init or GPU-OOM fallback, or warmed production-resolution performance. Those were
+  measured by the later Phase 0B runs below.
 - **Only version 1.29.0 against 1.22.0.** If Flame ever ships the version we bundle, the
   version string stops discriminating — a probe concern rather than a runtime one, since
   matching versions are less dangerous, not more.
@@ -540,9 +540,10 @@ session creation, the map already contained Flame's `/lib64/libcuda.so.1` and it
 `libnvinfer.so.10` and `libnvinfer_plugin.so.10` under `/opt/Autodesk/lib64/2026.2.1/`.
 After provider session/run/teardown, the probe's two private ORT provider libraries and
 Flame's cuDNN component libraries were additionally mapped. TensorRT was already mapped;
-this report does not establish that the ORT CUDA EP selected or used it. The probe's
-library-name filter did **not** include `libcurand`, so it does not establish the owner of
-`libcurand.so.10`; the exact closure remains open.
+this report does not establish that the ORT CUDA EP selected or used it. This initial
+probe's library-name filter did **not** include `libcurand`, so this report alone did not
+establish its owner. The later actual-loader-path closure below resolves that omission and
+the other CUDA SONAMEs completely.
 
 The shell warnings are performance diagnostics, not inference failures: ONNX Runtime
 inserted nine `Memcpy` nodes in the CUDAExecutionProvider graph and assigned some
@@ -550,15 +551,34 @@ shape-related operations to CPU. They may reduce performance or prevent CUDA Gra
 execution, but both numerical checks passed. Verbose node assignment is a later optimization
 measurement, not a reason to reject the CUDA path.
 
-### Payload and staging findings
+### Payload closure and staging findings — COMPLETE
 
-The dependency-closure run measured a **646,116,341-byte** diagnostic payload, including a
-duplicate **31,958,904-byte** ORT copy; excluding that probe-only duplicate leaves about
-**614.2 MB**. **103,095,040 bytes** resolved to external libraries. The shell closure still
-reported unresolved `libcublas.so.12`, `libcublasLt.so.12`, `libcudart.so.12` and
-`libcurand.so.10`; the exact `libcurand` owner and a complete closure report are still
-required before packaging is decided.
-Raw: [`2026-08-21-ort-cuda-closure-flame.txt`](measurements/2026-08-21-ort-cuda-closure-flame.txt).
+The first shell report used the bundle plus `/usr/lib:/usr/local/lib`, not Flame's live
+loader search path, and therefore left `libcublas.so.12`, `libcublasLt.so.12`,
+`libcudart.so.12` and `libcurand.so.10` unresolved. Re-running the same reporter against the
+search path recovered from the live Flame process resolved all four from
+`/opt/Autodesk/lib64/2026.2.1/`:
+
+| SONAME | Flame-resolved file | Bytes |
+|---|---|---:|
+| `libcublas.so.12` | `libcublas.so.12.8.3.14` | 116,384,544 |
+| `libcublasLt.so.12` | `libcublasLt.so.12.8.3.14` | 781,053,840 |
+| `libcudart.so.12` | `libcudart.so.12.8.57` | 728,800 |
+| `libcurand.so.10` | `libcurand.so.10.3.9.55` | 136,745,144 |
+
+The authoritative live-map report ends with **`Unresolved dependencies: <none>`**. It
+measures a **646,116,476-byte apparent** diagnostic payload (**646,123,520 allocated
+bytes**), including the probe-only **31,958,904-byte** second ORT copy. Removing that
+duplicate leaves **614,157,572 bytes** (614.2 MB decimal; about 585.7 MiB). The unique
+loader-resolved external transitive closure is **1,138,007,368 bytes**: 1,034,912,328 bytes
+of Flame-owned CUDA libraries above plus 103,095,040 bytes of driver/system libraries. These
+external bytes are ownership accounting, not files to add to the probe bundle.
+
+This closes Phase 0B CUDA dependency ownership and size accounting for this ORT 1.29 CUDA 12
+payload on Flame 2026.2.1 / this Rocky 9.5 host. Raw reports:
+[`initial shell path`](measurements/2026-08-21-ort-cuda-closure-flame.txt),
+[`installed environment path`](measurements/2026-08-21-ort-cuda-closure-flame-env.txt), and
+[`authoritative live Flame loader path`](measurements/2026-08-21-ort-cuda-closure-flame-live-map.txt).
 
 An earlier report that the model was "absent" was a staging permissions failure, not a
 missing ONNX file: the file existed with mode **0600**, readable only by its owner, while
@@ -634,72 +654,66 @@ device-wide exhaustion. The fresh CPU session proves process/session recovery af
 not an automatic production fallback or its artist-visible diagnostic; those remain Phase 4
 shipping behavior to implement and verify.
 
+## Measured — Phase 0B bounded high-resolution qualification
+
+Flame **2026.2** on `flame6`, Rocky 9.5, **2026-08-21**, with private ORT **1.29.0** and the
+pinned SEA-RAFT M export. A clean launch with none of the high-resolution environment
+variables set first exercised the ordinary extended path. CPU/CUDA identity and direction,
+cross-thread cancellation, CPU and CUDA lifecycle 3/3, provider-init failure followed by CPU
+fallback, and the controlled 64 MiB arena-limit/CPU-recovery gate all passed. Its 480×640
+steady medians were 6697.5 ms on CPU and 40.9 ms on CUDA, consistent with the earlier runs.
+
+Three subsequent fresh launches selected exactly one GPU-only target and a **16 GiB ORT CUDA
+arena ceiling**. All reached a classified `bounded-allocation-stop` during the warm `Run`:
+
+| Target | Source H×W | Tensor H×W | Warm attempt | Arena available | Rejected request | Cleanup delta |
+|---|---:|---:|---:|---:|---:|---:|
+| UHD | 2160×3840 | 2160×3840 | 704.8 ms | 3,095,502,080 B (2.88 GiB) | 16,796,160,000 B (15.64 GiB) | +2.0 MiB |
+| DCI 4K | 2160×4096 | 2160×4096 | 735.2 ms | 1,423,074,560 B (1.33 GiB) | 19,110,297,600 B (17.80 GiB) | +2.0 MiB |
+| Alexa 35 open gate | 3164×4608 | 3168×4608 | 866.7 ms | 4,298,024,192 B (4.00 GiB) | 13,006,946,304 B (12.11 GiB) | +2.0 MiB |
+
+The Alexa path correctly replication-padded four rows at the bottom and reported both source
+and tensor dimensions. Its appended transcript retains an initial invalid-configuration
+session followed by the corrected valid session.
+
+None of the three produced a completed warm inference or any steady samples. The warm-attempt
+durations are therefore time to allocation failure, not performance timings. The allocator
+requests occurred at different fused matrix-multiplication nodes and are not comparable total
+memory estimates. Likewise, the boundary-sampled NVML peaks only captured the small session
+allocations before the rejected request; they are not estimates of high-resolution VRAM
+demand. The +2 MiB session-cleanup deltas are clean bounded teardown evidence, not proof of
+zero device-wide leakage because Flame and the shared ORT environment remained live.
+
+The separate `HIGHRES QUALIFICATION VERDICT` correctly reports
+`BOUNDED ALLOCATION STOP OBSERVED`, while the required *measurement-result* gate reports
+**PASS** because a classified bounded stop is one of its deliberate valid outcomes. This
+closes the higher-resolution 0B measurement negatively for the current 16 GiB arena
+configuration. It neither imposes a plugin source-resolution cap nor predicts the fit of a
+future GPU or a larger configurable arena budget. Raw reports:
+[`clean control`](measurements/2026-08-21-ortprobe-highres-control-flame.txt),
+[`UHD`](measurements/2026-08-21-ortprobe-highres-uhd-flame.txt),
+[`DCI 4K`](measurements/2026-08-21-ortprobe-highres-dci4k-flame.txt), and
+[`Alexa 35 open gate`](measurements/2026-08-21-ortprobe-highres-alexa35-flame.txt).
+
 ## Open
 
-Phase 0A's five questions are closed — see *Measured — Phase 0 probe run in Flame*. The
-real SEA-RAFT M network now passes on both CPU and CUDA in Phase 0B. The follow-up run above
-closes the measured 480p–1080p timing/VRAM, lifecycle, cancellation and provider-init
-fallback checks for the reported nodes. The outstanding questions below are grouped by the
-gate they block (`docs/plan.md`, *Phase 0*).
+Phase 0A's five questions and all Phase 0B measurements are closed — see the measured sections
+above. The pinned SEA-RAFT M export passes identity and direction through private ORT 1.29 on
+CPU and CUDA; exact dependency closure, 480p–1080p timing/VRAM, lifecycle, cancellation,
+provider fallback, duplicate-node behavior and bounded-recovery behavior are recorded. The
+three full-resolution targets completed the required qualification measurement with bounded
+allocation stops under the 16 GiB arena ceiling. That outcome does not choose a shipping
+model or practical analysis cap, both of which remain later measured decisions.
 
-### 0B — blocks the inference implementation
+### 0B — CLOSED 2026-08-21
 
-**Measured status (2026-08-21):** the pinned SEA-RAFT M export passes identity and both
-translation directions through private ORT 1.29 on CPU and CUDA inside Flame 2026.2. The
-provider libraries, multiresolution timings/VRAM, lifecycle, cancellation, provider-init
-fallback, duplicated-node comparison and controlled arena-limit/CPU-recovery result are
-recorded above. This does not choose the shipping model or close the remaining packaging or
-higher production-resolution tests.
-
-1. **Complete CUDA dependency closure and packaging ownership.** The supplied run identifies
-   `libcurand.so.10` as the host file above, but the shell closure still reports unresolved
-   CUDA names. Record the owner of every dependency and the final on-disk size before making
-   the packaging decision.
-2. **Higher warmed production-resolution performance and VRAM.** The 480×640, 720×1280 and
-   1080×1920 measurements are recorded above. UHD, DCI 4K and the 3164×4608 H×W Alexa 35
-   open-gate case remain to be measured with the selected model/settings; none is a hard
-   plugin-resolution cap. The current probe artifact accepts exactly one source H×W target
-   per Flame launch: `2160x3840`, `2160x4096`, or `3164x4608`. The Alexa target is
-   replication-padded to a 3168×4608 network tensor and cropped to the 3164×4608 source area
-   for the sampled direction check.
-
-   Run each target after a fresh Flame restart. Before the normal Flame launch in `tcsh`, set:
-
-   ```tcsh
-   setenv WHITEWATER_ORT_HIGHRES_GPU_ONLY 1
-   setenv WHITEWATER_ORT_HIGHRES_SIZE 2160x3840
-   setenv WHITEWATER_ORT_GPU_MEM_LIMIT_MIB 16384
-   setenv WHITEWATER_ORT_REQUIRE_HIGHRES_RESULT 1
-   setenv WHITEWATER_ORT_PROBE_LOG /var/tmp/whitewater-ortprobe-uhd.txt
-   ```
-
-   Change only the size and log basename for the next two launches. Apply one
-   `WhiteWaterOrtProbe` node and press **Run ORT Probe**; its image input is irrelevant because
-   this path creates bounded synthetic tensors. Do not create matching-resolution Flame
-   sources or duplicate nodes for this measurement. The GPU-only switch replaces the normal
-   extended CPU/CUDA timing, lifecycle, cancellation and 64 MiB recovery exercises; baseline
-   128×192 CPU/CUDA identity and direction still run as prerequisites. The result reports
-   end-to-end ORT `Run` wall time (including transfers), one warm run, three steady runs,
-   boundary-sampled device-wide NVML use, session-cleanup use, and either `inference-pass` or
-   a classified `bounded-allocation-stop`. The latter deliberately does not claim that a
-   `BFCArena` diagnostic distinguishes the configured arena ceiling from physical device
-   exhaustion. `gpu_mem_limit` bounds ORT's CUDA arena only, not cuDNN or all
-   device allocations. Session-cleanup VRAM delta is informational: NVML covers the whole
-   device and the shared ORT environment remains live until the mode ends, so a nonzero delta
-   is not labelled a leak. The required *measurement-result* gate accepts either of those two
-   classified outcomes so a GPU that does not fit still produces a valid qualification
-   measurement; the separate `HIGHRES QUALIFICATION VERDICT` says whether inference passed.
-
-The operational 0B subchecks are now measured on this host/runtime pair: repeated lifecycle
-passed 3/3 on CPU and CUDA, duplicate-node behavior was equivalent in the supplied run,
-cross-thread cancellation passed, provider-init failure followed by numerical CPU fallback
-passed, and the bounded arena-limit/CPU-recovery gate passed. Keep these in regression
-coverage. Flame process/restart lifetime remains 0C; automatic production fallback and its
-artist-visible diagnostic remain Phase 4.
+There is no outstanding 0B item. Keep its operational checks in regression coverage. Flame
+process/restart lifetime remains 0C; automatic production fallback and its artist-visible
+diagnostic remain Phase 4.
 
 ### 0C — blocks ST map and cache integration
 
-3. **The ST convention Flame's own downstream tool expects.** An asymmetric image and a known
+1. **The ST convention Flame's own downstream tool expects.** An asymmetric image and a known
    translation, at PAR 1 and PAR 2. Record whether pixel centres map as `x / width`,
    `(x + 0.5) / width` or `x / (width - 1)`; whether normalization is against image bounds,
    RoD or project extent; channel layout; origin behaviour; and values outside `[0, 1]`.
@@ -707,7 +721,7 @@ artist-visible diagnostic remain Phase 4.
    both sides still closes.
    *The depth half of this is already answered:* `MultipleClipDepths = 0` is measured in four
    transcripts, so no depth negotiation is possible and the ST descriptor declares float only.
-4. **Instance and process lifetime.** Save and reload a Batch setup; switch away from the node
+2. **Instance and process lifetime.** Save and reload a Batch setup; switch away from the node
    and back; duplicate it; render foreground versus background/final; reopen Flame. This
    decides whether `Precache` has production value: a RAM-only precache is worthless if final
    render happens in another process. Distinguish "background render is another process" from
@@ -716,12 +730,12 @@ artist-visible diagnostic remain Phase 4.
 
 ### Unblocking nothing in particular
 
-5. **Whether render scale is ever anything but 1.** Every observation so far is `[1, 1]`,
+3. **Whether render scale is ever anything but 1.** Every observation so far is `[1, 1]`,
    at both pixel aspect ratios.
-6. **Whether `kOfxImagePropRowBytes` can be negative** in Flame, and whether images are ever
+4. **Whether `kOfxImagePropRowBytes` can be negative** in Flame, and whether images are ever
    windows into larger allocations. The vendored `HostImage` handles both; nothing has
    confirmed Flame exercises either.
-7. **Re-run the tile check on an anamorphic clip** with the PAR fix in place, to confirm
+5. **Re-run the tile check on an anamorphic clip** with the PAR fix in place, to confirm
    what the corrected arithmetic already shows: that those renders were full frames.
 
 ### Procedure

@@ -10,8 +10,8 @@ Targets **Rocky Linux 9.5+** and **arm64 macOS**. MTI Film internal.
 
 ## Status
 
-**Scaffolding, with Phase 0A closed and Phase 0B in progress.** The build produces the host
-probe and the ONNX Runtime isolation probe; the plugin itself does not exist yet.
+**Scaffolding, with Phases 0A and 0B closed.** The build produces the host probe and the
+ONNX Runtime isolation probe; the plugin itself does not exist yet.
 
 All five Phase 0 questions were measured in Flame 2026.2 on 2026-08-20, and two came back
 better than budgeted: `clipGetImage` works at arbitrary times *during* render, and a private
@@ -21,10 +21,13 @@ holds, and inference runs **in-process** — no IPC boundary to build.
 The pinned SEA-RAFT M export now passes identity and direction on both CPU and CUDA through
 the private runtime inside Flame. Warmed 480p–1080p timing/VRAM, lifecycle, cancellation,
 provider-init fallback, duplicated-node behavior and the bounded CUDA arena-limit/CPU-recovery
-gate are also measured. **0B** remains open for complete CUDA payload closure and qualification
-above 1080p before inference implementation; **0C** settles Flame's ST map convention and how
-long a plugin instance actually lives before ST/cache integration. Phase 1 and the host-free
-part of Phase 2 can proceed independently. See the Open section of
+gate are also measured. The actual Flame loader-path report closes CUDA payload ownership and
+size accounting with no unresolved dependencies. The GPU-only qualification then measured
+UHD, DCI 4K and Alexa 35 open gate under a 16 GiB ORT arena ceiling: all three produced
+controlled bounded-allocation stops before completing a warm inference. That negative result
+closes **0B** without imposing a product resolution cap. **0C** settles Flame's ST map
+convention and how long a plugin instance actually lives before ST/cache integration. Phase 1
+and the host-free part of Phase 2 can proceed independently. See the Open section of
 [docs/host-notes.md](docs/host-notes.md) and *Phase 0* in [docs/plan.md](docs/plan.md).
 
 ## Documents

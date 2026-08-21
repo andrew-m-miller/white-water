@@ -1,0 +1,75 @@
+ORT CUDA payload closure
+payload: /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Libraries
+loader search path: /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Libraries:/opt/Autodesk/lib64:/opt/Autodesk/lib64/2026.2.1:/opt/Autodesk/lib64/2026.2.1/plugins/imageformats:/opt/Autodesk/lib64/2026.2.1/plugins/platforms:/opt/Autodesk/lib64/2026.2.1/plugins/xcbglintegrations:/opt/Autodesk/lib64/codecs/FFmpeg/17733.1:/opt/Autodesk/lib64/codecs/LAME/2007.10.01.1:/opt/Autodesk/lib64/codecs/MainConcept/aac/13.5:/opt/Autodesk/lib64/codecs/MainConcept/h264/13.5:/opt/Autodesk/lib64/codecs/MainConcept/mpeg2/13.5:/opt/Autodesk/lib64/codecs/MainConcept/mpeg4/13.5:/opt/Autodesk/pgsql-17/lib:/opt/Autodesk/python/2026.2.1/lib:/opt/Autodesk/python/2026.2.1/lib/python3.11/lib-dynload:/opt/Autodesk/python/2026.2.1/lib/python3.11/site-packages/PySide6:/opt/Autodesk/python/2026.2.1/lib/python3.11/site-packages/shiboken6:/opt/Autodesk/sw/lib:/usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Libraries:/usr/lib64:/usr/lib64/gssproxy:/usr/lib64/pulseaudio:/usr/lib:/usr/local/lib
+payload apparent bytes: 646116476
+payload allocated bytes: 646123520
+
+ELF payload files and direct DT_NEEDED entries
+
+libonnxruntime.so
+  bytes: 31958904
+  sha256: b81e7ceaba1131e391f94c455d71ecf9af8ec7999d7130beebb79c67a0c7e05d
+  NEEDED: libdl.so.2
+  NEEDED: librt.so.1
+  NEEDED: libpthread.so.0
+  NEEDED: libstdc++.so.6
+  NEEDED: libm.so.6
+  NEEDED: libgcc_s.so.1
+  NEEDED: libc.so.6
+  NEEDED: ld-linux-x86-64.so.2
+
+libonnxruntime-b.so
+  bytes: 31958904
+  sha256: b81e7ceaba1131e391f94c455d71ecf9af8ec7999d7130beebb79c67a0c7e05d
+  NEEDED: libdl.so.2
+  NEEDED: librt.so.1
+  NEEDED: libpthread.so.0
+  NEEDED: libstdc++.so.6
+  NEEDED: libm.so.6
+  NEEDED: libgcc_s.so.1
+  NEEDED: libc.so.6
+  NEEDED: ld-linux-x86-64.so.2
+
+libonnxruntime_providers_cuda.so
+  bytes: 582183896
+  sha256: d16907fb98d12c7e7a27b88367dd34466f4f2a07a0989677496c0f0f16f54947
+  NEEDED: libcublasLt.so.12
+  NEEDED: libcublas.so.12
+  NEEDED: libcurand.so.10
+  NEEDED: libcudart.so.12
+  NEEDED: libcuda.so.1
+  NEEDED: libdl.so.2
+  NEEDED: librt.so.1
+  NEEDED: libpthread.so.0
+  NEEDED: libstdc++.so.6
+  NEEDED: libm.so.6
+  NEEDED: libgcc_s.so.1
+  NEEDED: libc.so.6
+  NEEDED: ld-linux-x86-64.so.2
+
+libonnxruntime_providers_shared.so
+  bytes: 14632
+  sha256: c6a12593396095f5670160e284c35d1700b7708cf3037b7042e2a5200ccae772
+  NEEDED: libstdc++.so.6
+  NEEDED: libm.so.6
+  NEEDED: libgcc_s.so.1
+  NEEDED: libc.so.6
+
+Unique loader-resolved transitive closure
+  external 116384544 /opt/Autodesk/lib64/2026.2.1/libcublas.so.12.8.3.14
+  external 781053840 /opt/Autodesk/lib64/2026.2.1/libcublasLt.so.12.8.3.14
+  external 728800 /opt/Autodesk/lib64/2026.2.1/libcudart.so.12.8.57
+  external 136745144 /opt/Autodesk/lib64/2026.2.1/libcurand.so.10.3.9.55
+  external 892480 /usr/lib64/ld-linux-x86-64.so.2
+  external 2543976 /usr/lib64/libc.so.6
+  external 96276264 /usr/lib64/libcuda.so.580.95.05
+  external 15632 /usr/lib64/libdl.so.2
+  external 108136 /usr/lib64/libgcc_s-11-20240719.so.1
+  external 912440 /usr/lib64/libm.so.6
+  external 15640 /usr/lib64/libpthread.so.0
+  external 15840 /usr/lib64/librt.so.1
+  external 2314632 /usr/lib64/libstdc++.so.6.0.29
+unique resolved closure bytes: 1138007368
+
+Unresolved dependencies
+  <none>

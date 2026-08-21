@@ -1,0 +1,191 @@
+
+=========================================================================
+White Water ORT probe -- session started 2026-08-21 16:14:51 (pid 3411062)
+=========================================================================
+ORT probe instance created: handle 0x21370bf0 | created in process 1 | live 1
+
+== White Water ONNX Runtime isolation probe ==
+  plugin instance 0x21370bf0 | instances created in process 1 | currently live 1
+  standard extended Phase 0B measurements: disabled
+  high-resolution GPU-only mode: enabled | configuration INVALID
+    configuration detail: this artifact accepts one Phase 0B target: 2160x3840, 2160x4096, or 3164x4608
+    standard useful-size CPU/CUDA timing, lifecycle, cancellation and 64 MiB recovery are skipped
+    this measurement allowlist and arena ceiling belong to the probe, not the product
+
+== VERDICT ==
+  HIGHRES QUALIFICATION VERDICT: FAIL
+  high-resolution configuration: this artifact accepts one Phase 0B target: 2160x3840, 2160x4096, or 3164x4608
+  Required high-resolution measurement-result gate: FAIL
+  Report: /var/tmp/whitewater-ortprobe-alexa35.txt
+ORT probe instance destroyed: handle 0x21370bf0 | live 0
+
+=========================================================================
+White Water ORT probe -- session started 2026-08-21 16:17:02 (pid 3418684)
+=========================================================================
+ORT probe instance created: handle 0x2eb49b90 | created in process 1 | live 1
+
+== White Water ONNX Runtime isolation probe ==
+  plugin instance 0x2eb49b90 | instances created in process 1 | currently live 1
+  standard extended Phase 0B measurements: disabled
+  high-resolution GPU-only mode: enabled | configuration VALID
+    source HxW 3164x4608 | network tensor HxW 3168x4608 | gpu_mem_limit 16384.0 MiB
+    standard useful-size CPU/CUDA timing, lifecycle, cancellation and 64 MiB recovery are skipped
+    this measurement allowlist and arena ceiling belong to the probe, not the product
+  bundled runtime directory: /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/
+  Each mode opens a separate copy, because dlopen returns the already-loaded
+  library for a repeated path and RTLD_DEEPBIND only applies at initial load.
+  header ORT_API_VERSION: 29
+
+== The host's ONNX Runtime ==
+  OrtGetApiBase 0x7f9a4f276970 from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  host runtime version: 1.22.0
+
+== Mode 1: RTLD_LOCAL | RTLD_DEEPBIND ==
+  DEEPBIND makes the library prefer its own symbols over the global scope. Measured 2026-08-20: RTLD_LOCAL alone already sufficed in Flame, so what this mode now decides is whether DEEPBIND is safe to use, not whether it is necessary.
+  dlopen("/usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime-b.so", 0xa)
+  handle 0x39b07900
+  OrtGetApiBase: ours 0x7f82e19444e0, host 0x7f9a4f276970 -- DISTINCT
+    ours resolves into /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime-b.so
+  reported version: 1.29.0
+    If this matches the host's ONNX Runtime version, the pointers above are
+    not evidence of isolation -- deliberately ship a different version so this
+    line discriminates.
+  CreateEnv: ok
+  CreateSessionFromArray: ok (128-byte embedded Add model)
+  Run: ok -- [11.0 22.0 33.0 44.0]
+  teardown: ok
+  (handle intentionally not dlclosed -- see the note in the source)
+
+== Mode 2: RTLD_LOCAL only ==
+  RTLD_LOCAL keeps our symbols out of the global scope for later lookups; it does not reorder how our own library's relocations resolve. Expected to be insufficient on paper, and measured sufficient in Flame -- most likely because ONNX Runtime is built with hidden visibility, so its internals never consult the global scope and there is nothing to capture.
+  dlopen("/usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime.so", 0x2)
+  handle 0x39f45c50
+  OrtGetApiBase: ours 0x7f82df1444e0, host 0x7f9a4f276970 -- DISTINCT
+    ours resolves into /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime.so
+  reported version: 1.29.0
+    If this matches the host's ONNX Runtime version, the pointers above are
+    not evidence of isolation -- deliberately ship a different version so this
+    line discriminates.
+  CreateEnv: ok
+  CreateSessionFromArray: ok (128-byte embedded Add model)
+  Run: ok -- [11.0 22.0 33.0 44.0]
+
+  SEA-RAFT M real-network probe (selected plain RTLD_LOCAL mode)
+    model: /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Resources/models/sea-raft-m-opset17.onnx
+    model readable: yes (bytes checked below by ORT; path access errno diagnostics are enabled)
+    CPU session 887.3 ms | first run 528.4 ms
+    CPU identity median EPE 0.0026 px
+    CPU forward median (4.0014, 0.0138) | reverse (-4.0034, -0.0134)
+    CPU direction/identity: CORRECT
+  available execution providers:
+    TensorrtExecutionProvider
+    CUDAExecutionProvider
+    CPUExecutionProvider
+    NVML VRAM monitor: available (device 0, libnvidia-ml.so.1)
+    mapped CUDA/provider libraries before CUDA session creation:
+      /lib64/libcuda.so.1 | on-disk bytes 96276264
+      /opt/Autodesk/lib64/2026.2.1/libcublas.so.12 | on-disk bytes 116384544
+      /opt/Autodesk/lib64/2026.2.1/libcublasLt.so.12 | on-disk bytes 781053840
+      /opt/Autodesk/lib64/2026.2.1/libcudart.so.12 | on-disk bytes 728800
+      /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9 | on-disk bytes 125136
+      /opt/Autodesk/lib64/2026.2.1/libnvToolsExt.so.1 | on-disk bytes 36024
+      /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10 | on-disk bytes 668444120
+      /opt/Autodesk/lib64/2026.2.1/libnvinfer_plugin.so.10 | on-disk bytes 55040440
+      /opt/Autodesk/lib64/2026.2.1/libnvonnxparser.so.10 | on-disk bytes 4423512
+      /opt/Autodesk/lib64/2026.2.1/libnvrtc-builtins.so.12.8 | on-disk bytes 6338504
+      /opt/Autodesk/lib64/2026.2.1/libnvrtc.so.12 | on-disk bytes 104447632
+    mapped CUDA/provider file total: 1833298816 bytes (1748.4 MiB)
+    VRAM before session total 24564.0 MiB | used 2588.7 MiB | free 21975.3 MiB (sample)
+    VRAM after session  total 24564.0 MiB | used 2939.8 MiB | free 21624.2 MiB (sample)
+    VRAM after first run total 24564.0 MiB | used 2949.8 MiB | free 21614.2 MiB (sample)
+    mapped CUDA/provider libraries after CUDA session/run/teardown:
+      /lib64/libcuda.so.1 | on-disk bytes 96276264
+      /opt/Autodesk/lib64/2026.2.1/libcublas.so.12 | on-disk bytes 116384544
+      /opt/Autodesk/lib64/2026.2.1/libcublasLt.so.12 | on-disk bytes 781053840
+      /opt/Autodesk/lib64/2026.2.1/libcudart.so.12 | on-disk bytes 728800
+      /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9 | on-disk bytes 125136
+      /opt/Autodesk/lib64/2026.2.1/libcudnn_engines_precompiled.so.9.9.0 | on-disk bytes 639850464
+      /opt/Autodesk/lib64/2026.2.1/libcudnn_engines_runtime_compiled.so.9.9.0 | on-disk bytes 28421256
+      /opt/Autodesk/lib64/2026.2.1/libcudnn_graph.so.9.9.0 | on-disk bytes 3404784
+      /opt/Autodesk/lib64/2026.2.1/libcudnn_heuristic.so.9.9.0 | on-disk bytes 59615312
+      /opt/Autodesk/lib64/2026.2.1/libcudnn_ops.so.9.9.0 | on-disk bytes 127599552
+      /opt/Autodesk/lib64/2026.2.1/libcurand.so.10 | on-disk bytes 136745144
+      /opt/Autodesk/lib64/2026.2.1/libnvToolsExt.so.1 | on-disk bytes 36024
+      /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10 | on-disk bytes 668444120
+      /opt/Autodesk/lib64/2026.2.1/libnvinfer_plugin.so.10 | on-disk bytes 55040440
+      /opt/Autodesk/lib64/2026.2.1/libnvonnxparser.so.10 | on-disk bytes 4423512
+      /opt/Autodesk/lib64/2026.2.1/libnvrtc-builtins.so.12.8 | on-disk bytes 6338504
+      /opt/Autodesk/lib64/2026.2.1/libnvrtc.so.12 | on-disk bytes 104447632
+      /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime_providers_cuda.so | on-disk bytes 582183896
+      /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime_providers_shared.so | on-disk bytes 14632
+    mapped CUDA/provider file total: 3411133856 bytes (3253.1 MiB)
+    CUDA session 933.0 ms | first run 1071.6 ms
+    CUDA identity median EPE 0.0027 px
+    CUDA forward median (4.0017, 0.0137) | reverse (-4.0032, -0.0134)
+    CUDA direction/identity: CORRECT
+    VRAM result: PASS | baseline 2588.7 MiB | observed peak 2949.8 MiB | steady 0.0 MiB | observed delta 361.1 MiB
+    high-resolution CUDA qualification: source 3164x4608 | tensor 3168x4608 | replication padding top/bottom/left/right 0/4/0/0 | gpu_mem_limit 16384.0 MiB
+      one fresh CUDA session; gpu_mem_limit bounds the ORT arena, not all device allocations
+    high-resolution VRAM before session used 2803.8 MiB (NVML, device-wide)
+      device-wide preflight free 21760.2 MiB | fixed reserve 2048.0 MiB
+    high-resolution VRAM after session used 2927.8 MiB (NVML, device-wide)
+    high-resolution VRAM after session cleanup used 2805.8 MiB | delta +2.0 MiB (NVML, device-wide; informational, environment still live)
+    high-resolution CUDA result: outcome bounded-allocation-stop | stage Run | warm 866.7 ms | steady median 0.0 ms (min 0.0, max 0.0; 0 samples) | FAIL
+      CUDA execution evidence: sampled VRAM delta >=64 MiB yes | sampling boundary (3 samples)
+      high-resolution detail: bounded high-resolution CUDA warm Run: Run: Non-zero status code returned while running FusedMatMul node. Name:'/wrapped/MatMul_2/MatmulTransposeFusion/' Status Message: /onnxruntime_src/onnxruntime/core/framework/bfc_arena.cc:359 void* onnxruntime::BFCArena::AllocateRawInternal(size_t, bool, onnxruntime::Stream*) Available memory of 4298024192 is smaller than requested bytes of 13006946304
+
+    ordinary extended Phase 0B measurements skipped by high-resolution GPU-only mode
+    controlled CUDA arena limit + CPU recovery: NOT TESTED
+    node duplication equivalence: NOT TESTED (duplicate the OFX node in Flame and run this probe on each copy; compare the instance handles, process counters and verdicts printed in both reports)
+  teardown: ok
+  (handle intentionally not dlclosed -- see the note in the source)
+
+== VERDICT ==
+  Mode 1: RTLD_LOCAL | RTLD_DEEPBIND                   USABLE
+      opened: attempted yes | PASS
+      distinct pointer: attempted yes | PASS
+      version: attempted yes | PASS (1.29.0)
+      Add inference: attempted yes | PASS
+      Add arithmetic: attempted yes | PASS
+  Mode 2: RTLD_LOCAL only                              USABLE
+      opened: attempted yes | PASS
+      distinct pointer: attempted yes | PASS
+      version: attempted yes | PASS (1.29.0)
+      Add inference: attempted yes | PASS
+      Add arithmetic: attempted yes | PASS
+      SEA-RAFT model readability: attempted yes | PASS
+      SEA-RAFT CPU inference: attempted yes | PASS
+      CPU direction/identity: attempted yes | PASS
+      CUDA provider availability: AVAILABLE
+      CUDA direction/identity: attempted yes | PASS
+      CPU inference: PASS | identity/direction: PASS
+      CPU useful-size timing: NOT TESTED
+      CPU cross-thread cancellation: attempted no | NOT TESTED
+      CPU VRAM: NOT TESTED (CPU path)
+      CUDA inference: PASS | identity/direction: PASS
+      CUDA useful-size timing: NOT TESTED
+      CUDA cross-thread cancellation: attempted no | NOT TESTED
+      CUDA VRAM: attempted yes | PASS | baseline 2588.7 MiB | observed peak 2949.8 MiB | steady 0.0 MiB
+      CPU repeated lifecycle: attempted no | NOT TESTED (0/0)
+      CUDA repeated lifecycle: attempted no | NOT TESTED (0/0)
+      provider-init failure + CPU fallback: attempted no | NOT TESTED
+      controlled CUDA arena limit + CPU recovery: attempted no | NOT TESTED
+      high-resolution GPU-only qualification: attempted yes | FAIL | outcome bounded-allocation-stop | source 3164x4608 | tensor 3168x4608 | gpu_mem_limit 16384.0 MiB
+        session 921.7 ms | warm 866.7 ms | steady median 0.0 ms (min 0.0, max 0.0; 0/3 samples)
+        device-wide sampled VRAM used: before 2803.8 MiB | sampled peak 2927.8 MiB | after session cleanup 2805.8 MiB
+        session-cleanup delta +2.0 MiB (informational; whole device and ORT environment still live)
+        high-resolution detail: bounded high-resolution CUDA warm Run: Run: Non-zero status code returned while running FusedMatMul node. Name:'/wrapped/MatMul_2/MatmulTransposeFusion/' Status Message: /onnxruntime_src/onnxruntime/core/framework/bfc_arena.cc:359 void* onnxruntime::BFCArena::AllocateRawInternal(size_t, bool, onnxruntime::Stream*) Available memory of 4298024192 is smaller than requested bytes of 13006946304
+
+      node duplication equivalence: attempted no | NOT TESTED (duplicate the OFX node in Flame and run this probe on each copy; compare the instance handles, process counters and verdicts printed in both reports)
+
+  At least one mode is usable, so IN-PROCESS inference is available.
+  Before committing to it, confirm the reported version is NOT the host's --
+  matching versions make the whole result ambiguous.
+
+  Phase 0B CPU real-network result: attempted yes | PASS
+  Phase 0B CUDA real-network result: attempted yes | PASS
+  HIGHRES QUALIFICATION VERDICT: BOUNDED ALLOCATION STOP OBSERVED
+
+  Report: /var/tmp/whitewater-ortprobe-alexa35.txt
+  Required high-resolution measurement-result gate: PASS
+ORT probe instance destroyed: handle 0x2eb49b90 | live 0

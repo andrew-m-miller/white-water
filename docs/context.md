@@ -79,13 +79,14 @@ timings are tiny-input first-run measurements, so warmed production-resolution p
 is still open. The CUDA log's nine inserted `Memcpy` nodes and CPU-assigned shape operations
 are performance warnings, not correctness failures.
 
-The closure measurement found a 646,116,341-byte diagnostic payload, including a
-31,958,904-byte probe-only duplicate of ORT; without that duplicate the payload is about
-614.2 MB, with 103,095,040 bytes resolved externally. The shell closure still reported
+The initial shell closure found a 646,116,341-byte diagnostic payload, including a
+31,958,904-byte probe-only duplicate of ORT; without that duplicate the payload was about
+614.2 MB, with 103,095,040 bytes resolved externally. Its incomplete shell search path left
 `libcublas.so.12`, `libcublasLt.so.12`, `libcudart.so.12` and `libcurand.so.10` unresolved,
-and the probe's library filter omitted `libcurand`, so exact ownership and final packaging
-closure remain open. VRAM, repeated lifecycle/node duplication, cross-thread cancellation,
-and provider-init/GPU-OOM fallback remain unmeasured as well.
+and the probe's library filter omitted `libcurand`, so ownership was still open at this point.
+The later live-loader-path report in Session 5 closes it. VRAM, repeated lifecycle/node
+duplication, cross-thread cancellation, and provider-init/GPU-OOM fallback were also still
+unmeasured at this point.
 
 The apparent missing-model result was a permissions defect: the ONNX file was present but
 mode 0600, readable only by its owner while the Flame runtime user was distinct. Staging it
@@ -112,9 +113,56 @@ arena-limit gate passed. The raw transcript is archived in `docs/measurements/`.
 This is the safe Phase 0B evidence we wanted: an explicit bounded allocator failure does not
 poison later inference in the host process. It is not a device-wide OOM test and does not
 exercise automatic production fallback or an artist-visible error path; those are Phase 4
-shipping behavior. 0B remains open for complete CUDA payload closure and qualification above
-1080p, including UHD, DCI 4K and the 4608×3164 Alexa 35 open-gate case. Those qualification
-targets are measurements, not product hard caps.
+shipping behavior. At this point 0B remained open for CUDA payload closure and qualification
+above 1080p. Session 5 closes the former; UHD, DCI 4K and the 3164×4608 H×W Alexa 35
+open-gate case remain. Those qualification targets are measurements, not product hard caps.
+
+---
+
+## Session 5 — 2026-08-21 — actual Flame loader-path CUDA closure
+
+The first two closure reports used only the payload plus generic system library paths, which
+correctly described those shell environments but not Flame's loader. Re-running the reporter
+with the live Flame process's actual loader search path resolved all four previously missing
+SONAMEs from `/opt/Autodesk/lib64/2026.2.1/`: cuBLAS 12.8.3.14, cuBLASLt 12.8.3.14,
+CUDA runtime 12.8.57 and cuRAND 10.3.9.55. The authoritative report ends with no unresolved
+dependencies.
+
+The installed diagnostic payload is 646,116,476 apparent bytes and 646,123,520 allocated
+bytes. Its second 31,958,904-byte ORT is probe-only, leaving 614,157,572 bytes without it.
+The unique external transitive closure is 1,138,007,368 bytes: 1,034,912,328 bytes of
+Flame-owned CUDA libraries and 103,095,040 bytes of driver/system libraries. Those external
+libraries are ownership accounting, not payload to copy into the bundle. This closes the 0B
+dependency ownership and size question for this Flame 2026.2.1 / ORT 1.29 CUDA 12 pairing;
+at the end of this session, only higher production-resolution qualification remained in 0B.
+
+---
+
+## Session 6 — 2026-08-21 — bounded full-resolution qualification
+
+A clean no-environment launch first re-ran the ordinary extended path and passed the existing
+CPU/CUDA correctness, lifecycle, cancellation, provider-fallback and 64 MiB arena-recovery
+gates. Three fresh GPU-only launches then attempted UHD 2160×3840, DCI 4K 2160×4096 and
+Alexa 35 open gate 3164×4608 with a 16 GiB ORT arena ceiling. The Alexa source was correctly
+replication-padded by four bottom rows to the network's 3168×4608 tensor contract.
+
+All three warm runs stopped inside `BFCArena` with classified bounded-allocation outcomes.
+UHD requested 16,796,160,000 bytes with 3,095,502,080 available; DCI 4K requested
+19,110,297,600 with 1,423,074,560 available; and Alexa requested 13,006,946,304 with
+4,298,024,192 available. The failures occurred at different fused matrix multiplications, so
+the individual rejected allocations are evidence of why each run stopped, not estimates that
+can be compared as total model memory. No run produced steady samples. The reported
+704.8–866.7 ms durations are time to failure, and boundary-sampled NVML does not capture the
+rejected allocation. Each session-cleanup sample was +2 MiB from its pre-session value; that
+is clean bounded teardown evidence, not a device-wide leak proof because Flame and the shared
+ORT environment remained live.
+
+The probe's required measurement-result gate intentionally accepts either a completed
+inference or a classified bounded stop, and it passed in all three valid runs. This therefore
+closes the last 0B measurement with a negative fit result for the current 16 GiB arena
+configuration. It does not cap source formats in the product or say what a future GPU and
+larger configurable budget can run. The Alexa transcript also retains an initial invalid
+configuration session before the corrected valid session because the report file appends.
 
 ---
 
@@ -282,8 +330,10 @@ is the right design.
   by default. Until an artist turns it on, a warped insert smears through an occlusion.
 - **The real SEA-RAFT M network now passes in-process on both CPU and CUDA.** Warmed
   480p–1080p timing/VRAM, repeated lifecycle and node duplication, cross-thread cancellation,
-  provider-init fallback, and bounded arena-limit/CPU recovery are measured too. The 0B gate
-  is not closed: complete CUDA payload closure and qualification above 1080p remain open.
+  provider-init fallback, bounded arena-limit/CPU recovery, and exact CUDA dependency
+  closure/ownership are measured too. UHD, DCI 4K and Alexa 35 full-resolution attempts all
+  reached controlled bounded-allocation stops under the 16 GiB arena ceiling. That closes 0B
+  but leaves the practical shipping analysis cap to the model bake-off and performance gate.
 - **`RTLD_LOCAL` sufficing depends on ONNX Runtime's hidden visibility**, which is a
   property of their build rather than a guarantee. Re-check whenever the bundled version
   changes.

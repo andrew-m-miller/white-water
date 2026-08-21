@@ -102,15 +102,18 @@ risk; if either fails, the architecture changes:
   out-of-process design (warp-drive's `EditorProcess` plus `src/ipc/`, the shape Mocha Pro
   ships) is retained as a documented fallback rather than the plan. See
   `docs/host-notes.md`. The 2026-08-21 SEA-RAFT M run also passed through the CUDA
-  execution provider; the remaining 0B work is operational qualification and exact payload
-  closure, not basic provider initialization.
+  execution provider, and the follow-up live-loader-path report closed exact payload
+  ownership and size accounting. The bounded high-resolution runs subsequently completed
+  the remaining 0B qualification measurement; none of the three full-resolution targets fit
+  the 16 GiB ORT arena ceiling, which is a measured configuration result rather than a product
+  resolution limit.
 
 ### 0A — closed 2026-08-20
 
 All five questions answered on Flame 2026.2 / Rocky 9.5. `docs/host-notes.md` holds the
 measured record; `docs/measurements/` holds the raw transcripts.
 
-### 0B — before production inference implementation
+### 0B — closed 2026-08-21
 
 **SEA-RAFT M is the 0B probe network.** This names a representative candidate for the
 measurement; it does not make SEA-RAFT the shipping default or assign it a choice index.
@@ -151,9 +154,19 @@ and on the CUDA EP:
   to the pre-test value, passed fresh-session numerical CPU recovery, and passed the required
   gate. This is recovery evidence, not automatic production fallback; that shipping behavior
   remains Phase 4;
-- **the exact dependency closure and on-disk size of the chosen CUDA build**, which decides
-  CPU-default versus separate GPU install, and bundle versus sibling tree (see *Build and
-  packaging*).
+- **Measured 2026-08-21:** the exact dependency closure and on-disk size of the chosen CUDA
+  build. Under Flame's live loader search path all dependencies resolve, the four CUDA
+  SONAMEs resolve to Flame 2026.2.1, and the diagnostic payload is 646,116,476 apparent
+  bytes or 614,157,572 bytes without the probe-only second ORT copy. The unique external
+  closure is 1,138,007,368 bytes and is ownership accounting rather than bundle content;
+- **Measured 2026-08-21:** the GPU-only high-resolution path under a 16 GiB ORT arena limit.
+  UHD 2160×3840, DCI 4K 2160×4096, and Alexa 35 open gate 3164×4608 all reached a classified
+  `bounded-allocation-stop` during the warm `Run`. The Alexa input was correctly
+  replication-padded on the bottom to a 3168×4608 tensor. All three required measurement-
+  result gates passed, session cleanup returned the boundary-sampled whole-device NVML value
+  to +2 MiB of its pre-session value, and no steady samples were produced. This closes the
+  qualification measurement negatively for the current 16 GiB arena configuration; it is
+  not a hard plugin resolution cap or proof about a larger future GPU budget.
 
 **Measured 2026-08-21:** the pinned SEA-RAFT M export passed identity and both translation
 directions on CPU and CUDA inside Flame 2026.2 through private ORT 1.29 under plain
@@ -177,18 +190,22 @@ The controlled arena-limit transcript is archived in
 bounded recovery measurement without making a claim about physical device-wide OOM or
 automatic production fallback.
 
-0B remains open for complete CUDA dependency closure and warmed production-resolution
-performance. The supplied run maps `libcurand.so.10` to Flame's
-`/opt/Autodesk/lib64/2026.2.1/libcurand.so.10`, but the shell closure still measured a
-646,116,341-byte diagnostic payload (including a 31,958,904-byte probe-only ORT duplicate),
-about 614.2 MB without that duplicate, and 103,095,040 bytes of resolved external libraries
-while reporting unresolved `libcublas.so.12`, `libcublasLt.so.12`, `libcudart.so.12` and
-`libcurand.so.10`. Treat the observed Flame mapping as closing that owner for this host run,
-not the complete packaging closure. The CUDA log's nine inserted `Memcpy` nodes and
-CPU-assigned shape operations are performance warnings, not correctness failures. Higher-
-resolution qualification (UHD, DCI 4K and the 3164×4608 H×W Alexa 35 open-gate case) remains
-separate from the measured 1080p ceiling; the dedicated GPU-only probe path above is
-implemented but not yet measured in Flame.
+The live-loader-path closure report resolves `libcublas.so.12`, `libcublasLt.so.12`,
+`libcudart.so.12` and `libcurand.so.10` to Flame 2026.2.1 and reports no unresolved
+dependencies. This closes the Phase 0B dependency ownership and size question for the
+measured host/runtime pair. The CUDA log's nine inserted `Memcpy` nodes and CPU-assigned
+shape operations are performance warnings, not correctness failures.
+
+The three high-resolution qualification reports close the last 0B item. Under the configured
+16 GiB ORT arena ceiling, UHD stopped at `FusedMatMul` with 3,095,502,080 bytes available for
+a 16,796,160,000-byte request; DCI 4K stopped with 1,423,074,560 available for a
+19,110,297,600-byte request; and padded Alexa 35 stopped with 4,298,024,192 available for a
+13,006,946,304-byte request. These are allocator diagnostics at different failure points and
+must not be treated as comparable total-memory estimates. The 704.8–866.7 ms warm-attempt
+durations are time to failure, not inference performance, and the boundary-sampled NVML peaks
+do not capture the rejected allocation. Phase 2.5 and the shipping performance gate still
+choose model/settings and practical megapixel caps on measured hardware; they do not reject
+larger source formats at the plugin boundary.
 
 ### 0C — before ST map and cache integration
 
@@ -630,7 +647,7 @@ thresholds tied to the exact model and runtime hashes.
 | Phase | Content | Exit |
 |---|---|---|
 | **0A** | Extended `hostprobe`, run in Flame | **Closed 2026-08-20.** All five questions answered; the measured report is the authority |
-| **0B** | Pinned SEA-RAFT M export through the private ORT on CPU and CUDA, in Flame | **In progress after the 2026-08-21 network passes.** Export provenance and hashes, direction/identity, multiresolution VRAM/timing, cancellation, provider-init fallback, controlled arena-limit/CPU recovery, lifecycle and duplicate-node observations are recorded; complete payload closure and higher production-resolution qualification remain before the gate closes. This does not choose the shipping default |
+| **0B** | Pinned SEA-RAFT M export through the private ORT on CPU and CUDA, in Flame | **Closed 2026-08-21.** Export provenance and hashes, direction/identity, exact CUDA payload closure/ownership, 480p–1080p VRAM/timing, cancellation, provider-init fallback, controlled arena-limit/CPU recovery, lifecycle and duplicate-node behavior are recorded. UHD, DCI 4K and Alexa 35 open gate each produced a valid bounded-allocation-stop measurement under the 16 GiB arena ceiling. This does not choose the shipping default or impose a product resolution cap |
 | **0C** | Flame ST round trip, and instance/process lifetime | Exact ST convention recorded; `Precache` persistence decided |
 | **1** | Vendor, CMake, **two descriptors**, bundle, harness, `describe`/`describeInContext`, passthrough render | Plugin loads with two inputs; parameters legible; workflow contracts settled — descriptor split, insert time, depth policy, cheap query actions, visible fallbacks |
 | **2** | `src/core/flow` complete, `NullPairwiseEstimator`, `ww-flow`, full unit + harness coverage | Separable lattice transform; typed flow links; confidence propagation; concurrency tests; all host-free tests green |
