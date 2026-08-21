@@ -124,17 +124,23 @@ is the right design.
   noted in the plan and not built.
 - **Occlusion is opt-in.** The forward-backward check doubles inference cost, so it is off
   by default. Until an artist turns it on, a warped insert smears through an occlusion.
-- **One architectural decision is still unmeasured**: whether `RTLD_DEEPBIND` isolates a
-  bundled ONNX Runtime from Flame's, which decides in-process versus out-of-process
-  inference. Everything else Phase 0 asked is now measured on the box — see
-  `docs/host-notes.md`.
+- **In-process inference is measured working for the CPU runtime only.** The CUDA execution
+  provider is a separate library, and Flame exposes CUDA, cuDNN, cuBLAS and TensorRT
+  globally as well; nothing has tested that combination. It is the last thing gating the
+  inference design.
+- **The isolation result rests on a 128-byte model.** Partial symbol capture could still
+  produce correct arithmetic on one `Add` node. Worth re-running against a real network the
+  moment there is one.
+- **`RTLD_LOCAL` sufficing depends on ONNX Runtime's hidden visibility**, which is a
+  property of their build rather than a guarantee. Re-check whenever the bundled version
+  changes.
 - **Model licences are read, not audited.** RAFT is BSD-3 (princeton-vl); Practical-RIFE
   states its weights carry the same MIT licence as its code. Both need re-verifying against
   the exact checkpoints shipped, before anything goes to a client. See `models/MODELS.md`.
 - **`cmake/ofx.map` protects the host from us, not us from the host.** It stops our symbols
-  being visible in Flame's process. It does nothing about *our* references binding to
-  Flame's already-loaded copy of something ONNX Runtime also carries — protobuf and the
-  CUDA runtime being the obvious candidates. That is Phase 0 probe item 3.
+  being visible in Flame's process; it does nothing about our references binding to Flame's
+  copy of something we also carry. Measured harmless for the CPU ONNX Runtime (see
+  `docs/host-notes.md`), and still unmeasured for the CUDA stack.
 
 ---
 

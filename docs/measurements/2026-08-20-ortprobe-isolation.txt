@@ -1,0 +1,112 @@
+
+=========================================================================
+White Water ORT probe -- session started 2026-08-20 17:15:25 (pid 3393661)
+=========================================================================
+
+== White Water ONNX Runtime isolation probe ==
+  bundled runtime: /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime.so
+  header ORT_API_VERSION: 29
+
+== The host's ONNX Runtime ==
+  OrtGetApiBase 0x7fb67e276970 from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  host runtime version: 1.22.0
+
+== Mode 1: RTLD_LOCAL only (expected INSUFFICIENT) ==
+  RTLD_LOCAL keeps our symbols out of the global scope for later lookups. It does NOT change how our own library's relocations resolve -- those still search the global scope first. Measured here to show the contrast, not because it is expected to work.
+  dlopen("/usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime.so", 0x2)
+  OrtGetApiBase: ours 0x7f9f109d3070, host 0x7fb67e276970 -- DISTINCT
+    ours resolves into /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime.so
+  reported version: 1.29.0
+    If this matches the host's ONNX Runtime version, the pointers above are
+    not evidence of isolation -- deliberately ship a different version so this
+    line discriminates.
+  CreateEnv: ok
+  CreateSessionFromArray: ok (128-byte embedded Add model)
+  Run: ok -- [11.0 22.0 33.0 44.0]
+  teardown: ok
+  (handle intentionally not dlclosed -- see the note in the source)
+
+== Mode 2: RTLD_LOCAL | RTLD_DEEPBIND (the candidate) ==
+  DEEPBIND makes the library prefer its own symbols over the global scope. This is the mode that decides whether in-process inference is available.
+  dlopen("/usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime.so", 0xa)
+  OrtGetApiBase: ours 0x7f9f109d3070, host 0x7fb67e276970 -- DISTINCT
+    ours resolves into /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime.so
+  reported version: 1.29.0
+    If this matches the host's ONNX Runtime version, the pointers above are
+    not evidence of isolation -- deliberately ship a different version so this
+    line discriminates.
+  CreateEnv: ok
+  CreateSessionFromArray: ok (128-byte embedded Add model)
+  Run: ok -- [11.0 22.0 33.0 44.0]
+  teardown: ok
+  (handle intentionally not dlclosed -- see the note in the source)
+
+== VERDICT ==
+  Mode 1: RTLD_LOCAL only (expected INSUFFICIENT)      USABLE
+      opened 1 | distinct pointer 1 | version 1.29.0 | ran 1 | arithmetic 1
+  Mode 2: RTLD_LOCAL | RTLD_DEEPBIND (the candidate)   USABLE
+      opened 1 | distinct pointer 1 | version 1.29.0 | ran 1 | arithmetic 1
+
+  At least one mode is usable, so IN-PROCESS inference is available.
+  Before committing to it, confirm the reported version is NOT the host's --
+  matching versions make the whole result ambiguous.
+
+  Report: /tmp/whitewater-ortprobe.txt
+
+=========================================================================
+White Water ORT probe -- session started 2026-08-20 17:25:19 (pid 3423387)
+=========================================================================
+
+== White Water ONNX Runtime isolation probe ==
+  bundled runtime directory: /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/
+  Each mode opens a separate copy, because dlopen returns the already-loaded
+  library for a repeated path and RTLD_DEEPBIND only applies at initial load.
+  header ORT_API_VERSION: 29
+
+== The host's ONNX Runtime ==
+  OrtGetApiBase 0x7f526aa76970 from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  host runtime version: 1.22.0
+
+== Mode 1: RTLD_LOCAL | RTLD_DEEPBIND ==
+  DEEPBIND makes the library prefer its own symbols over the global scope. Measured 2026-08-20: RTLD_LOCAL alone already sufficed in Flame, so what this mode now decides is whether DEEPBIND is safe to use, not whether it is necessary.
+  dlopen("/usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime-b.so", 0xa)
+  handle 0x39b27bd0
+  OrtGetApiBase: ours 0x7f3afbdd3070, host 0x7f526aa76970 -- DISTINCT
+    ours resolves into /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime-b.so
+  reported version: 1.29.0
+    If this matches the host's ONNX Runtime version, the pointers above are
+    not evidence of isolation -- deliberately ship a different version so this
+    line discriminates.
+  CreateEnv: ok
+  CreateSessionFromArray: ok (128-byte embedded Add model)
+  Run: ok -- [11.0 22.0 33.0 44.0]
+  teardown: ok
+  (handle intentionally not dlclosed -- see the note in the source)
+
+== Mode 2: RTLD_LOCAL only ==
+  RTLD_LOCAL keeps our symbols out of the global scope for later lookups; it does not reorder how our own library's relocations resolve. Expected to be insufficient on paper, and measured sufficient in Flame -- most likely because ONNX Runtime is built with hidden visibility, so its internals never consult the global scope and there is nothing to capture.
+  dlopen("/usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime.so", 0x2)
+  handle 0x2f37cfc0
+  OrtGetApiBase: ours 0x7f3af99d3070, host 0x7f526aa76970 -- DISTINCT
+    ours resolves into /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime.so
+  reported version: 1.29.0
+    If this matches the host's ONNX Runtime version, the pointers above are
+    not evidence of isolation -- deliberately ship a different version so this
+    line discriminates.
+  CreateEnv: ok
+  CreateSessionFromArray: ok (128-byte embedded Add model)
+  Run: ok -- [11.0 22.0 33.0 44.0]
+  teardown: ok
+  (handle intentionally not dlclosed -- see the note in the source)
+
+== VERDICT ==
+  Mode 1: RTLD_LOCAL | RTLD_DEEPBIND                   USABLE
+      opened 1 | distinct pointer 1 | version 1.29.0 | ran 1 | arithmetic 1
+  Mode 2: RTLD_LOCAL only                              USABLE
+      opened 1 | distinct pointer 1 | version 1.29.0 | ran 1 | arithmetic 1
+
+  At least one mode is usable, so IN-PROCESS inference is available.
+  Before committing to it, confirm the reported version is NOT the host's --
+  matching versions make the whole result ambiguous.
+
+  Report: /tmp/whitewater-ortprobe.txt

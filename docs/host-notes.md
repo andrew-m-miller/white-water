@@ -439,34 +439,70 @@ are inside the frame.
 
 ---
 
-## The inference-loading decision
+## Measured — ONNX Runtime isolation: in-process inference works
 
-Phase 0 leaves exactly one architectural question open, and it is now well posed.
+Flame 2026.2 on `flame6`, **2026-08-20**. Raw:
+`docs/measurements/2026-08-20-ortprobe-isolation.txt` (second session; the first is kept
+because its DEEPBIND result was an artifact and the contrast is instructive).
 
-Flame has ONNX Runtime 1.22.0 in its global symbol scope. Three ways to live with that:
+A separate probe bundle carrying its own ONNX Runtime **1.29.0**, deliberately different from
+Flame's 1.22.0 so the reported version discriminates between the two copies. Reached only
+through `dlopen`/`dlsym` — never linked, since a `DT_NEEDED` entry would be resolved through
+the global scope and bind us to Flame's copy before any of our code ran.
 
-| Option | Cost | Confidence |
-|---|---|---|
-| **Out of process** | An IPC boundary and a supervised helper. warp-drive has both (`src/ofx/EditorProcess.cpp`, `src/ipc/`); Mocha ships exactly this shape and it is measured working on this box. | **Known to work** |
-| **`RTLD_LOCAL` + `RTLD_DEEPBIND`** | Keeps one process, much less machinery. But `DEEPBIND` breaks malloc interposition and can misroute exceptions across the boundary. | **Unmeasured** |
-| **Static ORT, hidden visibility** | Collision gone at the source. Awkward to build; ORT's static build is not a well-trodden path. | Unmeasured |
+| | handle | `OrtGetApiBase` | resolves into | version |
+|---|---|---|---|---|
+| Host | — | `0x7f526aa76970` | `/opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1` | **1.22.0** |
+| `RTLD_LOCAL｜RTLD_DEEPBIND` | `0x39b27bd0` | `0x7f3afbdd3070` | our `libonnxruntime-b.so` | **1.29.0** |
+| `RTLD_LOCAL` alone | `0x2f37cfc0` | `0x7f3af99d3070` | our `libonnxruntime.so` | **1.29.0** |
 
-**Next measurement, and the last one before Phase 1:** a second probe bundle that links a
-real ONNX Runtime and attempts `RTLD_LOCAL|RTLD_DEEPBIND`, reporting whether
-`OrtGetApiBase` resolves to *ours* rather than Flame's, and whether a trivial CUDA session
-then initialises. Kept as a separate bundle so a runtime that refuses to load cannot take
-the capability probe down with it.
+Both modes created an environment, built a session from the embedded model, ran it and
+returned `[11 22 33 44]`. **Three ONNX Runtimes coexisted in Flame's process at once** — the
+host's and two of ours — all functional.
 
-A clean result makes in-process available and much simpler. A dirty one costs nothing,
-because out-of-process is already known to work.
+### The decision: in-process, with plain `RTLD_LOCAL`
+
+**Inference runs in-process.** No IPC boundary, no supervised helper, no frame transport.
+
+**Use `RTLD_LOCAL` alone; do not use `RTLD_DEEPBIND`.** Both are measured working, so the
+choice is which hazard to decline. `DEEPBIND` breaks malloc interposition and can misroute
+exception unwinding across the boundary, where `std::type_info` identity fails and `catch`
+and `dynamic_cast` stop working — real failure modes that would surface as inexplicable
+crashes inside a host with no debugger. Taking that on to solve a problem that is already
+solved would be paying a cost for nothing. `DEEPBIND` stays documented as the escalation if
+a future ONNX Runtime or Flame combination ever shows capture.
+
+**Why `RTLD_LOCAL` suffices, which was not the expectation.** `RTLD_LOCAL` governs whether
+*our* symbols enter the global scope; it does not reorder how our own library's relocations
+resolve, so on paper the host's copy should have been able to capture them. It cannot,
+almost certainly because ONNX Runtime is built with hidden visibility: its internals resolve
+to local symbols and never consult the global scope, and the exported C API is called only
+by us through our own handle. The collision is real in principle and defused in practice by
+ORT's own build hygiene — which is a property of *their* build, not a law, and therefore
+worth re-checking whenever the bundled runtime version changes.
+
+### What this does not establish
+
+- **The model is 128 bytes.** Partial symbol capture could still produce correct arithmetic
+  on a single `Add`. Re-run with a real network at Phase 3, when RAFT or WAFT is loaded
+  anyway.
+- **The CUDA execution provider is untested.** It is a separate `.so` that pulls in more
+  libraries, and Flame exposes `libcudart.so.12`, `libcudnn.so.9`, `libcublas.so.12` and
+  `libnvinfer.so.10` globally as well. The CPU result is necessary but not sufficient for
+  the thing actually wanted. This is the next measurement.
+- **Only version 1.29.0 against 1.22.0.** If Flame ever ships the version we bundle, the
+  version string stops discriminating — a probe concern rather than a runtime one, since
+  matching versions are less dangerous, not more.
 
 ## Open
 
 Phase 0's five questions are closed — see *Measured — Phase 0 probe run in Flame*. What
 remains:
 
-1. **Does `RTLD_DEEPBIND` isolate a bundled ONNX Runtime from Flame's?** The last blocking
-   measurement. See *The inference-loading decision*.
+1. **Does the CUDA execution provider survive the same treatment?** The CPU runtime is
+   measured isolated and working in-process; the CUDA provider is a separate `.so` pulling
+   in more libraries, against a host that exposes CUDA, cuDNN, cuBLAS and TensorRT globally.
+   The next measurement, and the only one still gating the inference design.
 2. **Whether render scale is ever anything but 1.** Every observation so far is `[1, 1]`,
    at both pixel aspect ratios.
 3. **Whether `kOfxImagePropRowBytes` can be negative** in Flame, and whether images are ever

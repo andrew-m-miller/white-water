@@ -82,14 +82,16 @@ risk; if either fails, the architecture changes:
 
 - **Item 2 fails** → a mandatory Analyze pass writing a disk cache, driven from an
   instance-changed action, which warp-drive measured to work.
-- **Item 3 fails** → *not* automatically CPU-only. There are two outcomes, and the Mocha
-  evidence suggests the second is live: inference could move **out of process**, into a
-  supervised helper with its own address space and its own CUDA context. warp-drive already
-  has that machinery working for its editor (`src/ofx/EditorProcess.cpp`, fork/exec with
-  environment scrubbing, plus `src/ipc/` for the frame channel), so it is a port rather than
-  a design. CPU-only is the outcome only if GPU inference fails in *both* process models —
-  and that is what makes RAFT at 4K unusable and promotes RIFE from fast option to only
-  option.
+- **Item 3 — ANSWERED 2026-08-20, in our favour.** Inference runs **in-process**, with the
+  bundled runtime opened by `dlopen` under plain `RTLD_LOCAL`. Measured: our ONNX Runtime
+  1.29.0 loaded alongside Flame's 1.22.0, kept its own identity, and ran. `RTLD_DEEPBIND`
+  also works but is deliberately *not* used — it breaks malloc interposition and exception
+  unwinding, and paying that to solve an already-solved problem would be a poor trade. The
+  out-of-process design (warp-drive's `EditorProcess` plus `src/ipc/`, the shape Mocha Pro
+  ships) is retained as a documented fallback rather than the plan. See
+  `docs/host-notes.md`. **Still to measure: the CUDA execution provider**, which is a
+  separate library against a host that also exposes CUDA, cuDNN, cuBLAS and TensorRT
+  globally.
 
 ---
 
