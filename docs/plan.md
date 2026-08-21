@@ -125,8 +125,8 @@ and on the CUDA EP:
 - provider init and first-run latency; peak and steady VRAM beside a live Batch;
 - repeated create/run/destroy, and node duplication;
 - cancellation from another thread via a per-run `RunOptions`;
-- fallback after provider init failure and after GPU OOM;
-- **Next probe implementation:** exercise a controlled CUDA-arena limit by setting
+- provider-init fallback, plus a bounded recovery proxy for GPU allocation failure;
+- **Measured 2026-08-21:** exercise a controlled CUDA-arena limit by setting
   `OrtCUDAProviderOptions::gpu_mem_limit` to a fixed 64 MiB, attempting the real SEA-RAFT M
   at 480×640, requiring a recognisable allocator-limit failure at session creation or first
   run, tearing down that limited CUDA attempt, and numerically checking recovery through a
@@ -135,7 +135,11 @@ and on the CUDA EP:
   The probe records the failure stage/kind and device-wide NVML use before/after, skips the
   exercise unless baseline CUDA inference passed cleanly, skips it if a cancellation timeout
   retained resources, and can gate the action with
-  `WHITEWATER_ORT_REQUIRE_GPU_MEM_LIMIT=1`. This is pending a new Flame measurement;
+  `WHITEWATER_ORT_REQUIRE_GPU_MEM_LIMIT=1`. On the target Flame 2026.2 host it failed during
+  `CreateSession` with an explicit `BFCArena` limit diagnostic, returned device-wide NVML use
+  to the pre-test value, passed fresh-session numerical CPU recovery, and passed the required
+  gate. This is recovery evidence, not automatic production fallback; that shipping behavior
+  remains Phase 4;
 - **the exact dependency closure and on-disk size of the chosen CUDA build**, which decides
   CPU-default versus separate GPU install, and bundle versus sibling tree (see *Build and
   packaging*).
@@ -154,13 +158,16 @@ The follow-up multiresolution reports supplied on 2026-08-21 add warmed CPU and 
 480×640, 720×1280 and 1080×1920, plus repeated lifecycle, cancellation, provider-init
 fallback and duplicate-node comparisons. The host-notes entry records their measured values
 and scope; the supplied reports are not archived in this repository. These results close
-those checks for the reported run, but do not close the controlled CUDA arena-limit and CPU
-recovery measurement or
-production-resolution qualification above 1080p.
+those checks for the reported run, but do not close production-resolution qualification
+above 1080p.
 
-0B remains open for complete CUDA dependency closure, controlled CUDA arena-limit/CPU
-recovery measurement, and
-warmed production-resolution performance. The supplied run maps `libcurand.so.10` to Flame's
+The controlled arena-limit transcript is archived in
+`docs/measurements/2026-08-21-ortprobe-gpu-mem-limit-flame.txt`; the result closes that
+bounded recovery measurement without making a claim about physical device-wide OOM or
+automatic production fallback.
+
+0B remains open for complete CUDA dependency closure and warmed production-resolution
+performance. The supplied run maps `libcurand.so.10` to Flame's
 `/opt/Autodesk/lib64/2026.2.1/libcurand.so.10`, but the shell closure still measured a
 646,116,341-byte diagnostic payload (including a 31,958,904-byte probe-only ORT duplicate),
 about 614.2 MB without that duplicate, and 103,095,040 bytes of resolved external libraries
@@ -611,7 +618,7 @@ thresholds tied to the exact model and runtime hashes.
 | Phase | Content | Exit |
 |---|---|---|
 | **0A** | Extended `hostprobe`, run in Flame | **Closed 2026-08-20.** All five questions answered; the measured report is the authority |
-| **0B** | Pinned SEA-RAFT M export through the private ORT on CPU and CUDA, in Flame | **In progress after the 2026-08-21 network pass.** Export provenance and hashes, direction/identity, multiresolution VRAM/timing, cancellation, provider-init fallback, lifecycle and duplicate-node observations are recorded; complete payload closure, the bounded `gpu_mem_limit` arena-limit/CPU-recovery measurement, and higher production-resolution qualification remain before the gate closes. This does not choose the shipping default |
+| **0B** | Pinned SEA-RAFT M export through the private ORT on CPU and CUDA, in Flame | **In progress after the 2026-08-21 network passes.** Export provenance and hashes, direction/identity, multiresolution VRAM/timing, cancellation, provider-init fallback, controlled arena-limit/CPU recovery, lifecycle and duplicate-node observations are recorded; complete payload closure and higher production-resolution qualification remain before the gate closes. This does not choose the shipping default |
 | **0C** | Flame ST round trip, and instance/process lifetime | Exact ST convention recorded; `Precache` persistence decided |
 | **1** | Vendor, CMake, **two descriptors**, bundle, harness, `describe`/`describeInContext`, passthrough render | Plugin loads with two inputs; parameters legible; workflow contracts settled — descriptor split, insert time, depth policy, cheap query actions, visible fallbacks |
 | **2** | `src/core/flow` complete, `NullPairwiseEstimator`, `ww-flow`, full unit + harness coverage | Separable lattice transform; typed flow links; confidence propagation; concurrency tests; all host-free tests green |

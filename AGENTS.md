@@ -21,10 +21,11 @@ Phase 0A answered all five questions in Flame on 2026-08-20, including the two t
 have changed the architecture — `clipGetImage` works during render, and in-process inference
 works. The 2026-08-21 SEA-RAFT M probe now passes identity and direction on both CPU and
 CUDA through the private runtime. **0B remains before inference implementation** until the
-qualification record closes the remaining CUDA payload, bounded CUDA arena-limit/CPU-recovery
-measurement, and higher production-resolution checks; the next probe revision includes that
-arena-limit exercise. **0C remains before ST/cache integration:** Flame's ST convention and
-instance/process lifetime. Phase 1 and the host-free parts of Phase 2 are unblocked now.
+qualification record closes the remaining CUDA payload and higher production-resolution
+checks. The bounded CUDA arena-limit/CPU-recovery gate passed in Flame on 2026-08-21; it is
+recovery evidence, not the Phase 4 automatic shipping fallback. **0C remains before ST/cache
+integration:** Flame's ST convention and instance/process lifetime. Phase 1 and the host-free
+parts of Phase 2 are unblocked now.
 
 The plan was amended on 2026-08-20 after an architecture review. Read `docs/plan.md` and
 `docs/context.md` before writing code against anything you remember about it.

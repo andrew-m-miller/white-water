@@ -94,6 +94,30 @@ or an equivalent ACL for the Flame runtime user), not a troubleshooting note.
 
 ---
 
+## Session 4 — 2026-08-21 — multiresolution and bounded CUDA allocation failure
+
+Follow-up Flame reports measured warmed CPU and CUDA inference at 480×640, 720×1280 and
+1080×1920 on both the original and a duplicated probe node. Direction/identity, repeated
+create/run/destroy, cross-thread cancellation and provider-init failure followed by CPU
+fallback all passed. The duplicate used a distinct OFX instance handle and produced
+equivalent results. These runs supplied the first useful-resolution timing and device-wide
+NVML record, but intentionally stopped at 1080p on the current GPU.
+
+The next run bounded ORT's CUDA arena to 64 MiB. The real SEA-RAFT session failed during
+`CreateSession` inside `BFCArena::AllocateRawInternal`, with 1,931,264 bytes available for a
+2,359,296-byte request. Device-wide NVML use was 2,395.9 MiB both before the attempt and
+after cleanup; a fresh CPU session then passed numerical identity/direction, and the required
+arena-limit gate passed. The raw transcript is archived in `docs/measurements/`.
+
+This is the safe Phase 0B evidence we wanted: an explicit bounded allocator failure does not
+poison later inference in the host process. It is not a device-wide OOM test and does not
+exercise automatic production fallback or an artist-visible error path; those are Phase 4
+shipping behavior. 0B remains open for complete CUDA payload closure and qualification above
+1080p, including UHD, DCI 4K and the 4608×3164 Alexa 35 open-gate case. Those qualification
+targets are measurements, not product hard caps.
+
+---
+
 ## Decisions
 
 ### Vendored from warp-drive rather than submoduled
@@ -256,10 +280,10 @@ is the right design.
   is worse than admitting the gap, because it stops anyone looking for the real remedy.
 - **Occlusion is opt-in.** The forward-backward check doubles inference cost, so it is off
   by default. Until an artist turns it on, a warped insert smears through an occlusion.
-- **The real SEA-RAFT M network now passes in-process on both CPU and CUDA**, but the 0B gate
-  is not closed: exact `libcurand`/payload ownership, VRAM, repeated lifecycle and node
-  duplication, cross-thread cancellation, provider-init/GPU-OOM fallback, and warmed
-  production-resolution performance remain unmeasured.
+- **The real SEA-RAFT M network now passes in-process on both CPU and CUDA.** Warmed
+  480p–1080p timing/VRAM, repeated lifecycle and node duplication, cross-thread cancellation,
+  provider-init fallback, and bounded arena-limit/CPU recovery are measured too. The 0B gate
+  is not closed: complete CUDA payload closure and qualification above 1080p remain open.
 - **`RTLD_LOCAL` sufficing depends on ONNX Runtime's hidden visibility**, which is a
   property of their build rather than a guarantee. Re-check whenever the bundled version
   changes.

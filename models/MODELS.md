@@ -272,9 +272,12 @@ export; it is not substituted for the target build's measured hash.
 
 The 2026-08-21 Flame 2026.2 run passed identity and both translation directions through
 private ONNX Runtime 1.29 on CPU and CUDA. This qualifies the real network and CUDA provider
-on that host/runtime pair; it does not choose a shipping model. Exact CUDA dependency
-ownership, VRAM, repeated lifecycle/node duplication, cancellation, provider/OOM fallback
-and warmed useful-resolution performance remain in Phase 0B.
+on that host/runtime pair; it does not choose a shipping model. Follow-up runs measured
+warmed CPU/CUDA timing and device-wide VRAM at 480×640, 720×1280 and 1080×1920, repeated
+lifecycle, duplicate-node equivalence, cancellation, provider-init fallback, and a bounded
+64 MiB CUDA-arena failure followed by fresh-session numerical CPU recovery. Complete CUDA
+dependency closure and qualification above 1080p remain in Phase 0B. Automatic production
+fallback is Phase 4 behavior and is not established by the recovery probe.
 
 The first installed probe exposed a packaging fault before that pass: the ONNX existed but
 was mode `0600`, so the distinct Flame runtime user could not read it. Published model and

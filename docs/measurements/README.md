@@ -20,3 +20,4 @@ Named `YYYY-MM-DD-<subject>.txt`. Each should be referenced from the entry in
 | `2026-08-21-ortprobe-sea-raft-m-flame.txt` | Verbatim Flame 2026.2 SEA-RAFT M CPU/CUDA probe. Both paths pass identity and direction under the private ORT 1.29 runtime. |
 | `2026-08-21-ortprobe-cuda-warnings.txt` | Verbatim ORT CUDA-provider warnings from the SEA-RAFT M run: nine inserted Memcpy nodes and CPU-assigned shape operations; performance diagnostics, not correctness failures. |
 | `2026-08-21-ort-cuda-closure-flame.txt` | ORT CUDA payload and loader-resolved closure measured from the Flame box shell; four NVIDIA dependencies remained unresolved in that shell environment. |
+| `2026-08-21-ortprobe-gpu-mem-limit-flame.txt` | Verbatim Flame 2026.2 controlled CUDA-arena-limit run. A 64 MiB `gpu_mem_limit` produced an explicit `BFCArena` allocation failure during session creation, returned device VRAM to the pre-test level, and passed fresh-session numerical CPU recovery. |

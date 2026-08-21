@@ -19,11 +19,12 @@ ONNX Runtime coexists with Flame's own in the same process. So the on-demand cha
 holds, and inference runs **in-process** — no IPC boundary to build.
 
 The pinned SEA-RAFT M export now passes identity and direction on both CPU and CUDA through
-the private runtime inside Flame. **0B** remains open for exact CUDA payload ownership, VRAM,
-lifecycle, cancellation, fallback/OOM and warmed useful-resolution measurements before
-inference implementation; **0C** settles Flame's ST map convention and how long a plugin
-instance actually lives before ST/cache integration. Phase 1 and the host-free part of Phase
-2 can proceed independently. See the Open section of
+the private runtime inside Flame. Warmed 480p–1080p timing/VRAM, lifecycle, cancellation,
+provider-init fallback, duplicated-node behavior and the bounded CUDA arena-limit/CPU-recovery
+gate are also measured. **0B** remains open for complete CUDA payload closure and qualification
+above 1080p before inference implementation; **0C** settles Flame's ST map convention and how
+long a plugin instance actually lives before ST/cache integration. Phase 1 and the host-free
+part of Phase 2 can proceed independently. See the Open section of
 [docs/host-notes.md](docs/host-notes.md) and *Phase 0* in [docs/plan.md](docs/plan.md).
 
 ## Documents

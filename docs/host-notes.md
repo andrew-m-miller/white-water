@@ -610,21 +610,29 @@ behavior for this duplicated-node run. The probe's own per-instance summary stil
 comparison; this evidence does not answer Flame process/restart lifetime, which remains a
 0C question.
 
-## Implementation status — next 0B probe, not yet measured
+## Measured — Phase 0B controlled CUDA arena limit and CPU recovery
 
-The next probe revision adds a controlled CUDA-arena failure exercise. It sets
-`OrtCUDAProviderOptions::gpu_mem_limit` to a fixed **64 MiB** and attempts the real SEA-RAFT
-M model at **480×640**. Only a recognisable allocator-limit diagnostic while creating the
-limited CUDA session or during its first run qualifies; provider initialization and other
-errors are reported separately by stage and kind. The probe then tears down that limited
-CUDA attempt and requires numerical identity/direction recovery through a fresh CPU session
-at **128×192**. It also records device-wide NVML use before and after cleanup, requires the
-baseline CUDA inference to pass first, and skips the exercise if a cancellation timeout left
-CUDA resources alive. `gpu_mem_limit` bounds ORT's
-CUDA arena, not every CUDA/cuDNN allocation, and the fresh CPU session is recovery evidence,
-not an automatic production-fallback test. Set
-`WHITEWATER_ORT_REQUIRE_GPU_MEM_LIMIT=1` to make this result gate the probe action. A new
-Flame measurement is required before this item can be marked measured.
+Flame **2026.2**, **2026-08-21**. The verbatim report is archived as
+`docs/measurements/2026-08-21-ortprobe-gpu-mem-limit-flame.txt`. Baseline private-ORT CPU
+and CUDA inference, numerical direction/identity, cross-thread cancellation and repeated
+create/run/destroy all passed before the injected failure. The 480×640 CUDA steady median
+was **41.2 ms**, consistent with the earlier multiresolution runs; its device-wide NVML
+baseline/peak/steady values were 2,176.8/2,921.9/2,921.9 MiB.
+
+The controlled exercise set `OrtCUDAProviderOptions::gpu_mem_limit` to **64 MiB** and
+attempted the real SEA-RAFT M model at **480×640**. Session creation failed inside
+`BFCArena::AllocateRawInternal`: the arena reported 1,931,264 bytes available for a
+2,359,296-byte request. The probe therefore classified the result as
+`stage CreateSession | kind allocator-limit`, exactly the explicit arena diagnostic required
+by the gate. Device-wide NVML use was **2,395.9 MiB before and after cleanup**. After the
+limited CUDA objects were released, a fresh CPU session passed the real model's 128×192
+identity/direction checks, and `WHITEWATER_ORT_REQUIRE_GPU_MEM_LIMIT=1` reported **PASS**.
+
+This closes the bounded CUDA-arena-limit/CPU-recovery measurement. `gpu_mem_limit` bounds
+ORT's CUDA arena, not every CUDA/cuDNN allocation, so it is not evidence about physical
+device-wide exhaustion. The fresh CPU session proves process/session recovery after teardown,
+not an automatic production fallback or its artist-visible diagnostic; those remain Phase 4
+shipping behavior to implement and verify.
 
 ## Open
 
@@ -639,9 +647,9 @@ gate they block (`docs/plan.md`, *Phase 0*).
 **Measured status (2026-08-21):** the pinned SEA-RAFT M export passes identity and both
 translation directions through private ORT 1.29 on CPU and CUDA inside Flame 2026.2. The
 provider libraries, multiresolution timings/VRAM, lifecycle, cancellation, provider-init
-fallback and duplicated-node comparison are recorded above for the supplied run. This does
-not choose the shipping model or close the remaining packaging, controlled CUDA arena-limit
-and CPU recovery measurement, or higher production-resolution tests.
+fallback, duplicated-node comparison and controlled arena-limit/CPU-recovery result are
+recorded above. This does not choose the shipping model or close the remaining packaging or
+higher production-resolution tests.
 
 1. **Complete CUDA dependency closure and packaging ownership.** The supplied run identifies
    `libcurand.so.10` as the host file above, but the shell closure still reports unresolved
@@ -651,15 +659,13 @@ and CPU recovery measurement, or higher production-resolution tests.
    1080×1920 measurements are recorded above. UHD, DCI 4K and the 4608×3164 Alexa 35
    open-gate case remain to be measured with the selected model/settings; none is a hard
    plugin-resolution cap.
-3. **Broader lifecycle scope.** Repeated create/run/destroy passed 3/3 on CPU and CUDA, and
-   the duplicate-node comparison supports equivalent behavior for this run. Flame process
-   restart/foreground-versus-background lifetime remains the separate 0C question.
-4. **Cross-thread cancellation** passed through a per-run `RunOptions` in both reports; keep
-   it in regression coverage.
-5. **Fallbacks.** Provider-init failure plus numerical CPU fallback passed. The controlled
-   64 MiB `gpu_mem_limit` arena-limit/CPU-recovery exercise is implemented in the next probe
-   but is pending a new Flame measurement; no device-wide GPU-OOM or automatic fallback
-   result should be inferred yet.
+
+The operational 0B subchecks are now measured on this host/runtime pair: repeated lifecycle
+passed 3/3 on CPU and CUDA, duplicate-node behavior was equivalent in the supplied run,
+cross-thread cancellation passed, provider-init failure followed by numerical CPU fallback
+passed, and the bounded arena-limit/CPU-recovery gate passed. Keep these in regression
+coverage. Flame process/restart lifetime remains 0C; automatic production fallback and its
+artist-visible diagnostic remain Phase 4.
 
 ### 0C — blocks ST map and cache integration
 
