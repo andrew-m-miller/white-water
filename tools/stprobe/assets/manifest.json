@@ -1,0 +1,39 @@
+{
+  "width": 512,
+  "height": 384,
+  "origin_hypothesis": "bottom-left, half-pixel centers ((i+0.5)/N)",
+  "coord_plate": {
+    "file": "WW_COORD.exr",
+    "R": "(x + 0.5) / W   (x = column, 0..W-1)",
+    "G": "(yb + 0.5) / H  (yb = row from BOTTOM, 0..H-1)",
+    "B": 0.5,
+    "decode_fetched_pixel": {
+      "x": "R * W - 0.5",
+      "yb": "G * H - 0.5",
+      "note": "PAR-independent; always real W,H. B!=0.5 => not sampled from plate (black/wrap)."
+    }
+  },
+  "st_channel_layout_authored": "U in R, V in G, B=0",
+  "shift_px": 8,
+  "oor_values": {
+    "low": -0.1,
+    "high": 1.1,
+    "bands": "left/mid/right thirds of width"
+  },
+  "maps": {
+    "ST_IDENTITY": "U=(x+0.5)/W, V=(yb+0.5)/H",
+    "ST_SHIFTX": "U=((x-8)+0.5)/W, V=identity",
+    "ST_SHIFTY": "U=identity, V=((yb+8)+0.5)/H",
+    "ST_HALF": "U=V=0.5",
+    "ST_OOR": "U: left=-0.1, mid=identity, right=1.1; V=identity"
+  },
+  "landmark_plate": {
+    "file": "WW_STSRC.exr",
+    "bg": 0.25,
+    "red_vline_x": 100,
+    "green_hline_yb": 200,
+    "white_block": "8x8 true bottom-left",
+    "blue_block": "8x8 top-right"
+  },
+  "expected_output_naming": "out_<node>_<par>_<map>.exr  node in {action,stmap} par in {par1,par2} map in {identity,shiftx,shifty,half,oor}"
+}
