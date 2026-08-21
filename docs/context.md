@@ -35,6 +35,32 @@ nothing.
 
 ---
 
+## Session 2 — 2026-08-20 — Phase 0A, and a review
+
+Two things happened. The probe ran in Flame and closed all five Phase 0 questions, and an
+advisory review of the plan and scaffold came back (`docs/architecture-review-2026-08-20.md`,
+with the reply and a second round of corrections in `docs/review-response-2026-08-20.md`).
+
+**Phase 0A closed, with two answers better than budgeted.** `clipGetImage` works during
+render, so the on-demand chain design survives intact. In-process inference works under plain
+`RTLD_LOCAL`, so there is no IPC boundary, no supervised helper and no frame transport to
+build — a substantial simplification against what the plan had provisioned for. Details in
+`docs/host-notes.md`; raw transcripts in `docs/measurements/`.
+
+**The review changed the plan in seven places**, all recorded as decisions below or in the
+weaknesses list: separable field geometry, the owned frame type moving to `src/core`, typed
+flow links, the ST map becoming its own float-only descriptor, split cache lifetimes,
+`Analyze` becoming `Precache`, and the removal of the claim that `Smooth` mitigates drift. It
+also produced correction 6.
+
+Worth recording about the process rather than the content: the review was read *against the
+tree*, not accepted. Every claim it made about this repository was checked to a file and a
+line before being acted on, and the one claim it made about the OFX specification turned out
+to be wrong — as did my first reply to it. Both are cited to vendored headers now. A review
+is a lead, and so is a reply to one.
+
+---
+
 ## Decisions
 
 ### Vendored from warp-drive rather than submoduled
@@ -71,14 +97,82 @@ the knob for memory; the number format is not.
 
 ### Analysis scale lives in the field's geometry, not in an upscale pass
 
-A field carries `FieldGeometry{origin, spacing}` and its *values are always in
-full-resolution pixels*. A half-resolution RAFT result becomes a field with `spacing = 2`
-whose vectors were scaled by 2 on arrival. From that point every consumer — compose, ST
-map, resampler — works in one coordinate space and never learns that an analysis scale
-exists.
+A field carries a `FieldGeometry` and its *values are always in full-resolution pixels*. A
+half-resolution result becomes a field whose vectors were scaled on arrival. From that point
+every consumer — compose, ST map, resampler — works in one coordinate space and never learns
+that an analysis scale exists.
 
 The alternative, resampling each field up to full resolution on arrival, costs a copy per
 chain link and filters the same data twice: once going up, once when it is sampled.
+
+**Amended 2026-08-20: the geometry is separable, not scalar.** `FieldGeometry` was first
+written as `{origin, spacing}` with one `double`. That silently assumes X and Y scale
+identically, which is false for an anamorphic plate — already measured on this box at PAR 2 —
+and for odd extents reduced by a fraction, and for asymmetric rounding. It is now
+`{origin, spacingX, spacingY}`, checked at construction, because zero, negative, NaN and
+infinite spacing all reach a division in `sample()`.
+
+Deliberately separable and no further. A general 2D affine was proposed and declined: it
+admits rotation and shear that nothing in this pipeline produces, and every consumer would
+then carry the general case forever. If a rotation ever genuinely appears it is a new type,
+not a generalisation of this one.
+
+The related trap is that **an analysis "scale" cannot be a fraction.** PAR normalization
+expands canonical width, so any fixed divisor applied afterwards inherits the expansion: a
+2048×1556 PAR 2 plate is 4096×1556 canonical, and half of that is 2048×778 model pixels
+against 1024×778 for the PAR 1 equivalent — still 2×, presenting as an unexplained OOM on
+anamorphic shots only. The control is a megapixel cap. An area-preserving pitch of
+`a·√PAR` in canonical space is correct arithmetic and was considered, but at PAR 2 it
+supersamples X by 1.41 and undersamples Y by the same factor, discarding about 30% of the
+vertical resolution present in the buffer at a setting the artist reads as "Full".
+
+### A field is storage; a flow link is the unit of chain algebra
+
+`Field<2>` aliased to `FlowField` left direction and meaning in comments, which makes several
+expensive mistakes representable: treating an absolute map as a displacement, composing
+`R→N` where `N→R` was needed, combining fields with different geometry. `FlowLink` carries
+`fromTime`, `toTime`, both geometries and a model fingerprint, and `compose` rejects
+mismatches rather than trusting the caller.
+
+Direction errors are the likeliest bug in this design *because a reversed chain still produces
+plausible motion* — the same property that made correction 5 dangerous. Putting the endpoints
+in the type is what makes them checkable at all.
+
+Confidence stays a separate parallel `Field<1>` rather than an optional member. It is
+toggleable and recomputable without invalidating the flow it accompanies, and the common
+no-confidence path should not pay for it in the cache or the budget.
+
+### The ST map is its own descriptor, not an output mode
+
+Flame reports `SupportsMultipleClipDepths = 0`. Per `ofxClipPreferences.rst`, that means every
+clip shares one depth and the plugin may not remap them — so a single effect cannot serve
+float ST output from a byte source. And ST data genuinely needs float: half's significand
+gives roughly 4-pixel quantization near 1.0 at 4K, byte gives 256 levels, and relative-pixel
+mode is signed and outside `[0, 1]` entirely, so an integer writer destroys it outright.
+
+Three honest designs existed. Float across the whole plugin would force float buffers for a
+byte source in Composite mode too — 4× the memory on 4K for a mode that does not need it. A
+visible refusal at non-float depth is honest but leaves the artist stuck. A separate
+float-only descriptor confines the cost to the output that requires the precision, and
+incidentally resolves the Filter-versus-General UI problem: the original "Filter registered as
+ST-Map-only" would have shown Composite and Warped Insert choices in a context with no Insert,
+which `setEnabled()` is forbidden here to fix.
+
+Both identifiers are permanent from the first artist build, which is why this had to be
+settled before Phase 1 rather than after.
+
+### `Analyze` became `Precache`, and its scope is gated on a measurement
+
+The button was specced to "walk the range", which is undefined and could mean thousands of
+frames. It now walks a chosen range — Current-to-Ref, Work Range, or Custom — and never the
+full source range by default.
+
+The name changed because a RAM-only pre-warm is what it honestly is. Whether it can be more
+depends on 0C: if foreground and final render keep the same instance and process, a memory
+precache is genuinely useful; if final render is another process, it has no production value
+and the choice is between dropping the button and an explicitly user-managed disk cache.
+Automatic persistence is the one option ruled out in advance — a cache that cannot detect an
+upstream regrade silently serves stale flow, which is worse than no cache.
 
 ### CI gates on symbol exports, which warp-drive does not
 
@@ -119,9 +213,13 @@ is the right design.
 ## Known weaknesses
 
 - **Chain drift is not solved.** Composing `k` pairwise flows accumulates `k` interpolation
-  errors. Mitigated by the `Smooth` parameter and by keeping the reference frame near the
-  working range; a fall-back to a direct `R→N` inference past a chain-length threshold is
-  noted in the plan and not built.
+  errors. Bounded only by keeping the reference frame near the working range; a fall-back to a
+  direct `R→N` inference past a chain-length threshold is noted in the plan and not built.
+  **The `Smooth` parameter does not mitigate this**, contrary to what the plan said until
+  2026-08-20. Smoothing addresses local spatial noise; drift is accumulated systematic bias
+  along the temporal axis, and blurring the field additionally softens motion boundaries,
+  which makes foreground/background leakage worse. Claiming a knob fixes something it cannot
+  is worse than admitting the gap, because it stops anyone looking for the real remedy.
 - **Occlusion is opt-in.** The forward-backward check doubles inference cost, so it is off
   by default. Until an artist turns it on, a warped insert smears through an occlusion.
 - **In-process inference is measured working for the CPU runtime only.** The CUDA execution
@@ -134,9 +232,18 @@ is the right design.
 - **`RTLD_LOCAL` sufficing depends on ONNX Runtime's hidden visibility**, which is a
   property of their build rather than a guarantee. Re-check whenever the bundled version
   changes.
-- **Model licences are read, not audited.** RAFT is BSD-3 (princeton-vl); Practical-RIFE
-  states its weights carry the same MIT licence as its code. Both need re-verifying against
-  the exact checkpoints shipped, before anything goes to a client. See `models/MODELS.md`.
+- **Model licences are read, not audited.** Every claim needs verifying against the actual
+  repository and the actual checkpoint file before anything goes to a client — including
+  backbone weights, which may carry different terms from the code that loads them. Secondhand
+  licence claims, including those in the 2026-08-20 architecture review, are leads rather than
+  findings. See `models/MODELS.md`.
+- **No model default is chosen, deliberately.** Choice option order is API — a saved setup
+  stores the index — so `model` and `inputCurve` get their options at Phase 2.5, from the
+  bake-off, measured on the exact exported artifact rather than on upstream PyTorch.
+- **The chain is a workaround for pairwise models.** A reference-frame tracker computes
+  directly what `FlowChain` approximates. If one becomes viable at production resolutions,
+  the chain, the drift work and the link cache all collapse into a single inference — so
+  `FlowEstimator` must not be shaped so tightly around pairs that it forecloses one.
 - **`cmake/ofx.map` protects the host from us, not us from the host.** It stops our symbols
   being visible in Flame's process; it does nothing about our references binding to Flame's
   copy of something we also carry. Measured harmless for the CPU ONNX Runtime (see
@@ -289,4 +396,37 @@ Two things that should have caught it earlier and now do:
 The warp-drive note that image bounds are in real pixels while project size is square-pixel
 was already in `docs/host-notes.md`, inherited, and I had read it. Knowing a fact is not the
 same as applying it at the one site where it matters.
+
+### 6. Reaching for a measurement when the specification was already in the tree
+
+**Symptom:** none yet — caught in review, before any code depended on it.
+
+An advisory review asserted that concurrent same-instance renders "must be expected" under
+`eRenderInstanceSafe`. I hedged it on empirical grounds: 47 measured renders in the probe
+transcript, `setHostFrameThreading(false)` declared, so *let us see what Flame actually does*.
+
+The answer did not need Flame. It is stated in a header vendored into this repository:
+
+```
+eRenderInstanceSafe  /**< can call a single render on an instance,
+                          but can render multiple instances simultaneously */
+```
+
+`third_party/openfx/Support/include/ofxsImageEffect.h:94`, and `ofxImageEffect.h:768` says the
+same. `eRenderFullySafe` is the level that permits several renders on one instance, and we do
+not declare it. Both the review and my reply to it were wrong.
+
+The consequence is a redistribution rather than a deletion, and it lands where the real
+hazard is: per-instance state needs no same-instance render de-duplication, while
+**process-wide state — `Ort::Env`, the session cache, the GPU semaphore — genuinely does need
+to be thread-safe**, because separate instances may render at once. Designing the mutex around
+the wrong one of those is how a plugin either deadlocks a host or corrupts a shared session.
+
+**The lesson is the inverse of corrections 4 and 5, and worth stating precisely because it
+runs against this project's grain.** "Measure, do not assume" exists because Autodesk's
+documentation is wrong in both directions about *host behaviour*. It does not license
+deferring to measurement when the **OFX specification** is unambiguous and sitting in
+`third_party/`. Host behaviour is measured; protocol semantics are read. Confusing the two
+costs a probe cycle at best, and at worst produces a "measured" conclusion that is really an
+observation of one host on one day, generalised into a contract it never was.
 

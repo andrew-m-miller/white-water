@@ -43,10 +43,25 @@ case forever. Separable covers PAR, odd extents, asymmetric rounding, and render
 which is the entire measured problem. If a rotation ever genuinely appears, it is a new type,
 not a generalisation of this one.
 
-**The sharpest point in the document** is that analysis scale must apply *after* PAR
-normalisation. Without that, "Half" on a PAR 2 plate silently doubles the pixel count the
-VRAM budget was computed against. It would present as an unexplained OOM on anamorphic shots
-only — the worst possible failure signature.
+**The review is right that PAR leaks into the VRAM budget, and wrong about the remedy — as
+was this reply's first draft, which endorsed it.** Ordering alone does not fix it. PAR
+normalisation *expands* the canonical width, so any fixed fractional divisor applied
+afterwards inherits that expansion: a 2048x1556 PAR 2 plate is 4096x1556 canonical, and
+"Half" of that is 2048x778 model pixels against 1024x778 for the PAR 1 equivalent. Still 2x.
+
+The defensible contract is a budget in absolute terms, not a fraction of a PAR-dependent
+quantity:
+
+- build square-pixel model geometry;
+- choose its resolution from a megapixel or long-edge cap;
+- record the independent X/Y mapping back to storage pixels.
+
+A pitch of `a * sqrt(PAR)` in canonical space is area-preserving — model pixel count lands at
+`W * H / a^2` for any PAR, which is correct arithmetic. But it is not free: at PAR 2 and
+`a = 1` it supersamples X by 1.41 and **undersamples Y by the same factor**, discarding about
+30% of the vertical resolution that exists in the storage buffer, at a setting the artist
+reads as "Full". A megapixel cap is the better default: one number, predictable for VRAM
+planning, and it does not quietly throw away scanlines.
 
 Square-pixel analysis as the default is right. The models are trained on square-pixel
 imagery; a 2:1 squeeze distorts both the learned features and the displacement metric.
@@ -125,12 +140,26 @@ feature that needs its own invalidation story first.
 
 ### Concurrency as a premise
 
-The review asserts concurrent same-instance renders "must be expected" under
-`eRenderInstanceSafe`. True as OFX contract. But there are 47 measured renders in the probe
-transcript and `setHostFrameThreading(false)` is set — whether Flame actually overlaps them
-may already be answerable from data in hand. The in-flight table is cheap and worth having
-regardless, but it should not drive the cache design on an assumption when a measurement
-exists.
+**Corrected — see the addendum. Both the review and this reply had the OFX contract wrong.**
+
+`eRenderInstanceSafe` permits exactly one render per instance at a time; it is
+`eRenderFullySafe` that allows several on one instance. `ofxsImageEffect.h:94` is explicit:
+"can call a single render on an instance, but can render multiple instances simultaneously."
+`ofxImageEffect.h:768` says the same. So concurrent same-instance renders are not something
+the declared contract obliges us to survive, and `setHostFrameThreading(false)` additionally
+rules out simultaneous window renders of one frame.
+
+What follows:
+
+- A same-instance in-flight de-duplication table is not required by the contract. It can
+  still be worth having as cheap insurance, but it must not be the premise the cache design
+  rests on.
+- The **process-wide** layer — `Ort::Env`, the session cache, the GPU semaphore — does have
+  to handle concurrent renders, because separate instances may render simultaneously. That
+  is the real concurrency requirement and it sits exactly where the review put the
+  process-lifetime objects.
+- Per-instance cache synchronisation is still needed, but against Precache, parameter
+  changes and teardown racing a render — not against another render of the same instance.
 
 ### Confidence inside `FlowLink`
 
@@ -183,3 +212,73 @@ Good review. The two items it names as rewrite-risk are the right two. The disag
 above are about scope and enforceability rather than direction — the disk cache and the
 concurrency premise are both cases of designing against an assumption when a cheaper honest
 answer is available now.
+
+---
+
+# Addendum — corrections after the second round
+
+Codex reviewed this reply. Four technical corrections; the first is a straightforward error
+on my part.
+
+## 1. `eRenderInstanceSafe` — conceded, and I was wrong
+
+I wrote that concurrent same-instance renders are "true as OFX contract." They are not.
+Verified in the vendored headers: `ofxsImageEffect.h:94` and `ofxImageEffect.h:768` both say
+instance-safe means one render per instance, and that `eRenderFullySafe` is the level that
+permits several. The section above is corrected in place rather than left standing, because
+a wrong OFX claim sitting in a committed document next to `host-notes.md` is precisely the
+hazard the status line at the top of this file exists to prevent.
+
+Worth noting the shape of the mistake: I was hedging the review's assertion on *empirical*
+grounds — what Flame actually does across 47 measured renders — when the answer was available
+normatively, in a header already vendored into this repository. "Measure, do not assume" does
+not mean deferring to measurement when the spec is unambiguous and sitting in `third_party/`.
+
+## 2. PAR and the analysis budget — conceded
+
+Corrected in place above. Both documents had a real problem correctly identified and a remedy
+that does not fix it. The separable `spacingX`/`spacingY` conclusion is unaffected.
+
+## 3. ST depth — agreed, with two additions
+
+`ofxClipPreferences.rst:94` is explicit: when the host reports
+`kOfxImageEffectPropSupportsMultipleClipDepths` as 0, all clips share one depth and the
+plugin may not remap them. Flame reports 0 — measured, in four separate probe transcripts in
+`docs/measurements/`. So there is no negotiating float output from a byte source, and the
+proposed 0C probe on this specific question is already answered.
+
+The separate float-only ST descriptor is the right call. Two things strengthen it beyond the
+UI argument:
+
+- **Memory.** Declaring the whole plugin float-only would force Flame to allocate float
+  buffers for a byte source in Composite mode too — 4x, on 4K plates, for a mode that does
+  not need it. A separate descriptor confines the float cost to the output that actually
+  requires the precision.
+- **Parameter consequence.** `Output` drops from three choices to two, and `ST Mode` /
+  `ST Origin` move to the ST descriptor. Cheap now, permanent later: choice order is API and
+  descriptor identifiers are stored in saved setups. This is the moment to make the change.
+
+## 4. Disk cache — conceded, gate it on 0C
+
+"Defer to Phase 5+" was too blunt. The lifetime probe decides it:
+
+- foreground and final render retain the same instance/process -> a RAM-only `Precache` is
+  viable and should ship;
+- background/final render is another process -> a RAM `Precache` has no production value at
+  all, and the choice is between omitting the button and an explicitly user-managed disk
+  cache.
+
+The line I would keep: in the second branch, the disk cache must be user-managed with visible
+staleness, never automatic. Automatic persistence that cannot detect an upstream regrade is
+worse than none.
+
+One gap in the enumeration — the probe should also distinguish "background render runs in
+another process" from "background render does not apply to this node type," which are
+different answers with the same practical effect and different implications for later work.
+
+## 5. CUDA payload — accepted into 0B
+
+Measure the exact dependency closure and on-disk size of the chosen ORT CUDA build, then
+decide CPU-default versus separate GPU installation, and bundled versus sibling runtime tree.
+This was already open in `docs/host-notes.md`; 0B is the right place for it.
+

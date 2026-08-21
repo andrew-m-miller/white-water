@@ -43,12 +43,27 @@ PAR 2, project size 9216x3164).
 | Components | RGBA, RGB, Alpha |
 | Premultiplication | **UnPremultiplied** |
 | GPU render suites | OpenGL `"true"`; **CUDA, Metal, OpenCL all `"false"`** |
-| Multiple clip depths / PARs | Both 0 |
+| Multiple clip depths / PARs | Both 0 — see the consequence below |
 | Contexts | Filter, General, Generator, Transition |
 | `SequentialRenderStatus` | 1 on first render, `IsInteractive = 0` |
 
 ### Quirks that shape this plugin
 
+- **`SupportsMultipleClipDepths = 0` forbids remapping output depth.** Measured in four
+  transcripts. The OFX specification is explicit about what that means — from
+  `third_party/openfx/Documentation/sources/Reference/ofxClipPreferences.rst`: if the host
+  sets this to 0, all of the effect's clips share one depth and *the plugin may not remap
+  them*. So there is no serving float ST output from a byte source, at any point in
+  `getClipPreferences`. This is why the ST map is a separate float-only descriptor rather
+  than an output mode. **This one is read, not measured** — the host property is measured,
+  the rule it triggers is the specification's.
+- **`eRenderInstanceSafe` is one render per instance, several instances at once.** Also read
+  rather than measured: `third_party/openfx/Support/include/ofxsImageEffect.h:94`, and
+  `ofxImageEffect.h:768`. `eRenderFullySafe` is the level that would permit concurrent renders
+  on one instance and we do not declare it. Practical effect: per-instance caches need no
+  same-instance de-duplication, and process-wide state must be thread-safe regardless of what
+  a single Batch appears to do. See `docs/context.md`, correction 6, for why this is recorded
+  here as read rather than measured.
 - **GPU properties are strings, not ints.** Reading `kOfxImageEffectPropOpenGLRenderSupported`
   as an int returns `kOfxStatErrUnknown`. Any code testing these must read them as strings.
   This is also how we know Flame offers **no** CUDA/Metal/OpenCL OFX render suite, which is
@@ -496,19 +511,50 @@ worth re-checking whenever the bundled runtime version changes.
 
 ## Open
 
-Phase 0's five questions are closed — see *Measured — Phase 0 probe run in Flame*. What
-remains:
+Phase 0A's five questions are closed — see *Measured — Phase 0 probe run in Flame*. What
+remains, grouped by the gate it blocks (`docs/plan.md`, *Phase 0*).
+
+### 0B — blocks the inference implementation
 
 1. **Does the CUDA execution provider survive the same treatment?** The CPU runtime is
    measured isolated and working in-process; the CUDA provider is a separate `.so` pulling
    in more libraries, against a host that exposes CUDA, cuDNN, cuBLAS and TensorRT globally.
-   The next measurement, and the only one still gating the inference design.
-2. **Whether render scale is ever anything but 1.** Every observation so far is `[1, 1]`,
+   Use a **real candidate network**, not the 128-byte `Add` model, and check direction and
+   identity numerically rather than settling for "it ran". Record which CUDA/cuDNN/cuBLAS
+   libraries actually get selected, provider init and first-run latency, peak and steady VRAM
+   beside a live Batch, repeated create/run/destroy, node duplication, cross-thread
+   cancellation via a per-run `RunOptions`, and the fallback path after both provider-init
+   failure and GPU OOM.
+2. **The exact dependency closure and on-disk size of the chosen ORT CUDA build.** Mocha's
+   equivalent payload measured 3.11 GB; whether a current ORT shrinks that materially decides
+   CPU-default versus separate GPU install, and bundled versus sibling runtime tree. See
+   *The payload is 3 GB, not 80 MB*.
+
+### 0C — blocks ST map and cache integration
+
+3. **The ST convention Flame's own downstream tool expects.** An asymmetric image and a known
+   translation, at PAR 1 and PAR 2. Record whether pixel centres map as `x / width`,
+   `(x + 0.5) / width` or `x / (width - 1)`; whether normalization is against image bounds,
+   RoD or project extent; channel layout; origin behaviour; and values outside `[0, 1]`.
+   Round-tripping through *our own* resampler proves nothing — the same half-pixel error on
+   both sides still closes.
+   *The depth half of this is already answered:* `MultipleClipDepths = 0` is measured in four
+   transcripts, so no depth negotiation is possible and the ST descriptor declares float only.
+4. **Instance and process lifetime.** Save and reload a Batch setup; switch away from the node
+   and back; duplicate it; render foreground versus background/final; reopen Flame. This
+   decides whether `Precache` has production value: a RAM-only precache is worthless if final
+   render happens in another process. Distinguish "background render is another process" from
+   "background render does not apply to this node type" — same practical effect, different
+   implications later.
+
+### Unblocking nothing in particular
+
+5. **Whether render scale is ever anything but 1.** Every observation so far is `[1, 1]`,
    at both pixel aspect ratios.
-3. **Whether `kOfxImagePropRowBytes` can be negative** in Flame, and whether images are ever
+6. **Whether `kOfxImagePropRowBytes` can be negative** in Flame, and whether images are ever
    windows into larger allocations. The vendored `HostImage` handles both; nothing has
    confirmed Flame exercises either.
-4. **Re-run the tile check on an anamorphic clip** with the PAR fix in place, to confirm
+7. **Re-run the tile check on an anamorphic clip** with the PAR fix in place, to confirm
    what the corrected arithmetic already shows: that those renders were full frames.
 
 ### Procedure

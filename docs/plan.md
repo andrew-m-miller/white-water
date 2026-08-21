@@ -5,15 +5,16 @@
 Flame's built-in motion vector tracking is a classical solver. Shots with motion blur,
 low contrast, non-rigid deformation or fine detail defeat it, and the artist falls back
 to hand-tracking or a roundtrip out of Flame. `white-water` is a new OpenFX plugin that
-replaces that solver with modern learned optical flow (RAFT for accuracy, RIFE for
-speed), keeping the familiar Flame workflow: analyse a source plate, position an insert
+replaces that solver with modern learned optical flow, keeping the familiar Flame workflow: analyse a source plate, position an insert
 at a reference frame, let the vectors carry it — or hand a compositor an ST map and let
 them do the warp downstream.
 
 Targets are Rocky Linux 9.5+ and arm64 macOS, host is Autodesk Flame.
 
-The repository is empty (git only, no commits). Everything below is new, except where it
-is deliberately vendored from `/Users/andrew/repos/warp-drive`, whose `docs/host-notes.md`
+This plan was written against an empty repository and has been amended since — most
+substantially on 2026-08-20, after Phase 0A closed and after the review in
+`docs/architecture-review-2026-08-20.md`. `docs/context.md` records why each change was made.
+Everything below is new, except where it is deliberately vendored from `/Users/andrew/repos/warp-drive`, whose `docs/host-notes.md`
 is the measured record of what Flame's OFX implementation actually does. That document is
 the authority for every host claim in this plan; none of it comes from Autodesk's docs,
 which are wrong in both directions.
@@ -27,9 +28,9 @@ which are wrong in both directions.
 | warp-drive reuse | **Vendor a copy** — independent build and release cadence |
 | Inference runtime | **ONNX Runtime** — CUDA EP on Linux, CoreML/CPU on macOS, CPU everywhere as fallback |
 | Model weights | **Bundled in `Contents/Resources/models/`, with env var + param override** |
-| Analysis trigger | **On-demand caching by default, plus an explicit `Analyze` button with progress** |
-| RAFT vs RIFE | **Selectable, one `Model` param, RAFT default**, both behind one `FlowEstimator` |
-| ST map convention | **Both** — absolute normalized UV (default) or relative pixel offset; origin toggle |
+| Analysis trigger | **On-demand caching by default, plus an explicit `Precache` button with progress.** Whether it can be made durable is decided by the 0C lifetime probe, not here |
+| Model | **Selectable behind one `FlowEstimator`.** The default is chosen by the Phase 2.5 bake-off — *not named in advance*, because choice index is API. SEA-RAFT is the leading candidate |
+| ST map | **Its own float-only plugin descriptor**, not an output mode of the main effect — see *Two descriptors*. Absolute normalized UV (default) or relative pixel offset; origin toggle |
 | Occlusion handling | **Forward-backward consistency check, parameter-gated, off by default** (2× inference cost) |
 
 ---
@@ -45,6 +46,16 @@ From `warp-drive/docs/host-notes.md` (Flame 2026.2 Linux / 2027 macOS, measured)
   what makes on-demand chain pulls viable at all.
 - `SupportsTiles = 1`, `SupportsMultiResolution = 0`. Depths byte/short/half/float,
   components RGBA/RGB/Alpha, **unpremultiplied**.
+- **`SupportsMultipleClipDepths = 0`** — measured in four separate probe transcripts. Per
+  `third_party/openfx/Documentation/sources/Reference/ofxClipPreferences.rst`, a host
+  reporting 0 gives every clip on the effect one common depth and **the plugin may not remap
+  them**. There is no negotiating float output from a byte source. This is why the ST map is
+  a separate float-only descriptor rather than a mode of the main effect.
+- **`eRenderInstanceSafe` means one render per instance at a time**, and multiple *instances*
+  concurrently — `ofxsImageEffect.h:94`. `eRenderFullySafe` is the level that would permit
+  concurrent renders of one instance, and we do not declare it. So per-instance state needs
+  no same-instance render de-duplication; **process-wide state does need to be thread-safe**,
+  because two instances may render at once.
 - **Flame hands OFX 0-based time**: a batch starting at frame 1001 arrives as time 0.
 - **Panel is flat**, groups do not nest, **labels truncate at ~12 characters**.
 - `OfxProgressSuite` v1/v2 and `OfxTimeLineSuite` available. Message suite V2 present in 2027.
@@ -59,8 +70,8 @@ From `warp-drive/docs/host-notes.md` (Flame 2026.2 Linux / 2027 macOS, measured)
 
 ## Phase 0 — Probe before building (blocking)
 
-Nothing else in this plan is worth writing until these are measured on the actual Rocky 9
-Flame box. Extend a vendored copy of `warp-drive/tools/hostprobe/hostprobe.cpp` (raw C API,
+Nothing else in this plan was worth writing until these were measured on the actual Flame
+box. Extend a vendored copy of `warp-drive/tools/hostprobe/hostprobe.cpp` (raw C API,
 no support library, no dependencies) and run it in Batch:
 
 1. **General context with two RGBA clips**, second one `setOptional(true)` — do both appear,
@@ -80,8 +91,9 @@ no support library, no dependencies) and run it in Batch:
 Write results to `docs/host-notes.md` in white-water. Items 2 and 3 are the project's real
 risk; if either fails, the architecture changes:
 
-- **Item 2 fails** → a mandatory Analyze pass writing a disk cache, driven from an
-  instance-changed action, which warp-drive measured to work.
+- **Item 2 — ANSWERED 2026-08-20, in our favour.** Had it failed, the fallback was a
+  mandatory analysis pass writing a disk cache, driven from an instance-changed action, which
+  warp-drive measured to work.
 - **Item 3 — ANSWERED 2026-08-20, in our favour.** Inference runs **in-process**, with the
   bundled runtime opened by `dlopen` under plain `RTLD_LOCAL`. Measured: our ONNX Runtime
   1.29.0 loaded alongside Flame's 1.22.0, kept its own identity, and ran. `RTLD_DEEPBIND`
@@ -92,6 +104,47 @@ risk; if either fails, the architecture changes:
   `docs/host-notes.md`. **Still to measure: the CUDA execution provider**, which is a
   separate library against a host that also exposes CUDA, cuDNN, cuBLAS and TensorRT
   globally.
+
+### 0A — closed 2026-08-20
+
+All five questions answered on Flame 2026.2 / Rocky 9.5. `docs/host-notes.md` holds the
+measured record; `docs/measurements/` holds the raw transcripts.
+
+### 0B — before any inference implementation
+
+A **real candidate network**, not the 128-byte `Add` model, through the private ONNX Runtime
+inside Flame, on CPU and on the CUDA EP:
+
+- output identity and *direction* checked numerically, not just "it ran";
+- which CUDA/cuDNN/cuBLAS libraries actually get selected, and by whom;
+- provider init and first-run latency; peak and steady VRAM beside a live Batch;
+- repeated create/run/destroy, and node duplication;
+- cancellation from another thread via a per-run `RunOptions`;
+- fallback after provider init failure and after GPU OOM;
+- **the exact dependency closure and on-disk size of the chosen CUDA build**, which decides
+  CPU-default versus separate GPU install, and bundle versus sibling tree (see *Build and
+  packaging*).
+
+### 0C — before ST map and cache integration
+
+Two questions, both cheap, both answerable with probe extensions:
+
+1. **The ST convention Flame's own downstream tool expects.** An asymmetric image and a known
+   translation, at PAR 1 and PAR 2. Record whether pixel centres map as `x / width`,
+   `(x + 0.5) / width` or `x / (width - 1)`; whether normalization is against image bounds,
+   RoD or project extent; channel layout; origin; and behaviour outside `[0, 1]`. A round
+   trip through *our own* resampler proves nothing — it can carry the same half-pixel error
+   on both sides and still close.
+2. **Instance and process lifetime.** Save/reload a setup, switch away and back, duplicate
+   the node, foreground versus background/final render, reopen Flame. This decides whether
+   `Precache` has production value at all: if final render happens in another process, a
+   RAM-only precache is worthless for the thing artists actually care about. Distinguish
+   "background render is another process" from "background render does not apply to this
+   node type" — same practical effect, different implications later.
+
+*The depth half of question 1 is already answered:* Flame reports
+`SupportsMultipleClipDepths = 0`, so no depth negotiation is possible and the ST descriptor
+must declare float only.
 
 ---
 
@@ -105,6 +158,11 @@ src/infer/   ONNX Runtime, no OFX                          → testable with a C
 src/ofx/     the plugin; one TU (Plugin.cpp) in the module
 ```
 
+**The gate currently covers `src/core` only.** It takes a single `CORE_DIR`, so the
+`src/infer` half of that promise is enforced by nothing — and the plan as first written broke
+it, by handing `src/infer` a type that lives in `src/ofx`. Phase 1 gives the script a second
+invocation with its own allow-list. A layering rule with no gate is a comment.
+
 ### Vendored verbatim from warp-drive
 
 Copy with provenance headers, renamespaced `warpdrive` → `whitewater`:
@@ -115,7 +173,7 @@ Copy with provenance headers, renamespaced `warpdrive` → `whitewater`:
 | `src/core/warp/WarpMap.h` | the `mapToSource(Vec2) → Vec2` interface a dense flow field implements directly |
 | `src/core/warp/Resampler.{h,cpp}` | backward warp with correct unpremultiplied filtering, edge modes, row-range threading, bit-exact identity |
 | `src/ofx/HostImage.{h,cpp}`, `PixelFormat.{h,cpp}` | zero-copy float RGBA borrow, depth/component conversion incl. hand-written half, negative `rowBytes` |
-| `src/ofx/FrameCapture.{h,cpp}` | `CapturedFrame` — an owned host-free frame; exactly the input an inference call needs |
+| `src/ofx/FrameCapture.{h,cpp}` | the OFX image lifetime and conversion. **The owned frame value it produces moves down to `src/core/image/OwnedFrame.h`** — `FrameCapture.h` includes `ofxsImageEffect.h`, so leaving the value there drags OFX into `src/infer` |
 | `src/ofx/HostQuirks.{h,cpp}` | per-host quirks keyed on host name, dumped to stderr at `load()` |
 | `cmake/OfxBundle.cmake`, `cmake/ofx.map`, `cmake/Info.plist.in` | bundle layout, `$ORIGIN`/`@loader_path` rpath, three-symbol version script |
 | `scripts/check-core-dependencies.cmake`, `check-glibc-baseline.sh` | layering and ABI gates |
@@ -126,14 +184,30 @@ subclass and the entire correct-alpha, correct-edge, threaded backward warp come
 
 ### New — `src/core/flow/`
 
-- **`FlowField.{h,cpp}`** — dense 2-channel field over a pixel rectangle, half-float storage,
-  bilinear sample, and a `FlowWarpMap : WarpMap` adapter so `Resampler` consumes it unchanged.
+- **`Field.h`** — dense `kChannels` field over a lattice, **float** storage (not half — see
+  `docs/context.md`), bilinear sample. `Field<2>` and `Field<1>` are *storage*, not the public
+  unit of chain algebra.
+- **`FieldGeometry`** — where a field's nodes sit, as **`origin`, `spacingX`, `spacingY`**.
+  A single scalar spacing cannot express an anamorphic plate, an odd extent reduced by a
+  fraction, or asymmetric rounding, and this project has already lost two rebuild cycles to
+  comparing quantities across coordinate spaces (`docs/context.md`, corrections 4 and 5).
+  Deliberately *separable and no more*: a general affine would admit rotation and shear that
+  nothing here produces, and then every consumer carries the general case forever. Checked at
+  construction — zero, negative, NaN and infinite spacing all reach a division in `sample()`.
+- **`FlowLink.{h,cpp}`** — the public unit: `fromTime`, `toTime`, source and destination
+  geometry, the backward displacement, and a model fingerprint. `compose` **rejects**
+  mismatched endpoints or geometry rather than trusting the caller. Direction errors are the
+  most likely bug in this design precisely because a reversed chain still produces plausible
+  motion; putting the endpoints in the type is what makes them checkable.
+  *Confidence is stored separately*, as a parallel `Field<1>` under the same cache key — it is
+  optional, toggleable, and recomputable without invalidating the flow it accompanies.
 - **`FlowCompose.{h,cpp}`** — `compose(a, b)(q) = a(q) + b(q + a(q))`; forward-backward
-  consistency; Gaussian smoothing; scale-up from analysis resolution.
+  consistency; confidence propagation along the composed path; Gaussian smoothing.
 - **`FlowChain.{h,cpp}`** — the reference-frame accumulation policy (below). Pure: it decides
   *which links are needed in which direction*, and takes cached ones as input.
-- **`FlowCache.{h,cpp}`** — LRU keyed on `(fromFrame, toFrame, model, analysisScale, matteMode,
-  inputCurve, modelParams)`, byte-budgeted, storing fields at analysis resolution.
+- **`FlowCache.{h,cpp}`** — byte-budgeted LRU, **instance-lifetime** (see *Cache ownership*),
+  keyed on `(fromFrame, toFrame, generation, model SHA256, model geometry, matteMode,
+  inputCurve, modelParams, cache schema version)`.
 - **`StMap.{h,cpp}`** — field → absolute normalized UV or relative pixel offset, bottom-left
   or top-left origin.
 - **`Composite.{h,cpp}`** — the `over` operator with explicit premultiplication handling.
@@ -142,19 +216,36 @@ subclass and the entire correct-alpha, correct-edge, threaded backward warp come
 
 ### New — `src/infer/`
 
-- **`FlowEstimator.h`** — `estimate(const CapturedFrame &a, const CapturedFrame &b,
-  const FlowRequest &) → FlowResult`. RAFT and RIFE are two implementations; so is
-  `NullEstimator`, which synthesises a deterministic analytic flow so every test above this
-  line runs with no weights and no GPU.
+- **`FlowEstimator.h`** — `estimate(const OwnedFrame &a, const OwnedFrame &b,
+  const FlowRequest &) → FlowResult`. Two implementations to start; so is `NullEstimator`,
+  which synthesises a deterministic analytic flow so every test above this line runs with no
+  weights and no GPU. **Do not shape this so tightly around pairwise that a window or
+  reference-frame estimator is foreclosed** — a model like AllTracker computes directly what
+  the chain approximates, and if one becomes viable, `FlowChain`, drift and the link cache
+  collapse into a single inference. A direct `N→R` is still just a pair, so the interface as
+  written stays compatible; keep it that way.
 - **`ModelSpec.{h,cpp}`** — the per-model tensor contract as data: input/output names,
-  normalization, pad multiple (8 for RAFT, 32 for RIFE), iteration handling, output layout.
+  normalization, pad multiple, iteration handling, output layout. The per-model numbers land
+  at Phase 2.5, with the checkpoints they were measured against.
 - **`ModelRegistry.{h,cpp}`** — resolve weights: `Model Dir` param → `WHITEWATER_MODEL_DIR`
   env → `Contents/Resources/models/` in the bundle. Report which one won, to stderr.
+- **`RuntimeLoader.{h,cpp}`** — opens the bundled runtime by absolute path under
+  `RTLD_LOCAL`, resolves `OrtGetApiBase` from *that handle*, and initialises the C++ wrapper
+  with **`ORT_API_MANUAL_INIT`**. Without that define the wrapper's global API pointer
+  initialises through normal linkage and quietly defeats the entire isolation measured in
+  Phase 0 — a one-line omission with a process-wide blast radius. The handle stays alive
+  until process exit; never `dlclose` while sessions, provider code, TLS or static wrapper
+  objects may outlive it.
 - **`OrtEnvironment.{h,cpp}`** — one process-wide `Ort::Env`; a mutex-guarded session cache
-  keyed on `(model, resolution, execution provider)` because session creation costs seconds
-  and must never happen per frame; EP selection with explicit fallback; bounded intra-op
-  thread count (Flame owns all 72 CPUs and an unbounded ORT pool will fight it);
-  `RunOptions::SetTerminate` wired to the host's abort.
+  keyed on `(model SHA256, execution provider, runtime ABI)` because session creation costs
+  seconds and must never happen per frame. **Not keyed on resolution** unless the exported
+  model actually has fixed shapes — with dynamic shapes it is one immutable session plus a
+  small pool of per-shape I/O bindings. EP selection with explicit fallback; bounded intra-op
+  thread count (Flame owns all 72 CPUs and an unbounded ORT pool will fight it); a per-run
+  `RunOptions` with `SetTerminate` wired to the host's abort. **Serialize GPU inference
+  behind a semaphore initially** — throughput matters less than not spiking VRAM into a
+  Flame that is also holding a Batch. This layer is process-wide and therefore genuinely
+  concurrent: two *instances* may render at once even though one instance may not.
 - **`RaftEstimator`, `RifeEstimator`** — thin, differing only through `ModelSpec`.
 
 **No ONNX Runtime exception may escape an OFX action.** Every call is wrapped; failure sets
@@ -189,14 +280,41 @@ field at a warped position, which is `FlowField::sample`.
 
 **Caching.** Pairwise links are cached individually, so scrubbing backwards reuses everything.
 The accumulated field for the last-rendered `N` is cached separately, so the common sequential
-case is one new inference plus one compose. Fields are stored at analysis resolution as
-half-float 2-channel: a 1080p half-res link is ~2 MB, so a `Cache MB` budget of a few GB holds
-a long shot.
+case is one new inference plus one compose. Fields are stored at model resolution as **float**
+2-channel: a 1080p half-res link is **4.1 MB**, a 4K half-res link about 17 MB, before
+allocator overhead, confidence and the inference tensors themselves. (An earlier draft said
+2 MB, which was true under half storage and was not updated when `Field.h` chose float.)
+Capturing two UHD RGBA float frames is another ~253 MiB, so chain links are processed as a
+rolling pair and captured frames released promptly.
 
-**Drift** is inherent to accumulation and is not solved in v1. It is mitigated by the
-`Smooth` parameter and bounded by keeping the artist's reference frame near the working range.
-A later `Max Chain` parameter can fall back to a direct `R→N` inference past a threshold —
-noted, not built.
+### Cache ownership
+
+Two caches with different lifetimes and different correctness rules. They are not one object.
+
+```
+process lifetime          instance lifetime
+  RuntimeLoader             generation counter
+  Ort::Env                  pairwise link LRU + accumulated-field LRU
+  session cache             optional durable namespace (0C decides)
+  GPU semaphore
+```
+
+- On `changedClip`, bump the generation and invalidate every flow result. OFX offers no
+  trustworthy content hash for an upstream graph, so no amount of extra key material makes a
+  process-global flow cache correct — the generation bump is the honest mechanism.
+- On a flow-affecting `changedParam`, prefer a generation bump over a clever partial
+  invalidation that can go stale.
+- **Never hold a cache mutex across `clipGetImage` or `Session::Run`.** That is the shape of
+  thing that deadlocks a host.
+- A result computed in an old generation must not publish into a new one.
+
+**Drift** is inherent to accumulation and is not solved in v1. It is **not** mitigated by the
+`Smooth` parameter — that was wrong in an earlier draft of this plan. Smoothing addresses
+local spatial noise; drift is accumulated systematic bias along the temporal axis, and
+blurring the field additionally softens motion boundaries, which makes foreground/background
+leakage worse. What actually bounds drift in v1 is keeping the reference frame near the
+working range. Past a chain-length threshold, a `Max Chain` parameter can fall back to a
+direct `R→N` inference — noted, not built.
 
 ---
 
@@ -209,54 +327,117 @@ action, and in Flame that means a plugin that simply is not there.
 
 | Script name | Type | Label | Notes |
 |---|---|---|---|
-| `model` | Choice | `Model` | RAFT (default), RIFE |
+| `model` | Choice | `Model` | Options and their order are fixed by the Phase 2.5 bake-off. **Do not guess an index here** — a saved setup stores it |
 | `refFrame` | Int | `Ref Frame` | OFX time — 0-based within the Flame batch |
 | `setRef` | Push | `Set Ref` | writes `args.time` into `refFrame`; the only honest way for an artist to set it given Flame's 0-based time |
-| `output` | Choice | `Output` | Composite (default), Warped Insert, ST Map |
+| `output` | Choice | `Output` | Composite (default), Warped Insert. **ST Map is not here** — it is a separate float-only descriptor |
+| `insertTime` | Choice | `Insert At` | Current (default) — the insert advances normally while its canvas is carried by `B(N→R)`; Reference — the insert is frozen at `R`. Both are legitimate and they differ completely for an animated insert, so it is a parameter rather than a guess. Determines what `getFramesNeeded` declares for the Insert clip |
 | `matte` | Choice | `Matte` | Premultiply (default), Full Frame |
-| `inputCurve` | Choice | `Input` | Clamp 0-1 (default), None, Filmic — models are trained on 0-1 data and Flame plates are log or scene-linear |
-| `analysisScale` | Choice | `Analysis` | Full, Half (default), Quarter — RAFT's all-pairs correlation volume is infeasible at 4K full |
-| `iterations` | Int | `Iters` | RAFT refinement iterations |
-| `smooth` | Double | `Smooth` | post-flow smoothing, 0 default |
+| `inputCurve` | Choice | `Input` | Options fixed by the Phase 2.5 bake-off. **"Filmic" is struck** — it was a name without a defined transform, and a tensor contract has to be reproducible. Clamp-to-0..1 also erases the highlight texture needed to track specular and motion-blurred footage, so it cannot simply be the default either. Candidates in *Input conditioning* below |
+| `analysisScale` | Choice | `Analysis` | A **megapixel cap**, not a fraction. A fraction of a PAR-normalized image is not PAR-independent: a 2048×1556 PAR 2 plate is 4096×1556 canonical, and "Half" of that is 2048×778 model pixels against 1024×778 for the PAR 1 equivalent — still 2×, and it presents as an unexplained OOM on anamorphic shots only. One number the artist can read is also one number VRAM can be planned against |
+| `iterations` | Int | `Iters` | refinement iterations, where the selected model has them |
+| `smooth` | Double | `Smooth` | post-flow spatial smoothing, 0 default. **Does not address drift** — see *The flow chain* |
 | `fbCheck` | Bool | `FB Check` | off; 2× inference cost |
 | `fbTolerance` | Double | `FB Tol` | round-trip tolerance in pixels |
-| `stMode` | Choice | `ST Mode` | Absolute UV (default), Relative Pixels |
-| `stOrigin` | Choice | `ST Origin` | Bottom Left (default, Flame's native), Top Left |
 | `filter` | Choice | `Filter` | Nearest, Bilinear (default), Catmull-Rom |
 | `edges` | Choice | `Edges` | Black (default), Clamp, Mirror |
 | `device` | Choice | `Device` | Auto (default), GPU, CPU |
 | `threads` | Int | `Threads` | ORT intra-op cap |
 | `cacheMB` | Int | `Cache MB` | flow cache budget |
-| `analyze` | Push | `Analyze` | walk the range with the progress suite, pre-warm the cache |
+| `precacheRange` | Choice | `Pre Range` | Current-to-Ref (default), Work Range, Custom. **Never the full source range** — "walk the range" was undefined and could mean thousands of frames |
+| `precache` | Push | `Precache` | walk `precacheRange` with the progress suite, filling the cache. Named `Precache` rather than `Analyze` because that is honestly what it is unless 0C says the cache can be durable |
 | `clearCache` | Push | `Clear` | drop the cache |
 | `modelDir` | String | `Model Dir` | file-path string mode set via `propSetString(..., false)`, never `setStringType()` |
+
+`output` and `insertTime` exist only on the Track/Insert descriptor. The ST Map descriptor
+carries everything above except those two, plus:
+
+| Script name | Type | Label | Notes |
+|---|---|---|---|
+| `stMode` | Choice | `ST Mode` | Absolute UV (default), Relative Pixels. **Relative is signed and leaves `[0, 1]`**, which is half the reason this descriptor is float-only |
+| `stOrigin` | Choice | `ST Origin` | Bottom Left (default, Flame's native), Top Left |
+
+Both conventions are unverified against Flame's own downstream ST tool until 0C. Nothing here
+is settled by a round trip through our own resampler.
 
 ---
 
 ## Plugin description
 
+### Two descriptors, sharing one implementation
+
+The original "General with two clips; Filter registered as ST-Map-only" had no workable UI
+contract: the same flat parameter list would show Composite and Warped Insert in a context
+with no Insert, and **`setEnabled()` is forbidden here**, so they cannot be hidden. Flame also
+reports `SupportsMultipleClipDepths = 0`, so a single effect cannot serve float ST output
+from a byte source. Two descriptors resolve both at once.
+
 ```
-Identifier   com.mtifilm.whitewater.opticalflow
-Contexts     General (two clips); Filter registered as ST-Map-only
-Clips        Source (mandatory, RGBA/RGB), Insert (optional, RGBA/RGB), Output
-Depths       byte, short, half, float
-Tiles        false   — flow is inherently whole-frame; still handle a partial window defensively
-MultiRes     false   — Flame does not support it
-Temporal     true    — on the effect and on the Source clip
-ThreadSafety eRenderInstanceSafe; setHostFrameThreading(false)
-OpenGL       propSetString(kOfxImageEffectPropOpenGLRenderSupported, "false", 0, false)
+Track/Insert                         ST Map
+  com.mtifilm.whitewater.opticalflow   com.mtifilm.whitewater.stmap
+  General                              General
+  Source (req), Insert (opt), Output   Source (req), Output
+  byte, short, half, float             float only
+  Output: Composite | Warped Insert    ST Mode, ST Origin
 ```
 
-- **`getFramesNeeded`** declares only `{N}` on both clips; chain frames are pulled with
-  `clipGetImage`. Declaring `[R..N]` would invite Flame to materialise hundreds of upstream
-  frames. This is the assumption Phase 0 item 2 exists to verify.
+Both: `Tiles false` (flow is whole-frame; still handle a partial window defensively),
+`MultiRes false`, `Temporal true` on the effect and the Source clip, `eRenderInstanceSafe`
+with `setHostFrameThreading(false)`, and OpenGL declined via
+`propSetString(kOfxImageEffectPropOpenGLRenderSupported, "false", 0, false)`.
+
+Declaring float-only on the ST descriptor makes Flame map its input to float too, which is
+correct and costs nothing we were not already paying — inference needs float32 tensors
+regardless. Declaring float across the *whole* plugin would instead force float buffers for a
+byte source in Composite mode as well: 4× the memory on 4K, for a mode that does not need it.
+Two descriptors confine the float cost to the output that requires the precision.
+
+Both identifiers are permanent from the first artist build, so this split has to happen now.
+
+- **`getFramesNeeded`** declares `{N}` on Source, and `{N}` or `{R}` on Insert per
+  `insertTime`; chain frames are pulled with `clipGetImage`. Declaring `[R..N]` would invite
+  Flame to materialise hundreds of upstream frames. Measured working in Phase 0.
 - **`getRegionsOfInterest`** requests the complete connected RoD of both clips.
-- **`isIdentity`** returns Source when `N == R` and the Insert is disconnected in Composite
-  mode, and when inference has failed. ST Map mode is never identity.
-- **`getClipPreferences`** reports unpremultiplied output unconditionally; ST Map writes
-  `A = 1`. Making premultiplication depend on a parameter is legal OFX but untested in Flame.
+- **`isIdentity` must stay cheap and deterministic.** Flame calls query actions far more often
+  than render — 256 `getFramesNeeded` calls against 47 renders, measured. It answers from
+  parameters, time and clip connection state only. **It must never run inference to discover
+  that inference will fail**; a render-time failure renders its own documented fallback.
+- **Documented failure output**, because these are artist-visible semantics rather than an
+  error policy: Composite → Source at `N`; Warped Insert → the unwarped Insert at the selected
+  insert time, or transparent black if disconnected; ST Map → an identity ST map. Every one
+  logged as a fallback. `R` is clamped to the measured source range before a chain is built —
+  Flame *clamps* rather than failing on out-of-range pulls, so an unclamped `R` yields
+  plausible-looking zero-motion links rather than an error.
+- **`getClipPreferences`** reports unpremultiplied output unconditionally. Making
+  premultiplication depend on a parameter is legal OFX but untested in Flame.
 - **Render** splits rows across `OFX::MultiThread` workers exactly as warp-drive does,
   with an abort check every 16 rows and a `FlowWarpMap` fully built before threads start.
+
+### Anamorphic policy
+
+**Analyse in square pixels.** Resample the plate to canonical geometry before inference, then
+map vectors back to source pixel units independently on X and Y — which is what `spacingX`
+and `spacingY` exist for. The networks are trained on square-pixel imagery; feeding a 2:1
+squeeze distorts both the learned features and the displacement metric. Storage-pixel analysis
+is cheaper and remains a legitimate measured trade, but it has to be chosen on quality
+evidence rather than inherited from the buffer layout.
+
+PAR 0.5 and 2.0, negative image origins, odd extents and non-zero bounds all belong in the
+core test matrix from Phase 2.
+
+### Input conditioning
+
+Separate what the *model* requires from what the *artist* selects. For the bake-off, compare:
+
+- model-native normalization after a hard 0..1 clamp;
+- a fixed signed/log compression suited to scene-linear values;
+- **shared pairwise percentile normalization** — one transform computed from both frames, never
+  independent per-frame auto-exposure, which would inject apparent brightness change straight
+  into the flow estimate;
+- unmodified log input where the upstream plate is already log.
+
+No OCIO dependency for this. The goal is stable features, not a display rendering. The exact
+math goes in the cache key and the model manifest.
 
 ---
 
@@ -305,11 +486,12 @@ WhiteWater.ofx.bundle/Contents/
   A new `cmake/DeployOnnxRuntime.cmake` does for ORT what that file does for Qt.
 - Version script exports only `OfxGetNumberOfPlugins`, `OfxGetPlugin`, `OfxSetHost`;
   `-Wl,--no-undefined`; entry points carry explicit `visibility("default")`.
-- `models/export_raft.py`, `models/export_rife.py` with pinned checkpoints and SHA256s.
-  Weights are staged into the bundle at build time, not committed. `docs/models.md` records
-  provenance and licences — **RAFT is BSD-3 (princeton-vl), RIFE and Practical-RIFE are MIT
-  including the weights**; both are clean for commercial use, and this must be re-verified
-  against the exact checkpoints shipped.
+- One `models/export_<model>.py` per shipped model, with pinned checkpoints and SHA256s.
+  Weights are staged into the bundle at build time, not committed. `models/MODELS.md` records
+  provenance and licences. **Every licence claim is verified against the actual repository and
+  the actual checkpoint file before it counts** — including backbone weights, which may carry
+  different terms from the code that loads them, and secondhand claims from a review or a
+  survey, which do not.
 - CI mirrors warp-drive: `workflow_dispatch` only, with a required `purpose` input naming the
   human test. The Flame box is airgapped; artifacts are tarballs carried over with a SHA256.
 
@@ -325,7 +507,18 @@ WhiteWater.ofx.bundle/Contents/
 - ST map round trip: absolute-UV output fed back through `Resampler` reproduces the warped
   image bit-for-bit.
 - `Preprocess`: pad-to-multiple then crop is exact; premultiply-by-matte matches a reference.
-- Layering gate: `src/core` must not include OFX, ONNX Runtime, or any I/O header.
+- Layering gate: `src/core` must not include OFX, ONNX Runtime, or any I/O header, **and
+  `src/infer` must not include OFX**.
+- **Direction-labelled** constant translations in both temporal directions, including a test
+  that deliberately swaps endpoints and must fail.
+- Composition over affine and spatially varying fields, not only identity.
+- **PAR 0.5 and 2**, odd dimensions, non-zero and negative bounds, asymmetric padding.
+- `FieldGeometry` rejects zero, negative, NaN and infinite spacing at construction.
+- Confidence propagation across a multi-link chain and at an out-of-bounds sample.
+- Cache: a generation bump while an old inference is in flight — the stale result must not
+  publish. Abort before a frame pull, during the precache loop, and during `Run`.
+- Failure paths: provider init failure, GPU OOM, missing model, bad model hash, incompatible
+  tensor contract, CPU fallback.
 
 **Offline CLI** `tools/ww-flow`: two images → flow, ST map, or warped result, as PFM.
 Golden test — a synthetically translated noise plate must recover the translation to
@@ -337,7 +530,11 @@ serving `clipGetImage` at arbitrary times):
 - Identity across `{byte, short, half, float} × {RGBA, RGB, Alpha}`, whole-frame and tiled.
 - At `N == R` with the Insert disconnected, Composite output is the Source bit-for-bit.
 - At `N == R` with the Insert connected, output equals a reference `over`, bit-for-bit.
-- ST Map at `N == R` is the exact normalized pixel grid, in both origin conventions.
+- ST Map at `N == R` is the exact normalized pixel grid, in both origin conventions — and
+  separately, **consumed by Flame's own downstream tool** at float depth, because a round trip
+  through our own resampler can carry the same half-pixel error on both sides and still close.
+- Source frame sentinels distinct at every time, and Insert sentinels distinct at `N` and `R`,
+  so the `insertTime` contract is observable rather than assumed.
 - Multi-link chains exercised through the harness's arbitrary-time clip service.
 - The plugin loads under `--host-name com.autodesk.flame` so the Flame quirk branch is walked
   by something other than Flame, and under a host that refuses the file-path string mode.
@@ -355,12 +552,15 @@ target box before any optimisation work, with a regression threshold.
 
 | Phase | Content | Exit |
 |---|---|---|
-| **0** | Extended `hostprobe`, run in Flame | `docs/host-notes.md` answers the five Phase 0 questions |
-| **1** | Vendor, CMake, bundle, harness, `describe`/`describeInContext`, passthrough render | Plugin loads in Flame with two inputs; every parameter is visible and legible |
-| **2** | `src/core/flow` complete, `NullEstimator`, `ww-flow`, full unit + harness coverage | All host-free tests green; ST map and comp correct with synthetic flow |
-| **3** | ONNX Runtime, `ModelRegistry`, `OrtEnvironment`, RAFT, model export, library bundling | `ww-flow` recovers a synthetic translation with real RAFT weights, on GPU and CPU |
-| **4** | `FlowPreparation` wired into render; on-demand pulls, abort, progress, Analyze/Clear, persistent messages | A real shot tracks in Flame from a reference frame |
-| **5** | RIFE behind `FlowEstimator` | Model parameter switches cleanly; both paths covered |
+| **0A** | Extended `hostprobe`, run in Flame | **Closed 2026-08-20.** All five questions answered; the measured report is the authority |
+| **0B** | A real candidate model through the private ORT on CPU and CUDA, in Flame | Direction and identity correct; provider libraries identified; abort exercised; VRAM, latency and **payload closure** recorded; repeated lifecycle clean |
+| **0C** | Flame ST round trip, and instance/process lifetime | Exact ST convention recorded; `Precache` persistence decided |
+| **1** | Vendor, CMake, **two descriptors**, bundle, harness, `describe`/`describeInContext`, passthrough render | Plugin loads with two inputs; parameters legible; workflow contracts settled — descriptor split, insert time, depth policy, cheap query actions, visible fallbacks |
+| **2** | `src/core/flow` complete, `NullEstimator`, `ww-flow`, full unit + harness coverage | Separable lattice transform; typed flow links; confidence propagation; concurrency tests; all host-free tests green |
+| **2.5** | Model and export bake-off in `ww-flow` | One default and one fast alternative selected **by the exact ONNX artifact**, on target performance, quality and a licence audit. Only now do `model` and `inputCurve` get their option order |
+| **3** | Runtime loader, `ModelRegistry`, `OrtEnvironment`, selected estimators, library packaging | No link-time ORT dependency; `ORT_API_MANUAL_INIT`; CPU/CUDA/CoreML qualified; packaging baseline passes for every shipped library |
+| **4** | `FlowPreparation` wired into render; on-demand pulls, abort, progress, Precache/Clear, persistent messages | A real shot tracks in Flame from a reference frame; cancellation, invalidation, OOM fallback and reference-boundary behaviour all verified |
+| **5** | The second estimator behind `FlowEstimator` | Model parameter switches cleanly; both paths covered |
 | **6** | FB check, smoothing, input curves, perf gate, CI packaging | Perf threshold recorded; tarball installs on the airgapped box |
 
 ---
@@ -369,10 +569,17 @@ target box before any optimisation work, with a regression threshold.
 
 - Third matte mode ("matte as flow confidence") — cheap to add on top of `fbCheck`'s
   confidence plumbing, but the user asked for two modes.
-- Disk-backed flow cache surviving a Flame restart.
+- **Disk-backed flow cache surviving a Flame restart — gated on 0C, not categorically
+  deferred.** If foreground and final render keep the same instance and process, a RAM-only
+  `Precache` is viable and ships as-is. If final render is another process, `Precache` has no
+  production value and the choice is between dropping the button and building an explicitly
+  **user-managed** disk cache — never automatic, because persistence that cannot detect an
+  upstream regrade silently serves stale flow, which is worse than no cache at all.
 - Display-only overlay showing the reference frame and chain state. Flame does deliver pen
   events and the `OfxDrawSuite`, but **never keyboard events**, and `kOfxInteractPropPixelScale`
   reads `[1,1]` at every zoom — so any overlay must be display-only and zoom-independent.
-- Drift mitigation past a chain-length threshold.
+- Drift mitigation past a chain-length threshold: a direct `N→R` candidate, or rebasing
+  through an anchor. Comparing direct against composed in confident regions and blending is
+  further out still.
 - An OpenGL render path — the only GPU option OFX exposes in Flame, and irrelevant while
   inference dominates the frame time.

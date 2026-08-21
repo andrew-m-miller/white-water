@@ -10,10 +10,18 @@ Targets **Rocky Linux 9.5+** and **arm64 macOS**. MTI Film internal.
 
 ## Status
 
-**Scaffolding.** The build configures and produces the host probe; the plugin itself does
-not exist yet. Phase 0 is a measurement phase that has not been run — see the Open section
-of [docs/host-notes.md](docs/host-notes.md). Nothing past Phase 0 should be written until
-those answers are in, because two of them change the architecture rather than the schedule.
+**Scaffolding, with Phase 0A closed.** The build produces the host probe and the ONNX
+Runtime isolation probe; the plugin itself does not exist yet.
+
+All five Phase 0 questions were measured in Flame 2026.2 on 2026-08-20, and two came back
+better than budgeted: `clipGetImage` works at arbitrary times *during* render, and a private
+ONNX Runtime coexists with Flame's own in the same process. So the on-demand chain design
+holds, and inference runs **in-process** — no IPC boundary to build.
+
+Two gates remain before inference code is worth writing: **0B** puts a real model through the
+CUDA execution provider, and **0C** settles Flame's ST map convention and how long a plugin
+instance actually lives. See the Open section of
+[docs/host-notes.md](docs/host-notes.md) and *Phase 0* in [docs/plan.md](docs/plan.md).
 
 ## Documents
 
@@ -52,8 +60,10 @@ Linux artifact in CI and carry it over, the way warp-drive does:
 
 - The submodule checkout needs network.
 - A stock Flame install has no C++ toolchain, and installing one needs `dnf`.
-- Linux artifacts must be built in a `rockylinux:9` container (glibc 2.34) and gated with
-  `scripts/check-glibc-baseline.sh`. This is the check that matters most, because its
+- Linux artifacts must be built in an `almalinux:8` container against a **hard-coded glibc
+  2.28** baseline, gated with `scripts/check-glibc-baseline.sh`. This was originally
+  `rockylinux:9`/2.34 "matching the stated target", which produced a plugin Flame refused to
+  load — see [docs/context.md](docs/context.md), correction 3. This is the check that matters most, because its
   failure mode has no symptom: a plugin needing a newer glibc than the host provides is
   simply **absent from the menu, with no error in any log**. A build done on some other
   distribution is not a Flame artifact, however cleanly it compiles.
@@ -84,7 +94,7 @@ abseil and a CUDA runtime, all of which Flame may already have loaded at other v
 ```
 src/core/     host-free: the flow algebra and the resampler. No OFX, no ONNX Runtime, no I/O.
 src/ofx/      the host boundary: image adapters, pixel formats, frame capture, host quirks
-tools/        hostprobe (Phase 0), ww-flow (Phase 2, offline CLI)
+tools/        hostprobe and ortprobe (Phase 0), ww-flow (Phase 2, offline CLI)
 cmake/        bundle layout, rpath, version script
 scripts/      the layering and glibc gates, run as tests
 ```

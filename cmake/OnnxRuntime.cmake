@@ -10,9 +10,16 @@
 # Point WHITEWATER_ORT_ROOT at an unpacked release, e.g.
 #   https://github.com/microsoft/onnxruntime/releases -> onnxruntime-linux-x64-<ver>.tgz
 #
-# CPU build, not GPU. Isolation is a symbol-binding question: if RTLD_DEEPBIND isolates the
-# CPU runtime it isolates the CUDA one, and the CPU tarball is ~20 MB against ~3 GB. Whether
-# the CUDA EP then initialises inside Flame is a separate, later measurement.
+# CPU build, not GPU -- because the CPU tarball is ~20 MB against ~3 GB, and the symbol-binding
+# question it answers is a real one. It is NOT evidence about the CUDA provider. An earlier
+# version of this comment claimed that isolating the CPU runtime isolates the CUDA one; that
+# does not follow. The CUDA EP is a separate .so pulling in its own dependency closure, against
+# a host that exposes libcudart, libcudnn, libcublas and libnvinfer globally. Measuring it is
+# Phase 0B, and it is the last thing gating the inference design.
+#
+# Measured 2026-08-20: plain RTLD_LOCAL sufficed for the CPU runtime in Flame -- RTLD_DEEPBIND
+# also worked but is not used, since it breaks malloc interposition and exception unwinding.
+# See docs/host-notes.md.
 #
 # VERSION MATTERS. Flame 2026.2 carries ONNX Runtime 1.22.0. Deliberately use a *different*
 # version here, so the version string the probe reports discriminates between our copy and
