@@ -126,6 +126,17 @@ and on the CUDA EP:
 - repeated create/run/destroy, and node duplication;
 - cancellation from another thread via a per-run `RunOptions`;
 - provider-init fallback, plus a bounded recovery proxy for GPU allocation failure;
+- qualify one higher production resolution per Flame launch through a separate GPU-only
+  path and a fresh CUDA session. The Phase 0B targets are source H×W 2160×3840 (UHD),
+  2160×4096 (DCI 4K), and 3164×4608 (Alexa 35 open gate). The last is replication-padded
+  on the bottom to a 3168×4608 network tensor to satisfy the export's multiple-of-eight
+  contract, while reporting both source and tensor dimensions. The path skips the ordinary
+  CPU/useful-size measurements, uses heuristic cuDNN search and `kSameAsRequested` arena
+  growth, requires an explicit probe-only `gpu_mem_limit`, samples device-wide NVML use at
+  operation boundaries, and serializes attempts inside the process. A successful inference
+  and an explicit bounded-arena stop are distinct reported outcomes. These three diagnostic
+  targets and the current 16 GiB arena ceiling are qualification guardrails, not product
+  resolution limits;
 - **Measured 2026-08-21:** exercise a controlled CUDA-arena limit by setting
   `OrtCUDAProviderOptions::gpu_mem_limit` to a fixed 64 MiB, attempting the real SEA-RAFT M
   at 480×640, requiring a recognisable allocator-limit failure at session creation or first
@@ -175,8 +186,9 @@ while reporting unresolved `libcublas.so.12`, `libcublasLt.so.12`, `libcudart.so
 `libcurand.so.10`. Treat the observed Flame mapping as closing that owner for this host run,
 not the complete packaging closure. The CUDA log's nine inserted `Memcpy` nodes and
 CPU-assigned shape operations are performance warnings, not correctness failures. Higher-
-resolution qualification (UHD, DCI 4K and the 4608×3164 Alexa 35 open-gate case) remains
-separate from the measured 1080p ceiling.
+resolution qualification (UHD, DCI 4K and the 3164×4608 H×W Alexa 35 open-gate case) remains
+separate from the measured 1080p ceiling; the dedicated GPU-only probe path above is
+implemented but not yet measured in Flame.
 
 ### 0C — before ST map and cache integration
 

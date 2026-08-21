@@ -77,6 +77,8 @@
 #include <ctime>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <new>
 #include <thread>
 #include <string>
 #include <utility>
@@ -97,9 +99,12 @@
 
 #include "onnxruntime_c_api.h"
 
+#include "highres_config.h"
 #include "probe_model.inc"
 
 namespace {
+
+using HighResolutionOutcome = whitewater::ortprobe::HighResolutionOutcome;
 
 // ---------------------------------------------------------------------------
 // Host plumbing (deliberately minimal -- this plugin measures one thing)
@@ -112,6 +117,7 @@ const OfxParameterSuiteV1 *gParam = nullptr;
 const OfxMessageSuiteV1 *gMessage = nullptr;
 std::atomic<unsigned long long> gCreatedInstances{0};
 std::atomic<unsigned long long> gLiveInstances{0};
+std::mutex gHighResolutionProbeMutex;
 
 const char *const kParamRunProbe = "runOrtProbe";
 
@@ -364,6 +370,38 @@ struct ArenaLimitResult {
   std::string failure;
 };
 
+struct HighResolutionResult {
+  bool attempted = false;
+  bool outputFinite = false;
+  bool directionCorrect = false;
+  bool gpuExecutionObserved = false;
+  bool vramBeforeAvailable = false;
+  bool vramAfterAvailable = false;
+  bool vramPeakAvailable = false;
+  std::uint64_t vramBeforeBytes = 0;
+  std::uint64_t vramPeakBytes = 0;
+  std::uint64_t vramAfterBytes = 0;
+  int sourceHeight = 0;
+  int sourceWidth = 0;
+  int tensorHeight = 0;
+  int tensorWidth = 0;
+  int steadySamples = 0;
+  int steadyCompleted = 0;
+  int vramSampleCount = 0;
+  std::size_t gpuMemoryLimitBytes = 0;
+  double sessionMilliseconds = 0.0;
+  double warmMilliseconds = 0.0;
+  double steadyMedianMilliseconds = 0.0;
+  double steadyMinimumMilliseconds = 0.0;
+  double steadyMaximumMilliseconds = 0.0;
+  double forwardMedianX = 0.0;
+  double forwardMedianY = 0.0;
+  ArenaLimitFailureStage failureStage = ArenaLimitFailureStage::None;
+  HighResolutionOutcome outcome = HighResolutionOutcome::None;
+  ProbeState state = ProbeState::NotTested;
+  std::string failure;
+};
+
 struct ModeResult {
   bool opened = false;
   bool distinctFromHost = false;
@@ -388,6 +426,7 @@ struct ModeResult {
   LifecycleResult cudaLifecycle;
   FallbackResult providerFallback;
   ArenaLimitResult gpuArenaLimit;
+  HighResolutionResult highResolution;
   ProbeState nodeDuplicationState = ProbeState::NotTested;
   std::string nodeDuplicationFailure;
   std::string version;
@@ -887,6 +926,20 @@ const char *arenaLimitFailureKind(ArenaLimitFailureKind kind) {
   return "unknown";
 }
 
+const char *highResolutionOutcome(HighResolutionOutcome outcome) {
+  switch (outcome) {
+  case HighResolutionOutcome::None:
+    return "none";
+  case HighResolutionOutcome::InferencePass:
+    return "inference-pass";
+  case HighResolutionOutcome::BoundedAllocationStop:
+    return "bounded-allocation-stop";
+  case HighResolutionOutcome::OtherFailure:
+    return "other-failure";
+  }
+  return "unknown";
+}
+
 void releaseCancellationInputs(const std::shared_ptr<CancellationCall> &call) {
   for (OrtValue *&input : call->inputs) {
     if (input) {
@@ -1357,6 +1410,371 @@ ArenaLimitResult exerciseGpuArenaLimitRecovery(const OrtApi *api, OrtEnv *env,
   return result;
 }
 
+float highResolutionTextureValue(int channel, int y, int x) {
+  unsigned value = static_cast<unsigned>(x + 1) * 73856093u;
+  value ^= static_cast<unsigned>(y + 1) * 19349663u;
+  value ^= static_cast<unsigned>(channel + 1) * 83492791u;
+  value ^= value >> 13;
+  value *= 1274126177u;
+  return static_cast<float>(value & 0xffffu) * (255.0f / 65535.0f);
+}
+
+void makeHighResolutionPair(int sourceHeight, int sourceWidth, int tensorHeight,
+                            int tensorWidth, std::vector<float> &first,
+                            std::vector<float> &second) {
+  const std::size_t plane = static_cast<std::size_t>(tensorHeight) * tensorWidth;
+  first.resize(plane * 3u);
+  second.assign(plane * 3u, 0.0f);
+  constexpr int dx = 4;
+  for (int channel = 0; channel < 3; ++channel) {
+    const std::size_t channelOffset = static_cast<std::size_t>(channel) * plane;
+    for (int y = 0; y < tensorHeight; ++y) {
+      const int sourceY = std::min(y, sourceHeight - 1);
+      for (int x = 0; x < tensorWidth; ++x) {
+        const int sourceX = std::min(x, sourceWidth - 1);
+        const std::size_t offset =
+            channelOffset + static_cast<std::size_t>(y) * tensorWidth + x;
+        first[offset] = highResolutionTextureValue(channel, sourceY, sourceX);
+        if (sourceX >= dx)
+          second[offset] = highResolutionTextureValue(channel, sourceY, sourceX - dx);
+      }
+    }
+  }
+}
+
+bool validateSparseHighResolutionFlow(const std::vector<float> &flow, int sourceHeight,
+                                      int sourceWidth, int tensorHeight, int tensorWidth,
+                                      double &medianX, double &medianY) {
+  const std::size_t plane = static_cast<std::size_t>(tensorHeight) * tensorWidth;
+  if (flow.size() != plane * 2u || sourceHeight <= 64 || sourceWidth <= 64)
+    return false;
+  const int yStep = std::max(1, sourceHeight / 64);
+  const int xStep = std::max(1, sourceWidth / 64);
+  std::vector<float> xSamples;
+  std::vector<float> ySamples;
+  xSamples.reserve(4096);
+  ySamples.reserve(4096);
+  for (int y = 32; y < sourceHeight - 32; y += yStep) {
+    for (int x = 32; x < sourceWidth - 32; x += xStep) {
+      const std::size_t offset = static_cast<std::size_t>(y) * tensorWidth + x;
+      if (!std::isfinite(flow[offset]) || !std::isfinite(flow[plane + offset]))
+        return false;
+      xSamples.push_back(flow[offset]);
+      ySamples.push_back(flow[plane + offset]);
+    }
+  }
+  medianX = median(std::move(xSamples));
+  medianY = median(std::move(ySamples));
+  return true;
+}
+
+bool runHighResolutionFlowOnce(const OrtApi *api, OrtSession *session, OrtMemoryInfo *memory,
+                               const std::vector<float> &first,
+                               const std::vector<float> &second, int height, int width,
+                               std::vector<float> &flow, double &milliseconds,
+                               std::string &failure) {
+  try {
+    return runFlowOnce(api, session, memory, first, second, height, width, flow, milliseconds,
+                       failure);
+  } catch (const std::bad_alloc &) {
+    failure = "host allocation failed while copying the high-resolution flow output";
+    return false;
+  }
+}
+
+bool sampleHighResolutionVram(VramMonitor *monitor, HighResolutionResult &result,
+                              const char *label, bool baseline = false) {
+  std::uint64_t usedBytes = 0;
+  if (!sampleVramUsed(monitor, usedBytes))
+    return false;
+  ++result.vramSampleCount;
+  if (baseline) {
+    result.vramBeforeAvailable = true;
+    result.vramBeforeBytes = usedBytes;
+  }
+  if (!result.vramPeakAvailable || usedBytes > result.vramPeakBytes) {
+    result.vramPeakAvailable = true;
+    result.vramPeakBytes = usedBytes;
+  }
+  emitf("    high-resolution VRAM %-13s used %.1f MiB (NVML, device-wide)", label,
+        static_cast<double>(usedBytes) / (1024.0 * 1024.0));
+  return true;
+}
+
+struct HighResolutionOrtResources {
+  const OrtApi *api = nullptr;
+  OrtSessionOptions *options = nullptr;
+  OrtSession *session = nullptr;
+  OrtMemoryInfo *memory = nullptr;
+
+  ~HighResolutionOrtResources() { release(); }
+
+  void release() {
+    if (memory) {
+      api->ReleaseMemoryInfo(memory);
+      memory = nullptr;
+    }
+    if (session) {
+      api->ReleaseSession(session);
+      session = nullptr;
+    }
+    if (options) {
+      api->ReleaseSessionOptions(options);
+      options = nullptr;
+    }
+  }
+};
+
+HighResolutionResult runHighResolutionCuda(
+    const OrtApi *api, OrtEnv *env, const std::string &path, VramMonitor *vramMonitor,
+    const whitewater::ortprobe::HighResolutionConfig &config) {
+  HighResolutionResult result;
+  result.attempted = true;
+  result.sourceHeight = config.sourceHeight;
+  result.sourceWidth = config.sourceWidth;
+  result.tensorHeight = config.tensorHeight;
+  result.tensorWidth = config.tensorWidth;
+  result.gpuMemoryLimitBytes = config.gpuMemoryLimitBytes;
+  result.steadySamples = 3;
+
+  emitf("    high-resolution CUDA qualification: source %dx%d | tensor %dx%d | "
+        "replication padding top/bottom/left/right 0/%d/0/%d | gpu_mem_limit %.1f MiB",
+        result.sourceHeight, result.sourceWidth, result.tensorHeight, result.tensorWidth,
+        result.tensorHeight - result.sourceHeight, result.tensorWidth - result.sourceWidth,
+        static_cast<double>(result.gpuMemoryLimitBytes) / (1024.0 * 1024.0));
+  emit("      one fresh CUDA session; gpu_mem_limit bounds the ORT arena, not all device allocations");
+
+  if (!vramMonitor || !vramMonitor->available) {
+    result.failure = "NVML is required before this bounded high-resolution attempt";
+    result.outcome = HighResolutionOutcome::OtherFailure;
+    result.state = ProbeState::Fail;
+    return result;
+  }
+  if (!sampleHighResolutionVram(vramMonitor, result, "before session", true)) {
+    result.failure = "NVML baseline sample failed: " + vramMonitor->failure;
+    result.outcome = HighResolutionOutcome::OtherFailure;
+    result.state = ProbeState::Fail;
+    return result;
+  }
+#if defined(__linux__)
+  // The arena limit is not a device-wide fence. Refuse the attempt when the device is already
+  // nearly full, even though the arena itself is bounded, so a background GPU consumer cannot
+  // turn this diagnostic into an avoidable physical-OOM experiment.
+  constexpr std::uint64_t kMinimumPreflightFreeBytes = 2ull * 1024ull * 1024ull * 1024ull;
+  NvmlMemoryInfo preflight = {};
+  if (!vramMonitor->sample(preflight)) {
+    result.failure = "NVML preflight sample failed: " + vramMonitor->failure;
+    result.outcome = HighResolutionOutcome::OtherFailure;
+    result.state = ProbeState::Fail;
+    return result;
+  }
+  if (preflight.free < kMinimumPreflightFreeBytes) {
+    result.failure = "NOT TESTED: less than the probe's 2048 MiB device-wide preflight reserve";
+    result.state = ProbeState::NotTested;
+    return result;
+  }
+  emitf("      device-wide preflight free %.1f MiB | fixed reserve 2048.0 MiB",
+        static_cast<double>(preflight.free) / (1024.0 * 1024.0));
+#endif
+
+  HighResolutionOrtResources resources;
+  resources.api = api;
+  bool ready = true;
+  std::vector<float> first;
+  std::vector<float> second;
+  std::vector<float> flow;
+
+  result.failureStage = ArenaLimitFailureStage::CreateSessionOptions;
+  OrtStatus *status = api->CreateSessionOptions(&resources.options);
+  if (status) {
+    result.failure = "CreateSessionOptions: " + takeStatus(api, status);
+    result.outcome = HighResolutionOutcome::OtherFailure;
+    ready = false;
+  }
+  if (ready) {
+    result.failureStage = ArenaLimitFailureStage::ConfigureSessionOptions;
+    status = api->SetIntraOpNumThreads(resources.options, 1);
+    if (status) {
+      result.failure = "SetIntraOpNumThreads: " + takeStatus(api, status);
+      result.outcome = HighResolutionOutcome::OtherFailure;
+      ready = false;
+    }
+  }
+  if (ready) {
+    OrtCUDAProviderOptions boundedCuda{};
+    boundedCuda.device_id = 0;
+    boundedCuda.arena_extend_strategy = 1; // kSameAsRequested: keep growth inside the cap.
+    boundedCuda.gpu_mem_limit = result.gpuMemoryLimitBytes;
+    boundedCuda.cudnn_conv_algo_search = OrtCudnnConvAlgoSearchHeuristic;
+    boundedCuda.do_copy_in_default_stream = 1;
+    result.failureStage = ArenaLimitFailureStage::AppendProvider;
+    status = api->SessionOptionsAppendExecutionProvider_CUDA(resources.options, &boundedCuda);
+    if (status) {
+      result.failure = "append bounded CUDA provider: " + takeStatus(api, status);
+      result.outcome = HighResolutionOutcome::OtherFailure;
+      ready = false;
+    }
+  }
+  if (ready) {
+    result.failureStage = ArenaLimitFailureStage::CreateSession;
+    const auto start = std::chrono::steady_clock::now();
+    status = api->CreateSession(env, path.c_str(), resources.options, &resources.session);
+    result.sessionMilliseconds =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+            .count();
+    if (status) {
+      const std::string detail = takeStatus(api, status);
+      result.failure = "bounded CUDA CreateSession: " + detail;
+      result.outcome = looksLikeExplicitCudaArenaLimitFailure(detail)
+                           ? HighResolutionOutcome::BoundedAllocationStop
+                           : HighResolutionOutcome::OtherFailure;
+      ready = false;
+    }
+  }
+  if (ready && !sampleHighResolutionVram(vramMonitor, result, "after session")) {
+    result.failure = "NVML sample after session failed: " + vramMonitor->failure;
+    result.outcome = HighResolutionOutcome::OtherFailure;
+    ready = false;
+  }
+  if (ready) {
+    result.failureStage = ArenaLimitFailureStage::CreateMemoryInfo;
+    status = api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &resources.memory);
+    if (status) {
+      result.failure = "CreateCpuMemoryInfo: " + takeStatus(api, status);
+      result.outcome = HighResolutionOutcome::OtherFailure;
+      ready = false;
+    }
+  }
+  if (ready) {
+    try {
+      makeHighResolutionPair(result.sourceHeight, result.sourceWidth, result.tensorHeight,
+                             result.tensorWidth, first, second);
+    } catch (const std::bad_alloc &) {
+      result.failure = "host allocation failed while creating bounded synthetic tensors";
+      result.outcome = HighResolutionOutcome::OtherFailure;
+      ready = false;
+    }
+  }
+  if (ready) {
+    result.failureStage = ArenaLimitFailureStage::Run;
+    std::string detail;
+    if (!runHighResolutionFlowOnce(api, resources.session, resources.memory, first, second,
+                                   result.tensorHeight, result.tensorWidth, flow,
+                                   result.warmMilliseconds, detail)) {
+      result.failure = "bounded high-resolution CUDA warm Run: " + detail;
+      result.outcome = looksLikeExplicitCudaArenaLimitFailure(detail)
+                           ? HighResolutionOutcome::BoundedAllocationStop
+                           : HighResolutionOutcome::OtherFailure;
+      ready = false;
+    } else {
+      result.outputFinite = validateSparseHighResolutionFlow(
+          flow, result.sourceHeight, result.sourceWidth, result.tensorHeight,
+          result.tensorWidth, result.forwardMedianX, result.forwardMedianY);
+      result.directionCorrect = result.outputFinite && result.forwardMedianX >= 2.0 &&
+                                std::abs(result.forwardMedianY) <= 2.0;
+      if (!result.outputFinite) {
+        result.failure = "high-resolution flow output shape passed but sampled values were non-finite";
+        result.outcome = HighResolutionOutcome::OtherFailure;
+        ready = false;
+      } else if (!result.directionCorrect) {
+        result.failure = "high-resolution forward direction thresholds failed";
+        result.outcome = HighResolutionOutcome::OtherFailure;
+        ready = false;
+      }
+    }
+  }
+  if (ready && !sampleHighResolutionVram(vramMonitor, result, "after warm")) {
+    result.failure = "NVML sample after warm run failed: " + vramMonitor->failure;
+    result.outcome = HighResolutionOutcome::OtherFailure;
+    ready = false;
+  }
+
+  std::vector<float> steady;
+  steady.reserve(static_cast<std::size_t>(result.steadySamples));
+  for (int sample = 0; ready && sample < result.steadySamples; ++sample) {
+    double milliseconds = 0.0;
+    std::string detail;
+    if (!runHighResolutionFlowOnce(api, resources.session, resources.memory, first, second,
+                                   result.tensorHeight, result.tensorWidth, flow, milliseconds,
+                                   detail)) {
+      result.failure = "bounded high-resolution CUDA steady Run: " + detail;
+      result.outcome = looksLikeExplicitCudaArenaLimitFailure(detail)
+                           ? HighResolutionOutcome::BoundedAllocationStop
+                           : HighResolutionOutcome::OtherFailure;
+      ready = false;
+      break;
+    }
+    steady.push_back(static_cast<float>(milliseconds));
+    result.steadyCompleted = static_cast<int>(steady.size());
+    if (!sampleHighResolutionVram(vramMonitor, result, "steady")) {
+      result.failure = "NVML steady sample failed: " + vramMonitor->failure;
+      result.outcome = HighResolutionOutcome::OtherFailure;
+      ready = false;
+    }
+  }
+  if (ready && static_cast<int>(steady.size()) == result.steadySamples) {
+    result.steadyMedianMilliseconds = median(steady);
+    result.steadyMinimumMilliseconds = *std::min_element(steady.begin(), steady.end());
+    result.steadyMaximumMilliseconds = *std::max_element(steady.begin(), steady.end());
+    result.failureStage = ArenaLimitFailureStage::None;
+    result.outcome = HighResolutionOutcome::InferencePass;
+  }
+
+  resources.release();
+
+  result.vramAfterAvailable = sampleVramUsed(vramMonitor, result.vramAfterBytes);
+  if (result.vramAfterAvailable) {
+    ++result.vramSampleCount;
+    const double cleanupDeltaMiB =
+        (static_cast<double>(result.vramAfterBytes) -
+         static_cast<double>(result.vramBeforeBytes)) /
+        (1024.0 * 1024.0);
+    emitf("    high-resolution VRAM after session cleanup used %.1f MiB | delta %+.1f MiB "
+          "(NVML, device-wide; informational, environment still live)",
+          static_cast<double>(result.vramAfterBytes) / (1024.0 * 1024.0), cleanupDeltaMiB);
+  } else if (result.failure.empty()) {
+    result.failure = "NVML cleanup sample failed: " + vramMonitor->failure;
+  }
+
+  constexpr std::uint64_t kMinimumObservedCudaDeltaBytes = 64u * 1024u * 1024u;
+  result.gpuExecutionObserved =
+      result.vramPeakAvailable && result.vramBeforeAvailable &&
+      result.vramPeakBytes >= result.vramBeforeBytes + kMinimumObservedCudaDeltaBytes;
+  if (result.outcome == HighResolutionOutcome::InferencePass &&
+      !result.gpuExecutionObserved) {
+    result.failure = "successful Run had less than 64 MiB sampled device-VRAM growth; CUDA execution is unproven";
+    result.outcome = HighResolutionOutcome::OtherFailure;
+  }
+
+  const bool observedBoundedResult =
+      result.outcome == HighResolutionOutcome::BoundedAllocationStop ||
+      (result.outcome == HighResolutionOutcome::InferencePass && result.outputFinite &&
+       result.directionCorrect &&
+       result.gpuExecutionObserved &&
+       static_cast<int>(steady.size()) == result.steadySamples);
+  result.state = result.outcome == HighResolutionOutcome::InferencePass &&
+                         observedBoundedResult && result.vramBeforeAvailable &&
+                         result.vramPeakAvailable && result.vramAfterAvailable
+                     ? ProbeState::Pass
+                     : ProbeState::Fail;
+
+  emitf("    high-resolution CUDA result: outcome %s | stage %s | warm %.1f ms | "
+        "steady median %.1f ms (min %.1f, max %.1f; %d samples) | %s",
+        highResolutionOutcome(result.outcome), arenaLimitFailureStage(result.failureStage),
+        result.warmMilliseconds, result.steadyMedianMilliseconds,
+        result.steadyMinimumMilliseconds, result.steadyMaximumMilliseconds,
+        static_cast<int>(steady.size()), probeState(result.state));
+  if (result.outputFinite)
+    emitf("      cropped source-area forward median (%.4f, %.4f) | direction %s",
+          result.forwardMedianX, result.forwardMedianY,
+          result.directionCorrect ? "CORRECT" : "FAILED");
+  emitf("      CUDA execution evidence: sampled VRAM delta >=64 MiB %s | sampling boundary (%d samples)",
+        yesNo(result.gpuExecutionObserved), result.vramSampleCount);
+  if (!result.failure.empty())
+    emitf("      high-resolution detail: %s", result.failure.c_str());
+  return result;
+}
+
 bool providerAvailable(const OrtApi *api, const char *wanted) {
   char **providers = nullptr;
   int count = 0;
@@ -1434,7 +1852,8 @@ void reportAccelerationLibraries(const char *) {}
 #endif
 
 ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void *hostApiBase,
-                   bool runExtendedMeasurements) {
+                   bool runExtendedMeasurements,
+                   const whitewater::ortprobe::HighResolutionConfig &highResolutionConfig) {
   ModeResult result;
 
   const std::string library = libraryBase + mode.librarySuffix;
@@ -1737,14 +2156,40 @@ ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void 
             result.cpuLifecycle.failure = reason;
           emitf("    CUDA lifecycle, provider-failure and arena-limit recovery: %s", reason);
         }
+        if (highResolutionConfig.enabled) {
+          if (!highResolutionConfig.valid) {
+            result.highResolution.failure = highResolutionConfig.failure;
+            result.highResolution.state = ProbeState::Fail;
+            emitf("    high-resolution CUDA qualification: configuration FAILED (%s)",
+                  highResolutionConfig.failure.c_str());
+          } else if (!cuda.ran || !cuda.correct || cuda.leakedResources) {
+            result.highResolution.failure =
+                "NOT TESTED because baseline CUDA identity/direction did not pass cleanly";
+            result.highResolution.state = ProbeState::NotTested;
+            emitf("    high-resolution CUDA qualification: %s",
+                  result.highResolution.failure.c_str());
+          } else {
+            result.highResolution =
+                runHighResolutionCuda(api, env, seaRaftPath, &vram, highResolutionConfig);
+          }
+        }
       } else {
         emit("    CUDAExecutionProvider not present in this runtime -- CUDA lifecycle, VRAM, "
              "provider-failure and arena-limit checks are NOT TESTED.");
+        if (highResolutionConfig.enabled) {
+          result.highResolution.failure =
+              "NOT TESTED because CUDAExecutionProvider is absent";
+          result.highResolution.state = ProbeState::NotTested;
+          emitf("    high-resolution CUDA qualification: %s",
+                result.highResolution.failure.c_str());
+        }
       }
     }
     if (runExtendedMeasurements && !cpu.leakedResources &&
         !result.cudaFlow.leakedResources)
       result.cpuLifecycle = runLifecycle(api, env, seaRaftPath, false);
+    else if (highResolutionConfig.enabled)
+      emit("    ordinary extended Phase 0B measurements skipped by high-resolution GPU-only mode");
     else if (!runExtendedMeasurements)
       emit("    extended Phase 0B measurements disabled (set WHITEWATER_ORT_EXTENDED=1 to run)");
     result.nodeDuplicationState = ProbeState::NotTested;
@@ -1819,8 +2264,62 @@ bool runProbe(OfxImageEffectHandle instance) {
   bool runExtendedMeasurements = true;
   if (const char *extended = std::getenv("WHITEWATER_ORT_EXTENDED"))
     runExtendedMeasurements = std::strcmp(extended, "0") != 0;
-  emitf("  extended Phase 0B measurements: %s",
-        runExtendedMeasurements ? "enabled" : "disabled");
+  const whitewater::ortprobe::HighResolutionConfig highResolutionConfig =
+      whitewater::ortprobe::parseHighResolutionConfig(
+          std::getenv("WHITEWATER_ORT_HIGHRES_GPU_ONLY"),
+          std::getenv("WHITEWATER_ORT_HIGHRES_SIZE"),
+          std::getenv("WHITEWATER_ORT_GPU_MEM_LIMIT_MIB"));
+  const bool runStandardExtendedMeasurements =
+      runExtendedMeasurements && !highResolutionConfig.enabled;
+  emitf("  standard extended Phase 0B measurements: %s",
+        runStandardExtendedMeasurements ? "enabled" : "disabled");
+  if (highResolutionConfig.enabled) {
+    emitf("  high-resolution GPU-only mode: enabled | configuration %s",
+          highResolutionConfig.valid ? "VALID" : "INVALID");
+    if (highResolutionConfig.valid)
+      emitf("    source HxW %dx%d | network tensor HxW %dx%d | gpu_mem_limit %.1f MiB",
+            highResolutionConfig.sourceHeight, highResolutionConfig.sourceWidth,
+            highResolutionConfig.tensorHeight, highResolutionConfig.tensorWidth,
+            static_cast<double>(highResolutionConfig.gpuMemoryLimitBytes) /
+                (1024.0 * 1024.0));
+    else
+      emitf("    configuration detail: %s", highResolutionConfig.failure.c_str());
+    emit("    standard useful-size CPU/CUDA timing, lifecycle, cancellation and 64 MiB recovery are skipped");
+    emit("    this measurement allowlist and arena ceiling belong to the probe, not the product");
+  } else {
+    emit("  high-resolution GPU-only mode: disabled");
+  }
+  if (highResolutionConfig.enabled && !highResolutionConfig.valid) {
+    section("VERDICT");
+    emit("  HIGHRES QUALIFICATION VERDICT: FAIL");
+    emitf("  high-resolution configuration: %s", highResolutionConfig.failure.c_str());
+    emit("  Required high-resolution measurement-result gate: FAIL");
+    emitf("  Report: %s", reportPath().c_str());
+    if (gMessage)
+      gMessage->message(instance, kOfxMessageError, nullptr,
+                        "Invalid White Water high-resolution probe configuration.\n%s\nReport: %s",
+                        highResolutionConfig.failure.c_str(), reportPath().c_str());
+    return false;
+  }
+
+  // Hold this across the prerequisite CPU/CUDA sessions as well as the high-resolution
+  // session. Two duplicated nodes can invoke changedParam concurrently; allowing both
+  // baseline CUDA allocations before serializing the large run defeats the safety guard.
+  std::unique_lock<std::mutex> highResolutionProcessLock(gHighResolutionProbeMutex,
+                                                          std::defer_lock);
+  if (highResolutionConfig.enabled && highResolutionConfig.valid &&
+      !highResolutionProcessLock.try_lock()) {
+    section("VERDICT");
+    emit("  HIGHRES QUALIFICATION VERDICT: NOT TESTED");
+    emit("  high-resolution detail: another high-resolution probe action is active in this process");
+    emit("  Required high-resolution measurement-result gate: FAIL");
+    emitf("  Report: %s", reportPath().c_str());
+    if (gMessage)
+      gMessage->message(instance, kOfxMessageError, nullptr,
+                        "White Water high-resolution probe is already running.\nReport: %s",
+                        reportPath().c_str());
+    return false;
+  }
 
   const std::string library = runtimeDirectory();
   emitf("  bundled runtime directory: %s", library.c_str());
@@ -1878,7 +2377,8 @@ bool runProbe(OfxImageEffectHandle instance) {
 
   std::vector<ModeResult> results;
   for (const Mode &mode : modes)
-    results.push_back(runMode(mode, library, hostApiBase, runExtendedMeasurements));
+    results.push_back(runMode(mode, library, hostApiBase, runStandardExtendedMeasurements,
+                              highResolutionConfig));
 
   // --- Verdict -------------------------------------------------------------
   section("VERDICT");
@@ -1942,6 +2442,48 @@ bool runProbe(OfxImageEffectHandle instance) {
               static_cast<double>(r.gpuArenaLimit.vramAfterBytes) / (1024.0 * 1024.0));
       if (!r.gpuArenaLimit.failure.empty())
         emitf("        arena-limit detail: %s", r.gpuArenaLimit.failure.c_str());
+      if (highResolutionConfig.enabled) {
+        const HighResolutionResult &highres = r.highResolution;
+        if (highres.attempted) {
+          emitf("      high-resolution GPU-only qualification: attempted yes | %s | "
+                "outcome %s | source %dx%d | tensor %dx%d | gpu_mem_limit %.1f MiB",
+                probeState(highres.state), highResolutionOutcome(highres.outcome),
+                highres.sourceHeight, highres.sourceWidth, highres.tensorHeight,
+                highres.tensorWidth,
+                static_cast<double>(highres.gpuMemoryLimitBytes) / (1024.0 * 1024.0));
+          emitf("        session %.1f ms | warm %.1f ms | steady median %.1f ms "
+                "(min %.1f, max %.1f; %d/%d samples)",
+                highres.sessionMilliseconds, highres.warmMilliseconds,
+                highres.steadyMedianMilliseconds, highres.steadyMinimumMilliseconds,
+                highres.steadyMaximumMilliseconds,
+                highres.steadyCompleted,
+                highres.steadySamples);
+          if (highres.outputFinite)
+            emitf("        cropped source-area forward median (%.4f, %.4f) | direction %s",
+                  highres.forwardMedianX, highres.forwardMedianY,
+                  highres.directionCorrect ? "CORRECT" : "FAILED");
+          if (highres.vramBeforeAvailable && highres.vramPeakAvailable &&
+              highres.vramAfterAvailable) {
+            const double cleanupDeltaMiB =
+                (static_cast<double>(highres.vramAfterBytes) -
+                 static_cast<double>(highres.vramBeforeBytes)) /
+                (1024.0 * 1024.0);
+            emitf("        device-wide sampled VRAM used: before %.1f MiB | sampled peak %.1f MiB | after session cleanup %.1f MiB",
+                  static_cast<double>(highres.vramBeforeBytes) / (1024.0 * 1024.0),
+                  static_cast<double>(highres.vramPeakBytes) / (1024.0 * 1024.0),
+                  static_cast<double>(highres.vramAfterBytes) / (1024.0 * 1024.0));
+            emitf("        session-cleanup delta %+.1f MiB (informational; whole device and ORT environment still live)",
+                  cleanupDeltaMiB);
+          }
+          if (!highres.failure.empty())
+            emitf("        high-resolution detail: %s", highres.failure.c_str());
+        } else {
+          emitf("      high-resolution GPU-only qualification: attempted no | %s (%s)",
+                probeState(highres.state),
+                highres.failure.empty() ? "configuration or prerequisite did not pass"
+                                        : highres.failure.c_str());
+        }
+      }
       emitf("      node duplication equivalence: attempted %s | %s (%s)",
             r.nodeDuplicationState == ProbeState::NotTested ? "no" : "yes",
             probeState(r.nodeDuplicationState),
@@ -1987,6 +2529,32 @@ bool runProbe(OfxImageEffectHandle instance) {
       emitf("  Phase 0B CUDA real-network result: attempted %s | %s", yesNo(r.cudaRan),
             probeState(stateFor(r.cudaRan, r.cudaCorrect)));
   }
+  bool highResolutionResultCollected = false;
+  bool highResolutionInferencePassed = false;
+  bool highResolutionAttempted = false;
+  for (std::size_t i = 0; i < modes.size(); ++i) {
+    if (!modes[i].runRealModel)
+      continue;
+    const HighResolutionResult &highres = results[i].highResolution;
+    const bool telemetryComplete = highres.vramBeforeAvailable && highres.vramPeakAvailable &&
+                                   highres.vramAfterAvailable;
+    highResolutionAttempted = highres.attempted;
+    highResolutionResultCollected =
+        whitewater::ortprobe::highResolutionMeasurementResultCollected(
+            highResolutionConfig.valid, highres.attempted, telemetryComplete,
+            highres.outcome);
+    highResolutionInferencePassed = highres.state == ProbeState::Pass;
+  }
+  if (highResolutionConfig.enabled) {
+    const char *verdict = highResolutionInferencePassed
+                              ? "PASS"
+                              : highResolutionResultCollected
+                                    ? "BOUNDED ALLOCATION STOP OBSERVED"
+                                    : (highResolutionAttempted || !highResolutionConfig.valid)
+                                          ? "FAIL"
+                                          : "NOT TESTED";
+    emitf("  HIGHRES QUALIFICATION VERDICT: %s", verdict);
+  }
   emit("");
   emitf("  Report: %s", reportPath().c_str());
 
@@ -2017,6 +2585,14 @@ bool runProbe(OfxImageEffectHandle instance) {
         arenaLimitPassed = results[i].gpuArenaLimit.state == ProbeState::Pass;
     emitf("  Required CUDA arena-limit gate: %s", arenaLimitPassed ? "PASS" : "FAIL");
     if (!arenaLimitPassed)
+      return false;
+  }
+  const char *requireHighResolution =
+      std::getenv("WHITEWATER_ORT_REQUIRE_HIGHRES_RESULT");
+  if (requireHighResolution && std::strcmp(requireHighResolution, "0") != 0) {
+    emitf("  Required high-resolution measurement-result gate: %s",
+          highResolutionResultCollected ? "PASS" : "FAIL");
+    if (!highResolutionResultCollected)
       return false;
   }
   return true;

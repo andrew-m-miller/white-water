@@ -656,9 +656,39 @@ higher production-resolution tests.
    CUDA names. Record the owner of every dependency and the final on-disk size before making
    the packaging decision.
 2. **Higher warmed production-resolution performance and VRAM.** The 480×640, 720×1280 and
-   1080×1920 measurements are recorded above. UHD, DCI 4K and the 4608×3164 Alexa 35
+   1080×1920 measurements are recorded above. UHD, DCI 4K and the 3164×4608 H×W Alexa 35
    open-gate case remain to be measured with the selected model/settings; none is a hard
-   plugin-resolution cap.
+   plugin-resolution cap. The current probe artifact accepts exactly one source H×W target
+   per Flame launch: `2160x3840`, `2160x4096`, or `3164x4608`. The Alexa target is
+   replication-padded to a 3168×4608 network tensor and cropped to the 3164×4608 source area
+   for the sampled direction check.
+
+   Run each target after a fresh Flame restart. Before the normal Flame launch in `tcsh`, set:
+
+   ```tcsh
+   setenv WHITEWATER_ORT_HIGHRES_GPU_ONLY 1
+   setenv WHITEWATER_ORT_HIGHRES_SIZE 2160x3840
+   setenv WHITEWATER_ORT_GPU_MEM_LIMIT_MIB 16384
+   setenv WHITEWATER_ORT_REQUIRE_HIGHRES_RESULT 1
+   setenv WHITEWATER_ORT_PROBE_LOG /var/tmp/whitewater-ortprobe-uhd.txt
+   ```
+
+   Change only the size and log basename for the next two launches. Apply one
+   `WhiteWaterOrtProbe` node and press **Run ORT Probe**; its image input is irrelevant because
+   this path creates bounded synthetic tensors. Do not create matching-resolution Flame
+   sources or duplicate nodes for this measurement. The GPU-only switch replaces the normal
+   extended CPU/CUDA timing, lifecycle, cancellation and 64 MiB recovery exercises; baseline
+   128×192 CPU/CUDA identity and direction still run as prerequisites. The result reports
+   end-to-end ORT `Run` wall time (including transfers), one warm run, three steady runs,
+   boundary-sampled device-wide NVML use, session-cleanup use, and either `inference-pass` or
+   a classified `bounded-allocation-stop`. The latter deliberately does not claim that a
+   `BFCArena` diagnostic distinguishes the configured arena ceiling from physical device
+   exhaustion. `gpu_mem_limit` bounds ORT's CUDA arena only, not cuDNN or all
+   device allocations. Session-cleanup VRAM delta is informational: NVML covers the whole
+   device and the shared ORT environment remains live until the mode ends, so a nonzero delta
+   is not labelled a leak. The required *measurement-result* gate accepts either of those two
+   classified outcomes so a GPU that does not fit still produces a valid qualification
+   measurement; the separate `HIGHRES QUALIFICATION VERDICT` says whether inference passed.
 
 The operational 0B subchecks are now measured on this host/runtime pair: repeated lifecycle
 passed 3/3 on CPU and CUDA, duplicate-node behavior was equivalent in the supplied run,

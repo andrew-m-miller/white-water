@@ -105,6 +105,16 @@ include(OfxBundle)
 # than it should -- the failure mode a test suite is least able to report.
 enable_testing()
 
+# Pure Phase 0B high-resolution configuration/gate tests do not need ONNX Runtime. Keep them
+# outside tools/ortprobe's optional subdirectory so the ordinary macOS and no-ORT builds
+# still compile the parser that protects the Flame host from malformed large allocations.
+add_executable(ortprobe_highres_config_tests
+  tools/ortprobe/highres_config_tests.cpp)
+target_compile_features(ortprobe_highres_config_tests PRIVATE cxx_std_17)
+target_include_directories(ortprobe_highres_config_tests PRIVATE
+  "${CMAKE_SOURCE_DIR}/tools/ortprobe")
+add_test(NAME ortprobe::highres_config COMMAND ortprobe_highres_config_tests)
+
 # Phase 0B's model provenance is executable data, not prose. Keep the structural gate
 # dependency-free so the normal probe/core build does not need PyTorch or ONNX installed.
 find_package(Python3 QUIET COMPONENTS Interpreter)

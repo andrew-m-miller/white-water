@@ -318,8 +318,34 @@ jobs:
           WHITEWATER_ORT_PROBE_SIZES before launching Flame to select other bounded HxW sizes.
           Set WHITEWATER_ORT_REQUIRE_GPU_MEM_LIMIT=1 to make a missing or failed arena-limit
           result fail the probe action while qualifying 0B.
-          Duplicate the node and run the probe on each copy; instance handles and process-live
-          counts in the reports make that manual lifecycle check observable. Its report goes to
+
+          For the remaining higher-resolution 0B qualification, run exactly one target after
+          each fresh Flame restart. In tcsh, before launching Flame:
+
+              setenv WHITEWATER_ORT_HIGHRES_GPU_ONLY 1
+              setenv WHITEWATER_ORT_HIGHRES_SIZE 2160x3840
+              setenv WHITEWATER_ORT_GPU_MEM_LIMIT_MIB 16384
+              setenv WHITEWATER_ORT_REQUIRE_HIGHRES_RESULT 1
+              setenv WHITEWATER_ORT_PROBE_LOG /var/tmp/whitewater-ortprobe-uhd.txt
+
+          The accepted source HxW values are 2160x3840 (UHD), 2160x4096 (DCI 4K), and
+          3164x4608 (Alexa 35 open gate). Change the size and log basename, restart Flame,
+          and repeat. The Alexa input is replication-padded to a 3168x4608 network tensor.
+          No matching Flame source and no duplicated probe node are needed: this path uses
+          synthetic tensors, runs CUDA only at the requested high resolution, and skips the
+          ordinary extended CPU/CUDA measurements. It uses one fresh CUDA session with a
+          16 GiB ORT arena cap and reports one warm run, three steady runs, sampled device-wide
+          NVML use, session-cleanup use, and whether inference passed or met a bounded
+          allocation stop. A BFCArena diagnostic does not prove whether the configured arena
+          ceiling or physical device memory was the ultimate constraint.
+          That cap and the accepted target list belong only to this diagnostic artifact; they
+          are not product resolution limits. gpu_mem_limit is not a device-wide allocation
+          fence. The required measurement-result gate passes for either an inference result or
+          a classified bounded-allocation stop; read HIGHRES QUALIFICATION VERDICT separately.
+
+          For the ordinary lifecycle measurement (not high-resolution mode), duplicate the node
+          and run the probe on each copy; instance handles and process-live counts in the reports
+          make that manual lifecycle check observable. Its report goes to
           $WHITEWATER_ORT_PROBE_LOG, else
           $TMPDIR/whitewater-ortprobe.txt, else /tmp. Read the VERDICT block at the end;
           the reported version must NOT match Flame's own ONNX Runtime, or the result is
