@@ -517,6 +517,15 @@ remains, grouped by the gate it blocks (`docs/plan.md`, *Phase 0*).
 
 ### 0B — blocks the inference implementation
 
+**Implementation status, not a Flame measurement (2026-08-20).** The pinned SEA-RAFT M
+artifact is now manifest-verified and staged with the probe. The raw ORT C API path creates
+the real session, runs identity and both translation directions, checks the result
+numerically, records session and first-run latency, and takes the same path through the CUDA
+EP when it is available. The host-free macOS smoke test passes through the staged CPU
+runtime; that runtime has no CUDA EP, so this does not close any CUDA or Flame claim. CUDA
+library ownership, VRAM, repeated lifecycle and duplication, cross-thread cancellation,
+failure/OOM fallback, payload closure, and the Flame run remain open.
+
 1. **Does the CUDA execution provider survive the same treatment?** The CPU runtime is
    measured isolated and working in-process; the CUDA provider is a separate `.so` pulling
    in more libraries, against a host that exposes CUDA, cuDNN, cuBLAS and TensorRT globally.

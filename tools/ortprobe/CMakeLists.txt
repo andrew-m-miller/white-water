@@ -24,6 +24,8 @@ target_include_directories(WhiteWaterOrtProbe PRIVATE "${CMAKE_CURRENT_SOURCE_DI
 # environment set up. WHITEWATER_ORT_LIBRARY overrides the path at runtime for experiments.
 set(ort_bundle_libraries
     "${CMAKE_BINARY_DIR}/bundles/WhiteWaterOrtProbe.ofx.bundle/Contents/Libraries")
+set(ort_bundle_models
+    "${CMAKE_BINARY_DIR}/bundles/WhiteWaterOrtProbe.ofx.bundle/Contents/Resources/models")
 get_filename_component(ort_library_name "${WHITEWATER_ORT_LIBRARY}" NAME)
 
 if(APPLE)
@@ -42,6 +44,61 @@ add_custom_command(TARGET WhiteWaterOrtProbe POST_BUILD
           "${WHITEWATER_ORT_LIBRARY}" "${ort_bundle_libraries}/${ort_staged_name}"
   COMMENT "Staging ${ort_library_name} into the ORT probe bundle as ${ort_staged_name}"
   VERBATIM)
+
+# Stage the real Phase 0B artifact only after the configure-time SHA256 check in
+# cmake/OnnxRuntime.cmake has passed. Keep the model outside the executable: unlike the tiny
+# Add graph, SEA-RAFT is a real network and must remain an auditable file with its manifest.
+if(WHITEWATER_SEA_RAFT_MODEL)
+  add_custom_command(TARGET WhiteWaterOrtProbe POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${ort_bundle_models}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${WHITEWATER_SEA_RAFT_MODEL}" "${ort_bundle_models}/sea-raft-m-opset17.onnx"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${WHITEWATER_SEA_RAFT_MANIFEST}" "${ort_bundle_models}/sea-raft-m.json"
+    COMMENT "Staging verified SEA-RAFT M model and manifest into Contents/Resources/models"
+    VERBATIM)
+else()
+  message(STATUS
+    "ORT probe model staging: skipped (set WHITEWATER_SEA_RAFT_MODEL to add SEA-RAFT M)")
+endif()
+
+# Provider libraries are optional because the standard CPU redistributable does not contain
+# them. Preserve the canonical filenames ORT uses when it loads providers at runtime. These
+# are copied, never linked: the probe must continue to reach every ORT entry point through
+# dlopen/dlsym so Flame's globally loaded runtime cannot capture a DT_NEEDED relocation.
+if(WHITEWATER_ORT_PROVIDER_SHARED_LIBRARY)
+  if(APPLE)
+    set(ort_shared_provider_name "libonnxruntime_providers_shared.dylib")
+  else()
+    set(ort_shared_provider_name "libonnxruntime_providers_shared.so")
+  endif()
+  add_custom_command(TARGET WhiteWaterOrtProbe POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${ort_bundle_libraries}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${WHITEWATER_ORT_PROVIDER_SHARED_LIBRARY}"
+            "${ort_bundle_libraries}/${ort_shared_provider_name}"
+    COMMENT "Staging ORT shared provider as ${ort_shared_provider_name}"
+    VERBATIM)
+else()
+  message(STATUS "ORT probe provider staging: shared provider absent (CPU-only build)")
+endif()
+
+if(WHITEWATER_ORT_PROVIDER_CUDA_LIBRARY)
+  if(APPLE)
+    set(ort_cuda_provider_name "libonnxruntime_providers_cuda.dylib")
+  else()
+    set(ort_cuda_provider_name "libonnxruntime_providers_cuda.so")
+  endif()
+  add_custom_command(TARGET WhiteWaterOrtProbe POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${ort_bundle_libraries}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${WHITEWATER_ORT_PROVIDER_CUDA_LIBRARY}"
+            "${ort_bundle_libraries}/${ort_cuda_provider_name}"
+    COMMENT "Staging ORT CUDA provider as ${ort_cuda_provider_name}"
+    VERBATIM)
+else()
+  message(STATUS "ORT probe provider staging: CUDA provider absent (CPU-only build)")
+endif()
 
 # A SECOND, byte-identical copy under a different name, on Linux only.
 #
@@ -75,3 +132,11 @@ add_dependencies(ortprobe_driver WhiteWaterOrtProbe)
 add_test(NAME ortprobe::runs
   COMMAND ortprobe_driver
     "$<TARGET_FILE:WhiteWaterOrtProbe>")
+
+# When the verified SEA-RAFT payload is present, make the offline smoke test require the
+# real-model path as well as the embedded Add-model path. A CPU-only checkout without the
+# artifact keeps the original test contract and remains useful on developer machines.
+if(WHITEWATER_SEA_RAFT_MODEL)
+  set_tests_properties(ortprobe::runs PROPERTIES
+    ENVIRONMENT "WHITEWATER_ORT_REQUIRE_REAL_MODEL=1")
+endif()

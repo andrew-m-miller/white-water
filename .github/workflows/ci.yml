@@ -57,9 +57,10 @@ jobs:
           cmake --version
           ldd --version | head -1
 
-      # ONNX Runtime for the isolation probe. CPU build (~11 MB) rather than GPU (~3 GB):
-      # the question is symbol binding, and if RTLD_DEEPBIND isolates the CPU runtime it
-      # isolates the CUDA one.
+      # ONNX Runtime for the Phase 0B probe. This must be the CUDA 12 build: the provider is
+      # a separate .so with a different dependency closure, and the CPU isolation result is
+      # explicitly not evidence that CUDA survives beside Flame's globally loaded CUDA,
+      # cuDNN and cuBLAS copies.
       #
       # 1.29.0 is chosen because Flame 2026.2 carries 1.22.0 and the two MUST differ -- the
       # probe uses the reported version string to tell our copy from the host's, and matching
@@ -72,11 +73,45 @@ jobs:
           dnf -y install curl
           ver=1.29.0
           curl -sSL -o ort.tgz \
-            "https://github.com/microsoft/onnxruntime/releases/download/v${ver}/onnxruntime-linux-x64-${ver}.tgz"
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ver}/onnxruntime-linux-x64-gpu_cuda12-${ver}.tgz"
+          echo "4ca594a0da83927befbd73fe020d7f569be151d70bb4fe9741ad405f4882e2ad  ort.tgz" \
+            | sha256sum -c -
           mkdir -p "$GITHUB_WORKSPACE/ort"
           tar xzf ort.tgz -C "$GITHUB_WORKSPACE/ort" --strip-components=1
           echo "WHITEWATER_ORT_ROOT=$GITHUB_WORKSPACE/ort" >> $GITHUB_ENV
           echo "ORT_VERSION=$ver" >> $GITHUB_ENV
+
+      # The ONNX artifact is deliberately ignored by git. Reproduce it from the pinned
+      # source commit and checkpoint, then let configure verify that its SHA256 is exactly
+      # the one recorded in the manifest before it enters the bundle.
+      - name: Export pinned SEA-RAFT M probe model
+        run: |
+          dnf -y install python3.11 python3.11-pip
+          python3.11 -m venv "$RUNNER_TEMP/searaft-venv"
+          py="$RUNNER_TEMP/searaft-venv/bin/python"
+          "$py" -m pip install --upgrade pip
+          "$py" -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            torch==2.2.0 torchvision==0.17.0
+          grep -vE '^(torch|torchvision)==' models/requirements-searaft-export.txt \
+            > "$RUNNER_TEMP/searaft-export-requirements.txt"
+          "$py" -m pip install -r "$RUNNER_TEMP/searaft-export-requirements.txt"
+
+          upstream="$RUNNER_TEMP/SEA-RAFT"
+          checkpoint="$RUNNER_TEMP/sea-raft-m.safetensors"
+          commit=$("$py" -c \
+            'import json; print(json.load(open("models/sea-raft-m.json"))["upstream"]["commit"])')
+          checkpoint_url=$("$py" -c \
+            'import json; print(json.load(open("models/sea-raft-m.json"))["checkpoint"]["url"])')
+          git init "$upstream"
+          git -C "$upstream" remote add origin https://github.com/princeton-vl/SEA-RAFT.git
+          git -C "$upstream" fetch --depth=1 origin "$commit"
+          git -C "$upstream" checkout --detach FETCH_HEAD
+          curl -sSL -o "$checkpoint" "$checkpoint_url"
+
+          "$py" models/export_searaft.py \
+            --upstream "$upstream" \
+            --checkpoint "$checkpoint" \
+            --output models/sea-raft-m-opset17.onnx
 
       - name: Configure
         run: |
@@ -177,6 +212,20 @@ jobs:
             scripts/check-glibc-baseline.sh "$lib" 2.28
           done
 
+      # The GitHub runner has no NVIDIA userspace stack, so CUDA/cuDNN/cuBLAS entries are
+      # expected to be unresolved here. Preserve the complete report in the test archive;
+      # rerunning the included script on the Flame box records the actual selected closure.
+      - name: Report ORT CUDA dependency closure
+        run: |
+          set +e
+          scripts/report-ort-closure.sh \
+            build/bundles/WhiteWaterOrtProbe.ofx.bundle/Contents/Libraries \
+            > ort-cuda-closure-build-host.txt 2>&1
+          status=$?
+          set -e
+          cat ort-cuda-closure-build-host.txt
+          echo "closure reporter exit status: $status (unresolved GPU libraries are expected here)"
+
       # A plugin in the wrong architecture directory is invisible, with no error message
       # anywhere -- the same class of failure as the glibc one, and just as silent.
       - name: Verify bundle layout
@@ -211,6 +260,8 @@ jobs:
           mkdir -p "$staging"
           cp -R build/bundles/*.ofx.bundle "$staging/"
           cp docs/host-notes.md "$staging/"
+          cp scripts/report-ort-closure.sh "$staging/"
+          cp ort-cuda-closure-build-host.txt "$staging/"
           cat > "$staging/INSTALL.txt" <<'EOF'
           White Water -- Linux OFX bundles
           ================================
@@ -242,12 +293,18 @@ jobs:
           Apply it in a GENERAL-context Batch node, view it so it renders, then press
           "Run Probe" and exercise the viewer with the pen.
 
-          WhiteWaterOrtProbe answers one question: whether a bundled ONNX Runtime can be
-          isolated from the copy Flame already has loaded. Apply it and press
-          "Run ORT Probe". Its report goes to $WHITEWATER_ORT_PROBE_LOG, else
+          WhiteWaterOrtProbe contains the pinned SEA-RAFT M model and CUDA 12 execution
+          provider for the Phase 0B measurement. Apply it and press "Run ORT Probe". It
+          checks runtime isolation, CPU and CUDA identity/direction, latency, and mapped
+          provider/CUDA libraries. Its report goes to $WHITEWATER_ORT_PROBE_LOG, else
           $TMPDIR/whitewater-ortprobe.txt, else /tmp. Read the VERDICT block at the end;
           the reported version must NOT match Flame's own ONNX Runtime, or the result is
           ambiguous rather than positive.
+
+          From this unpacked directory, record the target box's dependency closure too:
+
+              ./report-ort-closure.sh WhiteWaterOrtProbe.ofx.bundle/Contents/Libraries \
+                  > ort-cuda-closure-flame.txt
 
           The report is written to $WHITEWATER_PROBE_LOG, else $TMPDIR/whitewater-hostprobe.txt,
           else /tmp/whitewater-hostprobe.txt -- and also to stderr, which Flame captures

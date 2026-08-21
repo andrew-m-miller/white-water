@@ -1,8 +1,9 @@
 // White Water ONNX Runtime isolation probe.
 //
-// Answers the last open Phase 0 question, and only that one: can a plugin bundle its own
-// ONNX Runtime and use it inside Flame, given that Flame already has ONNX Runtime 1.22.0
-// loaded in the global symbol scope?
+// Phase 0A established that a plugin can bundle its own ONNX Runtime and use it inside
+// Flame even though Flame already has ONNX Runtime 1.22.0 in the global symbol scope.
+// Phase 0B extends that measurement to a pinned real optical-flow network on CPU and the
+// CUDA execution provider. The tiny embedded Add graph remains as a cheap isolation canary.
 //
 // Measured 2026-08-20 (docs/host-notes.md): OrtGetApiBase, the CUDA runtime, cuDNN, cuBLAS,
 // TensorRT and TBB are all globally visible to a loaded plugin, from /opt/Autodesk/lib64.
@@ -63,14 +64,22 @@
 // missing mode as a failure.
 
 #include <cstdarg>
+#include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <dlfcn.h>
+#if defined(__linux__)
+#include <link.h>
+#endif
 #include <unistd.h>
 
 #include "ofxCore.h"
@@ -171,6 +180,13 @@ std::string runtimeDirectory() {
   return moduleDirectory() + "/../Libraries/";
 }
 
+std::string modelPath() {
+  if (const char *override = std::getenv("WHITEWATER_ORT_MODEL"))
+    return override;
+  // Contents/<arch>/x.ofx -> Contents/Resources/models/x.onnx
+  return moduleDirectory() + "/../Resources/models/sea-raft-m-opset17.onnx";
+}
+
 // ---------------------------------------------------------------------------
 // One test of one dlopen mode
 // ---------------------------------------------------------------------------
@@ -191,6 +207,9 @@ struct Mode {
   // thread-local state and atexit handlers may well stay mapped, and unloading ORT inside a
   // host process is its own hazard. Distinct files are unambiguous.
   const char *librarySuffix;
+  // Phase 0A selected plain RTLD_LOCAL. Run the expensive real network only in that mode;
+  // the tiny Add model still exercises every mode as an isolation canary.
+  bool runRealModel;
 };
 
 struct ModeResult {
@@ -199,12 +218,322 @@ struct ModeResult {
   bool versionReadable = false;
   bool ranInference = false;
   bool arithmeticCorrect = false;
+  bool realModelConfigured = false;
+  bool realModelRan = false;
+  bool realModelCorrect = false;
+  bool cudaAvailable = false;
+  bool cudaRan = false;
+  bool cudaCorrect = false;
   std::string version;
   std::string failure;
 };
 
 // The subset of the ORT C API this needs, fetched through our own handle.
 typedef const OrtApiBase *(*GetApiBaseFn)(void);
+
+struct FlowRun {
+  bool ran = false;
+  bool correct = false;
+  double sessionMilliseconds = 0.0;
+  double firstRunMilliseconds = 0.0;
+  double identityMedianEpe = std::numeric_limits<double>::infinity();
+  double forwardMedianX = 0.0;
+  double forwardMedianY = 0.0;
+  double reverseMedianX = 0.0;
+  double reverseMedianY = 0.0;
+  std::string failure;
+};
+
+std::string takeStatus(const OrtApi *api, OrtStatus *status) {
+  if (!status)
+    return {};
+  const char *message = api->GetErrorMessage(status);
+  std::string result = message ? message : "unknown ONNX Runtime error";
+  api->ReleaseStatus(status);
+  return result;
+}
+
+double median(std::vector<float> values) {
+  if (values.empty())
+    return std::numeric_limits<double>::quiet_NaN();
+  const std::size_t middle = values.size() / 2;
+  std::nth_element(values.begin(), values.begin() + middle, values.end());
+  if (values.size() % 2)
+    return values[middle];
+  const float upper = values[middle];
+  std::nth_element(values.begin(), values.begin() + middle - 1, values.begin() + middle);
+  return 0.5 * (upper + values[middle - 1]);
+}
+
+std::vector<float> makeTexture(int height, int width) {
+  const std::size_t plane = static_cast<std::size_t>(height) * width;
+  std::vector<float> raw(plane * 3), smooth(plane * 3);
+  for (int c = 0; c < 3; ++c) {
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        unsigned value = static_cast<unsigned>(x + 1) * 73856093u;
+        value ^= static_cast<unsigned>(y + 1) * 19349663u;
+        value ^= static_cast<unsigned>(c + 1) * 83492791u;
+        value ^= value >> 13;
+        value *= 1274126177u;
+        raw[static_cast<std::size_t>(c) * plane + static_cast<std::size_t>(y) * width + x] =
+            static_cast<float>(value & 0xffffu) * (255.0f / 65535.0f);
+      }
+    }
+  }
+  // Match the export test's textured, locally smooth signal without depending on PyTorch's
+  // RNG. Zero padding is intentional: avg_pool2d(..., padding=2) uses it too.
+  for (int c = 0; c < 3; ++c) {
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        float sum = 0.0f;
+        for (int ky = -2; ky <= 2; ++ky)
+          for (int kx = -2; kx <= 2; ++kx)
+            if (y + ky >= 0 && y + ky < height && x + kx >= 0 && x + kx < width)
+              sum += raw[static_cast<std::size_t>(c) * plane +
+                         static_cast<std::size_t>(y + ky) * width + x + kx];
+        smooth[static_cast<std::size_t>(c) * plane + static_cast<std::size_t>(y) * width + x] =
+            sum / 25.0f;
+      }
+    }
+  }
+  return smooth;
+}
+
+std::vector<float> translateRight(const std::vector<float> &source, int height, int width,
+                                  int dx) {
+  const std::size_t plane = static_cast<std::size_t>(height) * width;
+  std::vector<float> result(source.size(), 0.0f);
+  for (int c = 0; c < 3; ++c)
+    for (int y = 0; y < height; ++y)
+      for (int x = dx; x < width; ++x)
+        result[static_cast<std::size_t>(c) * plane + static_cast<std::size_t>(y) * width + x] =
+            source[static_cast<std::size_t>(c) * plane +
+                   static_cast<std::size_t>(y) * width + x - dx];
+  return result;
+}
+
+bool runFlowOnce(const OrtApi *api, OrtSession *session, OrtMemoryInfo *memory,
+                 const std::vector<float> &image1, const std::vector<float> &image2,
+                 int height, int width, std::vector<float> &flow, double &milliseconds,
+                 std::string &failure) {
+  const int64_t shape[4] = {1, 3, height, width};
+  OrtValue *inputs[2] = {nullptr, nullptr};
+  const std::vector<float> *data[2] = {&image1, &image2};
+  for (int i = 0; i < 2; ++i) {
+    OrtStatus *status = api->CreateTensorWithDataAsOrtValue(
+        memory, const_cast<float *>(data[i]->data()), data[i]->size() * sizeof(float), shape, 4,
+        ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &inputs[i]);
+    if (status) {
+      failure = "CreateTensor: " + takeStatus(api, status);
+      for (OrtValue *input : inputs)
+        if (input)
+          api->ReleaseValue(input);
+      return false;
+    }
+  }
+
+  const char *inputNames[2] = {"image1", "image2"};
+  const char *outputNames[1] = {"flow"};
+  OrtValue *output = nullptr;
+  const auto start = std::chrono::steady_clock::now();
+  OrtStatus *status = api->Run(session, nullptr, inputNames, inputs, 2, outputNames, 1, &output);
+  milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+                     .count();
+  for (OrtValue *input : inputs)
+    api->ReleaseValue(input);
+  if (status) {
+    failure = "Run: " + takeStatus(api, status);
+    if (output)
+      api->ReleaseValue(output);
+    return false;
+  }
+
+  OrtTensorTypeAndShapeInfo *info = nullptr;
+  status = api->GetTensorTypeAndShape(output, &info);
+  if (status) {
+    failure = "GetTensorTypeAndShape: " + takeStatus(api, status);
+    api->ReleaseValue(output);
+    return false;
+  }
+  int64_t dimensions[4] = {0, 0, 0, 0};
+  status = api->GetDimensions(info, dimensions, 4);
+  api->ReleaseTensorTypeAndShapeInfo(info);
+  if (status) {
+    failure = "GetDimensions: " + takeStatus(api, status);
+    api->ReleaseValue(output);
+    return false;
+  }
+  if (dimensions[0] != 1 || dimensions[1] != 2 || dimensions[2] != height ||
+      dimensions[3] != width) {
+    char buffer[256];
+    std::snprintf(buffer, sizeof(buffer), "unexpected flow shape [%lld %lld %lld %lld]",
+                  (long long)dimensions[0], (long long)dimensions[1],
+                  (long long)dimensions[2], (long long)dimensions[3]);
+    failure = buffer;
+    api->ReleaseValue(output);
+    return false;
+  }
+  float *outputData = nullptr;
+  status = api->GetTensorMutableData(output, reinterpret_cast<void **>(&outputData));
+  if (status || !outputData) {
+    failure = status ? "GetTensorMutableData: " + takeStatus(api, status)
+                     : "GetTensorMutableData returned null";
+    api->ReleaseValue(output);
+    return false;
+  }
+  flow.assign(outputData, outputData + static_cast<std::size_t>(2) * height * width);
+  api->ReleaseValue(output);
+  return true;
+}
+
+FlowRun runSeaRaft(const OrtApi *api, OrtEnv *env, const std::string &path, bool cuda) {
+  FlowRun result;
+  OrtSessionOptions *options = nullptr;
+  OrtStatus *status = api->CreateSessionOptions(&options);
+  if (status) {
+    result.failure = "CreateSessionOptions: " + takeStatus(api, status);
+    return result;
+  }
+  status = api->SetIntraOpNumThreads(options, 1);
+  if (status) {
+    result.failure = "SetIntraOpNumThreads: " + takeStatus(api, status);
+    api->ReleaseSessionOptions(options);
+    return result;
+  }
+  if (cuda) {
+    OrtCUDAProviderOptions cudaOptions{};
+    cudaOptions.device_id = 0;
+    cudaOptions.arena_extend_strategy = 0;
+    cudaOptions.gpu_mem_limit = std::numeric_limits<std::size_t>::max();
+    cudaOptions.cudnn_conv_algo_search = OrtCudnnConvAlgoSearchExhaustive;
+    cudaOptions.do_copy_in_default_stream = 1;
+    status = api->SessionOptionsAppendExecutionProvider_CUDA(options, &cudaOptions);
+    if (status) {
+      result.failure = "append CUDA provider: " + takeStatus(api, status);
+      api->ReleaseSessionOptions(options);
+      return result;
+    }
+  }
+
+  OrtSession *session = nullptr;
+  const auto sessionStart = std::chrono::steady_clock::now();
+  status = api->CreateSession(env, path.c_str(), options, &session);
+  result.sessionMilliseconds =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sessionStart)
+          .count();
+  api->ReleaseSessionOptions(options);
+  if (status) {
+    result.failure = "CreateSession: " + takeStatus(api, status);
+    return result;
+  }
+
+  OrtMemoryInfo *memory = nullptr;
+  status = api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory);
+  if (status) {
+    result.failure = "CreateCpuMemoryInfo: " + takeStatus(api, status);
+    api->ReleaseSession(session);
+    return result;
+  }
+
+  constexpr int height = 128;
+  constexpr int width = 192;
+  constexpr int dx = 4;
+  const std::vector<float> first = makeTexture(height, width);
+  const std::vector<float> second = translateRight(first, height, width, dx);
+  std::vector<float> identity, forward, reverse;
+  double ignored = 0.0;
+  if (!runFlowOnce(api, session, memory, first, first, height, width, identity,
+                   result.firstRunMilliseconds, result.failure) ||
+      !runFlowOnce(api, session, memory, first, second, height, width, forward, ignored,
+                   result.failure) ||
+      !runFlowOnce(api, session, memory, second, first, height, width, reverse, ignored,
+                   result.failure)) {
+    api->ReleaseMemoryInfo(memory);
+    api->ReleaseSession(session);
+    return result;
+  }
+
+  constexpr int border = 16;
+  const std::size_t plane = static_cast<std::size_t>(height) * width;
+  std::vector<float> identityEpe, forwardX, forwardY, reverseX, reverseY;
+  identityEpe.reserve((height - 2 * border) * (width - 2 * border));
+  for (int y = border; y < height - border; ++y) {
+    for (int x = border; x < width - border; ++x) {
+      const std::size_t offset = static_cast<std::size_t>(y) * width + x;
+      identityEpe.push_back(std::sqrt(identity[offset] * identity[offset] +
+                                     identity[plane + offset] * identity[plane + offset]));
+      forwardX.push_back(forward[offset]);
+      forwardY.push_back(forward[plane + offset]);
+      reverseX.push_back(reverse[offset]);
+      reverseY.push_back(reverse[plane + offset]);
+    }
+  }
+  result.identityMedianEpe = median(std::move(identityEpe));
+  result.forwardMedianX = median(std::move(forwardX));
+  result.forwardMedianY = median(std::move(forwardY));
+  result.reverseMedianX = median(std::move(reverseX));
+  result.reverseMedianY = median(std::move(reverseY));
+  result.ran = true;
+  result.correct = result.identityMedianEpe <= 0.75 && result.forwardMedianX >= 2.0 &&
+                   result.reverseMedianX <= -2.0 && std::abs(result.forwardMedianY) <= 2.0 &&
+                   std::abs(result.reverseMedianY) <= 2.0;
+  if (!result.correct)
+    result.failure = "inference ran but identity/direction thresholds failed";
+  api->ReleaseMemoryInfo(memory);
+  api->ReleaseSession(session);
+  return result;
+}
+
+bool providerAvailable(const OrtApi *api, const char *wanted) {
+  char **providers = nullptr;
+  int count = 0;
+  OrtStatus *status = api->GetAvailableProviders(&providers, &count);
+  if (status) {
+    emitf("  GetAvailableProviders failed: %s", takeStatus(api, status).c_str());
+    return false;
+  }
+  bool found = false;
+  emit("  available execution providers:");
+  for (int i = 0; i < count; ++i) {
+    emitf("    %s", providers[i]);
+    found = found || std::strcmp(providers[i], wanted) == 0;
+  }
+  if (OrtStatus *releaseStatus = api->ReleaseAvailableProviders(providers, count))
+    emitf("  ReleaseAvailableProviders failed: %s", takeStatus(api, releaseStatus).c_str());
+  return found;
+}
+
+#if defined(__linux__)
+int collectAccelerationLibrary(struct dl_phdr_info *info, std::size_t, void *opaque) {
+  if (!info->dlpi_name || !info->dlpi_name[0])
+    return 0;
+  const std::string path = info->dlpi_name;
+  if (path.find("onnxruntime_providers") != std::string::npos ||
+      path.find("libcuda") != std::string::npos ||
+      path.find("libcudnn") != std::string::npos ||
+      path.find("libcublas") != std::string::npos ||
+      path.find("libnvinfer") != std::string::npos)
+    static_cast<std::vector<std::string> *>(opaque)->push_back(path);
+  return 0;
+}
+
+void reportAccelerationLibraries(const char *when) {
+  std::vector<std::string> libraries;
+  dl_iterate_phdr(collectAccelerationLibrary, &libraries);
+  std::sort(libraries.begin(), libraries.end());
+  libraries.erase(std::unique(libraries.begin(), libraries.end()), libraries.end());
+  emitf("    mapped CUDA/provider libraries %s:", when);
+  if (libraries.empty()) {
+    emit("      <none>");
+    return;
+  }
+  for (const std::string &library : libraries)
+    emitf("      %s", library.c_str());
+}
+#else
+void reportAccelerationLibraries(const char *) {}
+#endif
 
 ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void *hostApiBase) {
   ModeResult result;
@@ -395,6 +724,61 @@ ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void 
   api->ReleaseMemoryInfo(memory);
   api->ReleaseSession(session);
   api->ReleaseSessionOptions(options);
+
+  if (mode.runRealModel && result.arithmeticCorrect) {
+    const std::string seaRaftPath = modelPath();
+    emit("");
+    emit("  SEA-RAFT M real-network probe (selected plain RTLD_LOCAL mode)");
+    emitf("    model: %s", seaRaftPath.c_str());
+    if (access(seaRaftPath.c_str(), R_OK) != 0) {
+      emit("    SKIPPED: verified model is not staged (Add-model isolation check only)");
+      api->ReleaseEnv(env);
+      emit("  teardown: ok");
+      emit("  (handle intentionally not dlclosed -- see the note in the source)");
+      return result;
+    }
+    result.realModelConfigured = true;
+    const FlowRun cpu = runSeaRaft(api, env, seaRaftPath, false);
+    result.realModelRan = cpu.ran;
+    result.realModelCorrect = cpu.correct;
+    if (cpu.ran) {
+      emitf("    CPU session %.1f ms | first run %.1f ms", cpu.sessionMilliseconds,
+            cpu.firstRunMilliseconds);
+      emitf("    CPU identity median EPE %.4f px", cpu.identityMedianEpe);
+      emitf("    CPU forward median (%.4f, %.4f) | reverse (%.4f, %.4f)",
+            cpu.forwardMedianX, cpu.forwardMedianY, cpu.reverseMedianX, cpu.reverseMedianY);
+      emitf("    CPU direction/identity: %s", cpu.correct ? "CORRECT" : "FAILED");
+    } else {
+      emitf("    CPU FAILED: %s", cpu.failure.c_str());
+    }
+    if (!cpu.failure.empty() && result.failure.empty())
+      result.failure = "SEA-RAFT CPU: " + cpu.failure;
+
+    result.cudaAvailable = providerAvailable(api, "CUDAExecutionProvider");
+    if (result.cudaAvailable) {
+      reportAccelerationLibraries("before CUDA session creation");
+      const FlowRun cuda = runSeaRaft(api, env, seaRaftPath, true);
+      reportAccelerationLibraries("after CUDA session/run/teardown");
+      result.cudaRan = cuda.ran;
+      result.cudaCorrect = cuda.correct;
+      if (cuda.ran) {
+        emitf("    CUDA session %.1f ms | first run %.1f ms", cuda.sessionMilliseconds,
+              cuda.firstRunMilliseconds);
+        emitf("    CUDA identity median EPE %.4f px", cuda.identityMedianEpe);
+        emitf("    CUDA forward median (%.4f, %.4f) | reverse (%.4f, %.4f)",
+              cuda.forwardMedianX, cuda.forwardMedianY, cuda.reverseMedianX,
+              cuda.reverseMedianY);
+        emitf("    CUDA direction/identity: %s", cuda.correct ? "CORRECT" : "FAILED");
+      } else {
+        emitf("    CUDA FAILED: %s", cuda.failure.c_str());
+      }
+      if (!cuda.failure.empty() && result.failure.empty())
+        result.failure = "SEA-RAFT CUDA: " + cuda.failure;
+    } else {
+      emit("    CUDAExecutionProvider not present in this runtime -- CPU-only host check complete.");
+    }
+  }
+
   api->ReleaseEnv(env);
   emit("  teardown: ok");
 
@@ -409,7 +793,7 @@ ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void 
 // The probe
 // ---------------------------------------------------------------------------
 
-void runProbe(OfxImageEffectHandle instance) {
+bool runProbe(OfxImageEffectHandle instance) {
   section("White Water ONNX Runtime isolation probe");
 
   const std::string library = runtimeDirectory();
@@ -446,7 +830,7 @@ void runProbe(OfxImageEffectHandle instance) {
                    "macOS records which library each symbol came from, so the flat-namespace "
                    "capture this probe exists to measure does not arise. RTLD_DEEPBIND does "
                    "not exist here.",
-                   kRuntimeSuffixA});
+                   kRuntimeSuffixA, true});
 #else
   // DEEPBIND first. If the two modes ever share a library again through some path this
   // code did not anticipate, the mode that gets genuinely measured should be the one still
@@ -456,14 +840,14 @@ void runProbe(OfxImageEffectHandle instance) {
                    "Measured 2026-08-20: RTLD_LOCAL alone already sufficed in Flame, so what "
                    "this mode now decides is whether DEEPBIND is safe to use, not whether it "
                    "is necessary.",
-                   kRuntimeSuffixB});
+                   kRuntimeSuffixB, false});
   modes.push_back({"Mode 2: RTLD_LOCAL only", RTLD_NOW | RTLD_LOCAL,
                    "RTLD_LOCAL keeps our symbols out of the global scope for later lookups; "
                    "it does not reorder how our own library's relocations resolve. Expected "
                    "to be insufficient on paper, and measured sufficient in Flame -- most "
                    "likely because ONNX Runtime is built with hidden visibility, so its "
                    "internals never consult the global scope and there is nothing to capture.",
-                   kRuntimeSuffixA});
+                   kRuntimeSuffixA, true});
 #endif
 
   std::vector<ModeResult> results;
@@ -481,6 +865,12 @@ void runProbe(OfxImageEffectHandle instance) {
           (int)r.opened, (int)r.distinctFromHost,
           r.versionReadable ? r.version.c_str() : "<unread>", (int)r.ranInference,
           (int)r.arithmeticCorrect);
+    if (modes[i].runRealModel) {
+      emitf("      SEA-RAFT configured %d | CPU ran %d | direction/identity %d",
+            (int)r.realModelConfigured, (int)r.realModelRan, (int)r.realModelCorrect);
+      emitf("      CUDA available %d | ran %d | direction/identity %d",
+            (int)r.cudaAvailable, (int)r.cudaRan, (int)r.cudaCorrect);
+    }
     if (!r.failure.empty())
       emitf("      failure: %s", r.failure.c_str());
   }
@@ -500,12 +890,36 @@ void runProbe(OfxImageEffectHandle instance) {
     emit("  work on this hardware: Mocha Pro ships exactly that shape, and warp-drive has");
     emit("  the supervisor and frame channel to copy (src/ofx/EditorProcess.cpp, src/ipc/).");
   }
+  for (std::size_t i = 0; i < modes.size(); ++i) {
+    if (!modes[i].runRealModel)
+      continue;
+    const ModeResult &r = results[i];
+    emit("");
+    if (!r.realModelConfigured) {
+      emit("  Phase 0B real-network result: NOT CONFIGURED (model absent)");
+    } else {
+      emitf("  Phase 0B CPU real-network result: %s",
+            r.realModelRan && r.realModelCorrect ? "PASS" : "FAIL");
+    }
+    if (r.realModelConfigured && !r.cudaAvailable)
+      emit("  Phase 0B CUDA result: NOT TESTED (CUDA EP absent from this runtime)");
+    else if (r.realModelConfigured)
+      emitf("  Phase 0B CUDA real-network result: %s",
+            r.cudaRan && r.cudaCorrect ? "PASS" : "FAIL");
+  }
   emit("");
   emitf("  Report: %s", reportPath().c_str());
 
   if (gMessage)
     gMessage->message(instance, kOfxMessageMessage, nullptr,
                       "White Water ORT probe written to:\n%s", reportPath().c_str());
+
+  bool realModelPassed = false;
+  for (std::size_t i = 0; i < modes.size(); ++i)
+    if (modes[i].runRealModel)
+      realModelPassed = results[i].realModelRan && results[i].realModelCorrect;
+  const char *required = std::getenv("WHITEWATER_ORT_REQUIRE_REAL_MODEL");
+  return !(required && std::strcmp(required, "0") != 0) || realModelPassed;
 }
 
 // ---------------------------------------------------------------------------
@@ -563,8 +977,8 @@ OfxStatus onDescribeInContext(OfxImageEffectHandle effect) {
   if (paramProps) {
     gProp->propSetString(paramProps, kOfxPropLabel, 0, "Run ORT Probe");
     gProp->propSetString(paramProps, kOfxParamPropHint, 0,
-                         "Load the bundled ONNX Runtime and report whether it is isolated "
-                         "from the host's copy.");
+                         "Run isolation checks plus the pinned SEA-RAFT CPU/CUDA probe and "
+                         "write the Phase 0B report.");
   }
   return kOfxStatOK;
 }
@@ -633,8 +1047,7 @@ OfxStatus onInstanceChanged(OfxImageEffectHandle instance, OfxPropertySetHandle 
   char *name = nullptr;
   gProp->propGetString(inArgs, kOfxPropName, 0, &name);
   if (name && std::strcmp(name, kParamRunProbe) == 0) {
-    runProbe(instance);
-    return kOfxStatOK;
+    return runProbe(instance) ? kOfxStatOK : kOfxStatFailed;
   }
   return kOfxStatReplyDefault;
 }
