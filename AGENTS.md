@@ -1,6 +1,6 @@
 # White Water
 
-An OpenFX plugin bringing RAFT/RIFE optical flow tracking into Autodesk Flame.
+An OpenFX plugin bringing learned optical flow tracking into Autodesk Flame.
 Rocky Linux 9.5+ and arm64 macOS. MTI Film internal.
 Linux artifacts build on EL8 for a glibc 2.28 floor; see the build rule below.
 
@@ -19,9 +19,10 @@ plugin does not exist.
 
 Phase 0A answered all five questions in Flame on 2026-08-20, including the two that could
 have changed the architecture — `clipGetImage` works during render, and in-process inference
-works. **Two gates remain before inference code:** 0B (a real model through the CUDA EP, plus
-its payload closure) and 0C (Flame's ST convention, and instance/process lifetime). Phase 1
-and the host-free parts of Phase 2 are unblocked now.
+works. **0B remains before inference implementation:** a pinned SEA-RAFT M probe export
+through the CUDA EP, plus its payload closure. **0C remains before ST/cache integration:**
+Flame's ST convention and instance/process lifetime. Phase 1 and the host-free parts of
+Phase 2 are unblocked now.
 
 The plan was amended on 2026-08-20 after an architecture review. Read `docs/plan.md` and
 `docs/context.md` before writing code against anything you remember about it.

@@ -183,7 +183,8 @@ Resources/mochaui/lib/ML/
 
 Boris FX ships **exactly** the runtime this project chose. Better, `libMLBackend_ort_cpu` /
 `libMLBackend_ort_cuda` behind `libMLPlugin` is the same pluggable-backend design as our
-`FlowEstimator` plus the `Device: Auto / GPU / CPU` parameter — arrived at independently.
+`PairwiseFlowEstimator` plus the `Device: Auto / GPU / CPU` parameter — arrived at
+independently.
 
 **They dropped TensorRT.** The older Sapphire-bundled Mocha carries TensorRT 8.5.3
 (`libnvinfer.so.8`, `libnvonnxparser.so.8`) on CUDA 11 / cuDNN 8. Mocha Pro 2026.5 has **no
@@ -499,8 +500,8 @@ worth re-checking whenever the bundled runtime version changes.
 ### What this does not establish
 
 - **The model is 128 bytes.** Partial symbol capture could still produce correct arithmetic
-  on a single `Add`. Re-run with a real network at Phase 3, when RAFT or WAFT is loaded
-  anyway.
+  on a single `Add`. Re-run in Phase 0B with the pinned SEA-RAFT M probe export before any
+  inference implementation depends on this result.
 - **The CUDA execution provider is untested.** It is a separate `.so` that pulls in more
   libraries, and Flame exposes `libcudart.so.12`, `libcudnn.so.9`, `libcublas.so.12` and
   `libnvinfer.so.10` globally as well. The CPU result is necessary but not sufficient for
@@ -519,12 +520,13 @@ remains, grouped by the gate it blocks (`docs/plan.md`, *Phase 0*).
 1. **Does the CUDA execution provider survive the same treatment?** The CPU runtime is
    measured isolated and working in-process; the CUDA provider is a separate `.so` pulling
    in more libraries, against a host that exposes CUDA, cuDNN, cuBLAS and TensorRT globally.
-   Use a **real candidate network**, not the 128-byte `Add` model, and check direction and
-   identity numerically rather than settling for "it ran". Record which CUDA/cuDNN/cuBLAS
+   Use the pinned **SEA-RAFT M probe export**, not the 128-byte `Add` model, and check
+   direction and identity numerically rather than settling for "it ran". Record its upstream
+   commit, checkpoint and ONNX hashes and tensor contract alongside which CUDA/cuDNN/cuBLAS
    libraries actually get selected, provider init and first-run latency, peak and steady VRAM
    beside a live Batch, repeated create/run/destroy, node duplication, cross-thread
    cancellation via a per-run `RunOptions`, and the fallback path after both provider-init
-   failure and GPU OOM.
+   failure and GPU OOM. This probe choice does not select the shipping default.
 2. **The exact dependency closure and on-disk size of the chosen ORT CUDA build.** Mocha's
    equivalent payload measured 3.11 GB; whether a current ORT shrinks that materially decides
    CPU-default versus separate GPU install, and bundled versus sibling runtime tree. See

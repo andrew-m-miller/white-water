@@ -47,11 +47,12 @@ render, so the on-demand chain design survives intact. In-process inference work
 build — a substantial simplification against what the plan had provisioned for. Details in
 `docs/host-notes.md`; raw transcripts in `docs/measurements/`.
 
-**The review changed the plan in seven places**, all recorded as decisions below or in the
-weaknesses list: separable field geometry, the owned frame type moving to `src/core`, typed
-flow links, the ST map becoming its own float-only descriptor, split cache lifetimes,
-`Analyze` becoming `Precache`, and the removal of the claim that `Smooth` mitigates drift. It
-also produced correction 6.
+**The review changed the plan in nine places**, all recorded as decisions below, in the model
+ledger, or in the weaknesses list: separable field geometry, the owned frame type moving to
+`src/core`, typed flow links, the ST map becoming its own float-only descriptor, split cache
+lifetimes, `Analyze` becoming `Precache`, removal of the claim that `Smooth` mitigates drift,
+model selection moving to an artifact bake-off, and an honest split between pairwise and
+future reference/window estimator contracts. It also produced correction 6.
 
 Worth recording about the process rather than the content: the review was read *against the
 tree*, not accepted. Every claim it made about this repository was checked to a file and a
@@ -164,8 +165,8 @@ settled before Phase 1 rather than after.
 ### `Analyze` became `Precache`, and its scope is gated on a measurement
 
 The button was specced to "walk the range", which is undefined and could mean thousands of
-frames. It now walks a chosen range — Current-to-Ref, Work Range, or Custom — and never the
-full source range by default.
+frames. It now walks a chosen range — Current-to-Ref, Work Range, or explicit Custom start
+and end parameters — and never the full source range by default.
 
 The name changed because a RAM-only pre-warm is what it honestly is. Whether it can be more
 depends on 0C: if foreground and final render keep the same instance and process, a memory
@@ -183,9 +184,10 @@ visibility plus explicit default visibility on the entry points on macOS), so on
 is not evidence about the other.
 
 warp-drive passes the version script and trusts it. That is reasonable there. Here it is
-not: from Phase 3 the plugin links ONNX Runtime, which carries protobuf, abseil and a CUDA
-runtime, all of which Flame may already have loaded at other versions. Two visible copies
-of protobuf in one process is a crash with no useful backtrace and no obvious cause. A
+not: from Phase 3 the plugin privately loads ONNX Runtime, whose dependency closure carries
+protobuf, abseil and a CUDA runtime that Flame may already have loaded at other versions.
+The module itself retains no `DT_NEEDED` entry for ORT, but two visible copies of protobuf
+in one process are still a crash with no useful backtrace and no obvious cause. A
 linker flag that silently stopped being applied — a refactor of `OfxBundle.cmake`, a
 platform branch not taken — would otherwise go unnoticed until a host crashed on somebody's
 machine.
@@ -214,7 +216,7 @@ is the right design.
 
 - **Chain drift is not solved.** Composing `k` pairwise flows accumulates `k` interpolation
   errors. Bounded only by keeping the reference frame near the working range; a fall-back to a
-  direct `R→N` inference past a chain-length threshold is noted in the plan and not built.
+  direct `N→R` inference past a chain-length threshold is noted in the plan and not built.
   **The `Smooth` parameter does not mitigate this**, contrary to what the plan said until
   2026-08-20. Smoothing addresses local spatial noise; drift is accumulated systematic bias
   along the temporal axis, and blurring the field additionally softens motion boundaries,
@@ -242,8 +244,11 @@ is the right design.
   bake-off, measured on the exact exported artifact rather than on upstream PyTorch.
 - **The chain is a workaround for pairwise models.** A reference-frame tracker computes
   directly what `FlowChain` approximates. If one becomes viable at production resolutions,
-  the chain, the drift work and the link cache all collapse into a single inference — so
-  `FlowEstimator` must not be shaped so tightly around pairs that it forecloses one.
+  the chain, the drift work and the link cache all collapse into a single inference. The v1
+  interface is therefore named `PairwiseFlowEstimator` honestly; a window model gets a
+  separate `ReferenceFlowEstimator`, while `FlowPreparation` owns the choice of strategy.
+  Forcing both through `estimate(a, b)` would erase the temporal context that distinguishes
+  the second model class.
 - **`cmake/ofx.map` protects the host from us, not us from the host.** It stops our symbols
   being visible in Flame's process; it does nothing about our references binding to Flame's
   copy of something we also carry. Measured harmless for the CPU ONNX Runtime (see
@@ -429,4 +434,3 @@ deferring to measurement when the **OFX specification** is unambiguous and sitti
 `third_party/`. Host behaviour is measured; protocol semantics are read. Confusing the two
 costs a probe cycle at best, and at worst produces a "measured" conclusion that is really an
 observation of one host on one day, generalised into a contract it never was.
-

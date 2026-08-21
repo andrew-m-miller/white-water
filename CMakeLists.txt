@@ -37,9 +37,10 @@ endif()
 option(WHITEWATER_BUILD_HOSTPROBE "Build the host capability probe plugin" ON)
 option(WHITEWATER_BUILD_TESTS "Build the test host harness and tests" ON)
 
-# ONNX Runtime is off until Phase 3. Everything above src/infer is testable without it via
-# the synthetic estimator, and a build that does not need a 400 MB redistributable to
-# compile the core is a build people will actually run.
+# The production ONNX Runtime backend is off until Phase 3; the Phase 0B ortprobe stages its
+# own qualified runtime independently. Everything above src/infer is testable without ORT via
+# the synthetic estimator, and keeping the core build free of the GPU payload makes it a build
+# people will actually run.
 option(WHITEWATER_ENABLE_ONNXRUNTIME "Build the ONNX Runtime inference backend" OFF)
 
 # Where `cmake --install` puts bundles. These are the paths hosts scan by default; the
@@ -133,7 +134,7 @@ add_test(NAME core::dependency_boundary
 # Not yet configured, in dependency order. Each arrives with the phase that needs it --
 # see docs/plan.md.
 #
-#   src/infer      Phase 3   ONNX Runtime, model registry, RAFT
+#   src/infer      Phase 3   ONNX Runtime, model registry, selected pairwise estimators
 #   tools/ww-flow  Phase 2   offline flow CLI and the golden-test driver
 #   tests/         Phase 1   Catch2 suites and the two-clip host harness
 

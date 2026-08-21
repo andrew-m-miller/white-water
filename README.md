@@ -2,7 +2,7 @@
 
 Machine-learning optical flow tracking as an OpenFX plugin, for Autodesk Flame.
 
-Takes a source plate, solves motion with RAFT or RIFE, and either carries a second layer
+Takes a source plate, solves motion with learned optical flow, and either carries a second layer
 along on those vectors from a reference frame or hands the compositor an ST map to do the
 warp downstream. It is Flame's motion vector tracking with a modern solver behind it.
 
@@ -18,9 +18,10 @@ better than budgeted: `clipGetImage` works at arbitrary times *during* render, a
 ONNX Runtime coexists with Flame's own in the same process. So the on-demand chain design
 holds, and inference runs **in-process** — no IPC boundary to build.
 
-Two gates remain before inference code is worth writing: **0B** puts a real model through the
-CUDA execution provider, and **0C** settles Flame's ST map convention and how long a plugin
-instance actually lives. See the Open section of
+Two measurement gates remain: **0B** puts a pinned SEA-RAFT M probe export through the CUDA
+execution provider before inference implementation; **0C** settles Flame's ST map convention
+and how long a plugin instance actually lives before ST/cache integration. Phase 1 and the
+host-free part of Phase 2 can proceed independently. See the Open section of
 [docs/host-notes.md](docs/host-notes.md) and *Phase 0* in [docs/plan.md](docs/plan.md).
 
 ## Documents
@@ -67,8 +68,9 @@ Linux artifact in CI and carry it over, the way warp-drive does:
   failure mode has no symptom: a plugin needing a newer glibc than the host provides is
   simply **absent from the menu, with no error in any log**. A build done on some other
   distribution is not a Flame artifact, however cleanly it compiles.
-- From Phase 3 the build pulls ONNX Runtime and CUDA redistributables — hundreds of
-  megabytes that are never going to be fetched on an airgapped machine.
+- Phase 0B stages an ONNX Runtime CUDA redistributable and a pinned real model for the probe.
+  Phase 3 turns the qualified runtime into the production inference payload. Neither is ever
+  fetched on the airgapped machine.
 
 Run the **build** workflow from the Actions tab. It is `workflow_dispatch` only and takes a
 required `purpose` — name the human test the build is for, so a run in the history says why
@@ -86,13 +88,15 @@ Then copy the bundle into `/usr/OFX/Plugins` and restart Flame.
 Beyond compiling, the workflow gates each artifact on the three things that fail silently:
 the glibc baseline, the architecture directory inside the bundle, and that the binary
 exports **exactly** the three OFX entry points and nothing else. The last one matters more
-here than in most plugins — from Phase 3 this links ONNX Runtime, which carries protobuf,
-abseil and a CUDA runtime, all of which Flame may already have loaded at other versions.
+here than in most plugins — from Phase 3 this privately loads ONNX Runtime, whose dependency
+closure includes protobuf, abseil and a CUDA runtime that Flame may already have loaded at
+other versions. The module itself must retain no `DT_NEEDED` entry for ONNX Runtime.
 
 ## Layout
 
 ```
 src/core/     host-free: the flow algebra and the resampler. No OFX, no ONNX Runtime, no I/O.
+src/infer/    ONNX Runtime loading and pairwise model execution. No OFX.
 src/ofx/      the host boundary: image adapters, pixel formats, frame capture, host quirks
 tools/        hostprobe and ortprobe (Phase 0), ww-flow (Phase 2, offline CLI)
 cmake/        bundle layout, rpath, version script

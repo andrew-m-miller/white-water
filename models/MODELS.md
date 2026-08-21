@@ -8,23 +8,25 @@ A checked-in blob is worse than a script for the one thing that actually matters
 licence audit has to be able to trace a shipped file back to a specific upstream release,
 and a binary in git history proves nothing about where it came from.
 
-## What ships
+## Selection state
 
-| Model | Role | Upstream | Licence |
-|---|---|---|---|
-| RAFT | Default. Pairwise optical flow, accurate, slow. | princeton-vl/RAFT | BSD-3-Clause |
-| RIFE | Fast alternative. IFNet gives bidirectional intermediate flow in one pass. | hzwer/Practical-RIFE | MIT, weights stated to be under the same licence as the code |
+**Nothing is selected to ship.** Choice option order is persistent setup API, so the default
+and fast alternative are chosen only by the Phase 2.5 bake-off of the exact exported ONNX
+artifacts. SEA-RAFT is the leading conservative candidate, WAFT is the quality/memory
+candidate, and NeuFlow v2 is the leading fast stateless candidate. Original RAFT remains a
+useful validation baseline; RIFE and MemFlow are not leading shipping candidates.
 
-**This table is the approved plan's choice and is now expected to change before Phase 3.**
-The survey below concludes that **WAFT** should take the default slot and that MemFlow is a
-better fast option than RIFE. Neither estimator has been written, so the change is free
-today and expensive after an export and a tensor contract exist.
+Phase 0B deliberately uses **SEA-RAFT M** as its representative real network. That decision
+exists to exercise the CUDA provider and the runtime dependency closure with a plausible
+workload; it does not choose a shipping default or assign a model choice index. Before the
+host run, the probe gains a pinned export script and manifest containing the upstream commit,
+checkpoint URL and SHA256, tensor contract, exported ONNX SHA256, and synthetic translation
+validation.
 
-**Both licences permit commercial use. Neither has been audited.** They were read from the
-upstream repositories, not checked by anyone qualified to sign off on it. Before anything
-goes to a client, re-verify against the *exact* checkpoint files shipped — some RIFE
-forks and some "practical" checkpoint drops carry non-commercial terms that the parent
-repository does not. Record the verdict here with a date and the checkpoint SHA256.
+**No licence in this document has been audited.** Repository statements are leads, not
+approval. Before anything goes to a client, re-verify the exact code revision, checkpoint,
+and any backbone weights actually shipped, then record the verdict here with a date and the
+checkpoint SHA256.
 
 Deployment posture changes which of these obligations actually bind — see **Deployment
 posture** below. The short version: not distributing the plugin relaxes a lot, but it does
@@ -37,22 +39,23 @@ has been audited, and for a facility deliverable that audit is not optional.
 
 | Model | Venue | Licence | Verdict |
 |---|---|---|---|
-| **WAFT** | ICLR 2026 (oral) | **BSD-3 code, backbone weights vary** | **Should be the default.** 1st on Spring/Sintel/KITTI, 2x lower memory. Checkpoint licence needs resolving. |
-| SEA-RAFT | ECCV 2024 (oral) | **BSD-3** | Fallback if WAFT's checkpoint licensing cannot be resolved. |
+| **SEA-RAFT** | ECCV 2024 (oral) | **BSD-3** | Leading conservative candidate and the Phase 0B probe network. Shipping role still requires the bake-off. |
+| **WAFT** | ICLR 2026 (oral) | **BSD-3 code, backbone weights vary** | Quality/memory candidate. Strong upstream results, but export and checkpoint licensing need resolving. |
+| **NeuFlow v2** | 2024 | not checked | Leading fast stateless candidate; export, quality and licence all require measurement. |
 | **AllTracker** | ICCV 2025 | **MIT** | Architecturally native to this problem. Investigate — it could delete the chain. |
-| **MemFlow** | CVPR 2024 | **Apache-2.0** | Better "fast/temporal" option than RIFE. |
-| RAFT | ECCV 2020 | BSD-3 | Superseded twice over by the same lab. No reason to ship it. |
-| RIFE | ECCV 2022 | MIT | Works, but off-label — see below. |
+| RAFT | ECCV 2020 | BSD-3 | Known validation baseline, not a presumed shipping model. |
+| RIFE | ECCV 2022 | MIT | Fast and exportable, but off-label for motion-field accuracy. |
+| MemFlow | CVPR 2024 | Apache-2.0 | Stateful temporal design conflicts with arbitrary-order OFX rendering; reconsider only with a sequential durable-analysis architecture. |
 | DOT | CVPR 2024 | MIT code, **CC-BY-NC front-end** | Right idea, unusable as shipped. |
 | CoTracker3 | 2024 | **CC-BY-NC** | Blocked for commercial use. |
 | VideoFlow | ICCV 2023 | not checked | Beaten by MemFlow on generalization with fewer params. |
 | MEMFOF | 2025 | not checked | Reported SOTA on Sintel; worth a look if accuracy stalls. |
-| NeuFlow v2 | 2024 | not checked | Real-time/edge focus; fallback if GPU inference is denied. |
 
-### WAFT should be the default
+### WAFT is the quality/memory candidate
 
-This supersedes the SEA-RAFT recommendation made earlier in the same survey. Same lab again
-(princeton-vl, Jia Deng), same BSD-3 code licence, ICLR 2026 oral.
+WAFT is not the default in advance of the bake-off. It is the strongest quality/memory
+candidate identified by the survey: same lab as SEA-RAFT (princeton-vl, Jia Deng), BSD-3
+code, ICLR 2026 oral, but with a more complicated export and checkpoint-licensing surface.
 
 WAFT is RAFT with the **cost volume replaced by high-resolution warping**. Reported: **1st on
 Spring, Sintel and KITTI**, **best zero-shot generalization on KITTI**, 1.3-4.1x faster than
@@ -61,12 +64,11 @@ methods with similar performance, and **2x lower memory**.
 Three of those matter to us specifically, in this order:
 
 1. **2x lower memory.** The cost volume is what makes the RAFT family memory-hungry -- it is
-   O((HW)^2) before pooling, which is why the plan downscales to half resolution before
-   inference at all. Removing it attacks the single hardest constraint this project has:
-   fitting an inference context alongside Flame, which already owns the GPU. Phase 0 probe
-   item 3 is the measurement that decides whether GPU inference is possible at all, and
-   halving the memory materially improves those odds. It may also make full-resolution
-   analysis reachable where RAFT never was.
+   O((HW)^2) before pooling and is a major reason the plugin needs explicit megapixel caps.
+   Removing it attacks the single hardest constraint this project has: fitting an inference
+   context alongside Flame, which already owns the GPU. Phase 0B measures the available
+   envelope with SEA-RAFT M; the Phase 2.5 bake-off then compares every candidate at equal
+   pixel budgets rather than assuming a fractional analysis scale.
 2. **Best zero-shot generalization.** Same argument as for SEA-RAFT and still the most
    important accuracy number here: the benchmarks are driving footage, animated shorts and
    synthetic scenes, and none of them are the plates this plugin will see.
@@ -90,12 +92,12 @@ backbones do not share terms:
 | DAv2 Base / Large / Giant | **CC-BY-NC-4.0** | **Blocked.** Non-commercial. |
 | DINOv3 | Meta custom licence | Permits commercial use, forbids military use, and **requires the licence to travel with any redistributed weights** -- which is exactly what shipping a checkpoint inside a .ofx.bundle is. Bespoke, so it needs an actual legal read rather than a shrug. |
 
-So the WAFT decision is two decisions: adopt the architecture (easy, BSD-3, clearly better),
-and separately choose a checkpoint whose backbone we can ship. **Action before Phase 3:**
+So evaluating WAFT is two decisions: qualify the architecture and export, then separately
+choose a checkpoint whose backbone we can ship. **Action during Phase 2.5:**
 pull the model zoo, record which backbone each checkpoint uses and its SHA256 in this
 document, and benchmark the Twins-backbone checkpoint against the recommended one. If the
 gap is small, Twins ends the question. If it is large, DINOv3 becomes a legal question and
-SEA-RAFT (unambiguously BSD-3, no foundation-model backbone) is the fallback.
+SEA-RAFT (unambiguously BSD-3, no foundation-model backbone) remains the conservative option.
 
 ### The general rule this keeps producing
 
@@ -110,8 +112,8 @@ bundle.
 
 `docs/plan.md` builds a chain of pairwise flows composed from the reference frame to the
 current one, and accepts drift as a known weakness. That whole structure — `FlowChain`,
-`FlowCache`, composition error, the `Smooth` mitigation — exists *only* because pairwise
-optical flow has to be accumulated.
+`FlowCache` and composition error — exists *only* because pairwise optical flow has to be
+accumulated. `Smooth` addresses local spatial noise and is not drift mitigation.
 
 AllTracker estimates the flow field between a **query frame and every other frame** directly,
 densely, at all pixels, in 16M parameters. That is this plugin's data model, natively. No
@@ -122,26 +124,32 @@ usable here. AllTracker is MIT with no CC-BY-NC dependency found.
 
 **Why it is not the v1 plan anyway:** the paper reports tracking 768x1024 on a **40 GB GPU**.
 That is below HD, on more VRAM than a Flame box is likely to spare while Flame itself is
-running. Phase 0 probe item 3 — does ONNX Runtime get a CUDA device inside Flame's process,
-and what does VRAM look like — is the measurement that decides whether this is reachable at
-all. Until that number exists, committing the architecture to it would be guessing.
+running. Phase 0B — a real network on the CUDA EP beside Flame — is the measurement that
+starts to bound whether this is reachable at all. Until that number exists, committing the
+architecture to it would be guessing.
 
-The right sequencing is unchanged: build the chain, keep `FlowEstimator` narrow, and treat
-AllTracker as a candidate that could later replace the chain rather than plug into it.
+The right sequencing is unchanged: build the pairwise chain behind
+`PairwiseFlowEstimator`, keep chain orchestration in `FlowPreparation`, and treat AllTracker
+as a candidate for a separate `ReferenceFlowEstimator` that could later replace the chain
+rather than plug into it.
 
-### RIFE is off-label and MemFlow is the better fast option
+### RIFE is off-label; MemFlow does not fit arbitrary render order
 
 RIFE's IFNet estimates *intermediate* flow in order to synthesise a frame between two others.
 Its flow is a means to that end, optimised for producing a plausible in-between image, not for
-being correct as a motion field. It will work as a tracker and it is fast, which is why it is
-in the plan — but it is not what it was built for.
+being correct as a motion field. It may work as a tracker and it is fast, but exportability
+alone is not enough to put it in the shipping pair.
 
-MemFlow (CVPR 2024, **Apache-2.0**) is purpose-built: real-time, uses memory across frames,
-and reportedly beats VideoFlow on Sintel and KITTI-15 generalization with fewer parameters
-and faster inference. Since this plugin renders sequentially through a shot, a model that
-carries temporal state is a natural fit rather than an awkward one.
+MemFlow (CVPR 2024, **Apache-2.0**) is purpose-built optical flow and uses memory across
+frames, but an OFX host may render frames out of order, revisit them, duplicate nodes, or
+restart in another process. Reconstructing hidden temporal state makes results depend on
+render history unless the plugin owns a sequential analysis pass and durable cache. That is
+the wrong contract for the current on-demand design.
 
-Worth reconsidering the RIFE slot against MemFlow before Phase 5. Both are permissive.
+NeuFlow v2 is therefore the leading fast candidate: stateless pairwise inference matches the
+host contract. Its exact licence, export and image-quality behavior remain bake-off work.
+MemFlow can be reconsidered only if 0C leads to an explicit sequential, durable-analysis
+architecture.
 
 ## Deployment posture, and what it does and does not change
 
@@ -194,11 +202,11 @@ The plan's weight-resolution order -- `Model Dir` parameter, then `$WHITEWATER_M
 then the bundle -- already separates these two problems, and that is worth keeping
 deliberately rather than by accident.
 
-Ship the bundle with permissive weights only (Twins or DAv2-Small backbone WAFT, or
-SEA-RAFT). The **plugin** is then distributable by construction, and its licensing story is
-one sentence long. Anyone who has satisfied themselves about other weights points the
-override at them, and that decision belongs to them and their situation rather than to the
-software.
+Whatever the bake-off selects, ship the bundle with permissive weights only (for example
+SEA-RAFT, or a qualified Twins/DAv2-Small WAFT checkpoint). The **plugin** is then
+distributable by construction, and its licensing story is one sentence long. Anyone who has
+satisfied themselves about other weights points the override at them, and that decision
+belongs to them and their situation rather than to the software.
 
 This costs nothing under an internal-only posture and keeps every future option open, which
 is the whole argument for doing it now rather than when it is expensive.
@@ -210,15 +218,17 @@ spec has to pin down:
 
 - input and output tensor names, and their layout (NCHW, channel order, batch)
 - normalization: range, mean/scale, and whether the model wants 0-1 or -1-1
-- the **padding multiple**: 8 for RAFT (a network-structure constraint, not a convention),
-  32 for RIFE. Inputs are reflect-padded up and the flow cropped back.
-- iteration count, which for RAFT is **baked in at export time** — a traced ONNX graph has
-  the GRU loop unrolled, so an `Iters` parameter means either several exported variants or
-  an export that keeps the loop dynamic. Decide this at export, not at runtime.
+- the **padding multiple**, measured for the exact export rather than copied from a model
+  family name. Inputs are reflect-padded up and the flow cropped back.
+- iteration handling. For iterative architectures a traced ONNX graph may bake the loop in,
+  so an `Iters` parameter means either several exported variants or an export that keeps the
+  loop dynamic. Decide this at export, not at runtime.
 
 ## Export
 
-`export_raft.py` and `export_rife.py` do not exist yet. They arrive with Phase 3. Each must:
+The first export script arrives in **Phase 0B**: `export_searaft.py`, producing the pinned
+SEA-RAFT M probe artifact. Phase 2.5 adds one script per bake-off candidate; Phase 3 integrates
+only the selected artifacts into the runtime and bundle. Each export must:
 
 1. Pin the upstream commit and the checkpoint URL, and assert the checkpoint's SHA256.
 2. Export at the resolutions the plugin offers, or with dynamic spatial dims where the

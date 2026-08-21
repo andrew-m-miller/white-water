@@ -29,7 +29,7 @@ which are wrong in both directions.
 | Inference runtime | **ONNX Runtime** — CUDA EP on Linux, CoreML/CPU on macOS, CPU everywhere as fallback |
 | Model weights | **Bundled in `Contents/Resources/models/`, with env var + param override** |
 | Analysis trigger | **On-demand caching by default, plus an explicit `Precache` button with progress.** Whether it can be made durable is decided by the 0C lifetime probe, not here |
-| Model | **Selectable behind one `FlowEstimator`.** The default is chosen by the Phase 2.5 bake-off — *not named in advance*, because choice index is API. SEA-RAFT is the leading candidate |
+| Model | **Selectable behind one `PairwiseFlowEstimator`.** The default is chosen by the Phase 2.5 bake-off — *not named in advance*, because choice index is API. SEA-RAFT is the leading candidate |
 | ST map | **Its own float-only plugin descriptor**, not an output mode of the main effect — see *Two descriptors*. Absolute normalized UV (default) or relative pixel offset; origin toggle |
 | Occlusion handling | **Forward-backward consistency check, parameter-gated, off by default** (2× inference cost) |
 
@@ -110,10 +110,15 @@ risk; if either fails, the architecture changes:
 All five questions answered on Flame 2026.2 / Rocky 9.5. `docs/host-notes.md` holds the
 measured record; `docs/measurements/` holds the raw transcripts.
 
-### 0B — before any inference implementation
+### 0B — before production inference implementation
 
-A **real candidate network**, not the 128-byte `Add` model, through the private ONNX Runtime
-inside Flame, on CPU and on the CUDA EP:
+**SEA-RAFT M is the 0B probe network.** This names a representative candidate for the
+measurement; it does not make SEA-RAFT the shipping default or assign it a choice index.
+Before the host run, 0B adds a pinned export script and manifest recording the upstream
+commit, checkpoint URL and SHA256, tensor contract, exported ONNX SHA256, and a synthetic
+translation test that checks output identity and direction. The resulting real network —
+not the 128-byte `Add` model — runs through the private ONNX Runtime inside Flame, on CPU
+and on the CUDA EP:
 
 - output identity and *direction* checked numerically, not just "it ran";
 - which CUDA/cuDNN/cuBLAS libraries actually get selected, and by whom;
@@ -216,14 +221,15 @@ subclass and the entire correct-alpha, correct-edge, threaded backward warp come
 
 ### New — `src/infer/`
 
-- **`FlowEstimator.h`** — `estimate(const OwnedFrame &a, const OwnedFrame &b,
-  const FlowRequest &) → FlowResult`. Two implementations to start; so is `NullEstimator`,
-  which synthesises a deterministic analytic flow so every test above this line runs with no
-  weights and no GPU. **Do not shape this so tightly around pairwise that a window or
-  reference-frame estimator is foreclosed** — a model like AllTracker computes directly what
-  the chain approximates, and if one becomes viable, `FlowChain`, drift and the link cache
-  collapse into a single inference. A direct `N→R` is still just a pair, so the interface as
-  written stays compatible; keep it that way.
+- **`PairwiseFlowEstimator.h`** — `estimate(const OwnedFrame &a, const OwnedFrame &b,
+  const FlowRequest &) → FlowResult`. This is deliberately the narrow v1 contract used by
+  the pairwise chain. `NullPairwiseEstimator` synthesises deterministic analytic flow so
+  every test above this line runs with no weights and no GPU. A model such as AllTracker
+  consumes a temporal window and returns several reference-relative fields; pretending that
+  fits an `estimate(a, b)` call would discard the property that makes it useful. If that
+  model class becomes viable, add a separate `ReferenceFlowEstimator` contract and let
+  `FlowPreparation` select a chain or reference strategy. Keep the chain orchestration out
+  of the pairwise estimator so that replacement remains local.
 - **`ModelSpec.{h,cpp}`** — the per-model tensor contract as data: input/output names,
   normalization, pad multiple, iteration handling, output layout. The per-model numbers land
   at Phase 2.5, with the checkpoints they were measured against.
@@ -246,7 +252,10 @@ subclass and the entire correct-alpha, correct-edge, threaded backward warp come
   behind a semaphore initially** — throughput matters less than not spiking VRAM into a
   Flame that is also holding a Batch. This layer is process-wide and therefore genuinely
   concurrent: two *instances* may render at once even though one instance may not.
-- **`RaftEstimator`, `RifeEstimator`** — thin, differing only through `ModelSpec`.
+- **`OnnxPairwiseFlowEstimator`** — one data-driven implementation parameterised by
+  `ModelSpec`. Do not create model-named estimator classes when tensor contracts are the only
+  difference; model-specific code is justified only when an export genuinely needs distinct
+  execution or post-processing.
 
 **No ONNX Runtime exception may escape an OFX action.** Every call is wrapped; failure sets
 a persistent message and renders passthrough.
@@ -314,7 +323,7 @@ local spatial noise; drift is accumulated systematic bias along the temporal axi
 blurring the field additionally softens motion boundaries, which makes foreground/background
 leakage worse. What actually bounds drift in v1 is keeping the reference frame near the
 working range. Past a chain-length threshold, a `Max Chain` parameter can fall back to a
-direct `R→N` inference — noted, not built.
+direct `N→R` inference — noted, not built.
 
 ---
 
@@ -345,6 +354,8 @@ action, and in Flame that means a plugin that simply is not there.
 | `threads` | Int | `Threads` | ORT intra-op cap |
 | `cacheMB` | Int | `Cache MB` | flow cache budget |
 | `precacheRange` | Choice | `Pre Range` | Current-to-Ref (default), Work Range, Custom. **Never the full source range** — "walk the range" was undefined and could mean thousands of frames |
+| `precacheStart` | Int | `Pre Start` | first frame when `precacheRange` is Custom; always visible because `setEnabled()` is forbidden |
+| `precacheEnd` | Int | `Pre End` | last frame when `precacheRange` is Custom; order is normalized before the walk |
 | `precache` | Push | `Precache` | walk `precacheRange` with the progress suite, filling the cache. Named `Precache` rather than `Analyze` because that is honestly what it is unless 0C says the cache can be durable |
 | `clearCache` | Push | `Clear` | drop the cache |
 | `modelDir` | String | `Model Dir` | file-path string mode set via `propSetString(..., false)`, never `setStringType()` |
@@ -499,7 +510,7 @@ WhiteWater.ofx.bundle/Contents/
 
 ## Verification
 
-**Host-free, runs everywhere, no weights and no GPU** — via `NullEstimator`:
+**Host-free, runs everywhere, no weights and no GPU** — via `NullPairwiseEstimator`:
 
 - `compose(a, b)` against an analytic composition; `compose(a, identity) == a` exactly.
 - A chain of `k` identity links is exactly identity, for `k` up to a few hundred.
@@ -522,7 +533,7 @@ WhiteWater.ofx.bundle/Contents/
 
 **Offline CLI** `tools/ww-flow`: two images → flow, ST map, or warped result, as PFM.
 Golden test — a synthetically translated noise plate must recover the translation to
-sub-pixel tolerance, with the real RAFT weights when present and skipped when not.
+sub-pixel tolerance, with a pinned candidate ONNX artifact when present and skipped when not.
 
 **Host harness** (`tests/hostharness`, extended for a General context with two clips and for
 serving `clipGetImage` at arbitrary times):
@@ -543,8 +554,9 @@ serving `clipGetImage` at arbitrary times):
 and insert; check `/opt/Autodesk/log/` for the plugin's stderr, which is the only diagnostic
 channel on a machine nobody can attach a debugger to.
 
-**Performance gate**: 1080p and 4K, RAFT at half analysis scale, ms/frame recorded on the
-target box before any optimisation work, with a regression threshold.
+**Performance gate**: 1080p and 4K, each selected candidate at the shipping megapixel caps,
+ms/frame and peak VRAM recorded on the target box before optimisation, with regression
+thresholds tied to the exact model and runtime hashes.
 
 ---
 
@@ -553,14 +565,14 @@ target box before any optimisation work, with a regression threshold.
 | Phase | Content | Exit |
 |---|---|---|
 | **0A** | Extended `hostprobe`, run in Flame | **Closed 2026-08-20.** All five questions answered; the measured report is the authority |
-| **0B** | A real candidate model through the private ORT on CPU and CUDA, in Flame | Direction and identity correct; provider libraries identified; abort exercised; VRAM, latency and **payload closure** recorded; repeated lifecycle clean |
+| **0B** | Pinned SEA-RAFT M export through the private ORT on CPU and CUDA, in Flame | Export provenance and hashes recorded; direction and identity correct; provider libraries identified; abort exercised; VRAM, latency and **payload closure** recorded; repeated lifecycle clean. This does not choose the shipping default |
 | **0C** | Flame ST round trip, and instance/process lifetime | Exact ST convention recorded; `Precache` persistence decided |
 | **1** | Vendor, CMake, **two descriptors**, bundle, harness, `describe`/`describeInContext`, passthrough render | Plugin loads with two inputs; parameters legible; workflow contracts settled — descriptor split, insert time, depth policy, cheap query actions, visible fallbacks |
-| **2** | `src/core/flow` complete, `NullEstimator`, `ww-flow`, full unit + harness coverage | Separable lattice transform; typed flow links; confidence propagation; concurrency tests; all host-free tests green |
+| **2** | `src/core/flow` complete, `NullPairwiseEstimator`, `ww-flow`, full unit + harness coverage | Separable lattice transform; typed flow links; confidence propagation; concurrency tests; all host-free tests green |
 | **2.5** | Model and export bake-off in `ww-flow` | One default and one fast alternative selected **by the exact ONNX artifact**, on target performance, quality and a licence audit. Only now do `model` and `inputCurve` get their option order |
 | **3** | Runtime loader, `ModelRegistry`, `OrtEnvironment`, selected estimators, library packaging | No link-time ORT dependency; `ORT_API_MANUAL_INIT`; CPU/CUDA/CoreML qualified; packaging baseline passes for every shipped library |
 | **4** | `FlowPreparation` wired into render; on-demand pulls, abort, progress, Precache/Clear, persistent messages | A real shot tracks in Flame from a reference frame; cancellation, invalidation, OOM fallback and reference-boundary behaviour all verified |
-| **5** | The second estimator behind `FlowEstimator` | Model parameter switches cleanly; both paths covered |
+| **5** | The second model behind `PairwiseFlowEstimator` | Model parameter switches cleanly; both paths covered |
 | **6** | FB check, smoothing, input curves, perf gate, CI packaging | Perf threshold recorded; tarball installs on the airgapped box |
 
 ---
