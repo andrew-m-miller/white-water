@@ -566,7 +566,8 @@ void sampleVram(VramMonitor *monitor, FlowRun::VramMetrics &metrics, const char 
     metrics.peakUsedBytes = sample.used;
     metrics.hasSample = true;
   } else {
-    metrics.peakUsedBytes = std::max(metrics.peakUsedBytes, sample.used);
+    metrics.peakUsedBytes =
+        std::max(metrics.peakUsedBytes, static_cast<std::uint64_t>(sample.used));
   }
   if (std::strcmp(label, "steady") == 0) {
     metrics.steadyUsedBytes = sample.used;
