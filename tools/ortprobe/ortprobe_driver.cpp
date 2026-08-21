@@ -303,6 +303,12 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  st = plugin->mainEntry(kOfxActionCreateInstance, effect, nullptr, nullptr);
+  if (st != kOfxStatOK) {
+    std::fprintf(stderr, "createInstance failed: %d\n", st);
+    return 1;
+  }
+
   // The whole point: fire the button that runs the probe.
   PropertySet *changed = newSet();
   propSetString((OfxPropertySetHandle)changed, kOfxPropName, 0, "runOrtProbe");
@@ -313,6 +319,12 @@ int main(int argc, char **argv) {
                          (OfxPropertySetHandle)changed, nullptr);
   if (st != kOfxStatOK) {
     std::fprintf(stderr, "instanceChanged failed: %d\n", st);
+    return 1;
+  }
+
+  st = plugin->mainEntry(kOfxActionDestroyInstance, effect, nullptr, nullptr);
+  if (st != kOfxStatOK) {
+    std::fprintf(stderr, "destroyInstance failed: %d\n", st);
     return 1;
   }
 

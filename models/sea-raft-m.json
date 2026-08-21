@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "host_probe_pending",
+  "status": "host_probe_cpu_cuda_passed",
   "purpose": "Phase 0B representative network; this does not select a shipping default",
   "upstream": {
     "repository": "https://github.com/princeton-vl/SEA-RAFT.git",

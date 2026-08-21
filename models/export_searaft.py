@@ -27,6 +27,7 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_MANIFEST = SCRIPT_DIR / "sea-raft-m.json"
+PUBLISHED_FILE_MODE = 0o644
 
 
 def sha256_file(path: Path) -> str:
@@ -45,6 +46,25 @@ def read_manifest(path: Path) -> dict[str, Any]:
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def publish_file(source: Path, destination: Path) -> None:
+    """Atomically publish a file with the mode required by a host-readable payload.
+
+    ``NamedTemporaryFile`` deliberately creates files as ``0600``. Replacing a destination
+    with that file carries the mode across, which made an otherwise valid ONNX payload
+    unreadable to Flame regardless of the exporting user's umask. Set the temporary file's
+    mode before the replace so publication is atomic with the intended non-secret payload
+    permissions.
+    """
+
+    try:
+        source.chmod(PUBLISHED_FILE_MODE)
+    except OSError as exc:
+        raise RuntimeError(
+            f"could not set published artifact mode to 0644: {source}"
+        ) from exc
+    os.replace(source, destination)
 
 
 def verify_provenance(manifest: dict[str, Any], upstream: Path, checkpoint: Path) -> None:
@@ -198,7 +218,7 @@ def export_onnx(model, manifest: dict[str, Any], output: Path, device: str) -> N
             not foreign_nodes,
             "export contains non-portable custom/ATen nodes: " + ", ".join(foreign_nodes),
         )
-        os.replace(temporary, output)
+        publish_file(temporary, output)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -337,6 +357,12 @@ def update_manifest(path: Path, manifest: dict[str, Any], output: Path, observed
     with path.open("w", encoding="utf-8") as stream:
         json.dump(manifest, stream, indent=2)
         stream.write("\n")
+    # The manifest travels with the model in the diagnostic bundle and must remain readable
+    # under the same host-readable contract as the ONNX payload above.
+    try:
+        path.chmod(PUBLISHED_FILE_MODE)
+    except OSError as exc:
+        raise RuntimeError(f"could not set manifest mode to 0644: {path}") from exc
 
 
 def parse_args() -> argparse.Namespace:
@@ -379,7 +405,7 @@ def main() -> int:
     try:
         export_onnx(model, manifest, candidate, args.device)
         observed = validate_export(model, manifest, candidate, args.device)
-        os.replace(candidate, output)
+        publish_file(candidate, output)
     finally:
         candidate.unlink(missing_ok=True)
     artifact_hash = sha256_file(output)

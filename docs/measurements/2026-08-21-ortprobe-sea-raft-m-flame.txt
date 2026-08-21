@@ -1,0 +1,101 @@
+
+=========================================================================
+White Water ORT probe -- session started 2026-08-21 11:04:37 (pid 2196954)
+=========================================================================
+
+== White Water ONNX Runtime isolation probe ==
+  bundled runtime directory: /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/
+  Each mode opens a separate copy, because dlopen returns the already-loaded
+  library for a repeated path and RTLD_DEEPBIND only applies at initial load.
+  header ORT_API_VERSION: 29
+
+== The host's ONNX Runtime ==
+  OrtGetApiBase 0x7f829b676970 from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  host runtime version: 1.22.0
+
+== Mode 1: RTLD_LOCAL | RTLD_DEEPBIND ==
+  DEEPBIND makes the library prefer its own symbols over the global scope. Measured 2026-08-20: RTLD_LOCAL alone already sufficed in Flame, so what this mode now decides is whether DEEPBIND is safe to use, not whether it is necessary.
+  dlopen("/usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime-b.so", 0xa)
+  handle 0x7f6b0e187400
+  OrtGetApiBase: ours 0x7f6adbd444e0, host 0x7f829b676970 -- DISTINCT
+    ours resolves into /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime-b.so
+  reported version: 1.29.0
+    If this matches the host's ONNX Runtime version, the pointers above are
+    not evidence of isolation -- deliberately ship a different version so this
+    line discriminates.
+  CreateEnv: ok
+  CreateSessionFromArray: ok (128-byte embedded Add model)
+  Run: ok -- [11.0 22.0 33.0 44.0]
+  teardown: ok
+  (handle intentionally not dlclosed -- see the note in the source)
+
+== Mode 2: RTLD_LOCAL only ==
+  RTLD_LOCAL keeps our symbols out of the global scope for later lookups; it does not reorder how our own library's relocations resolve. Expected to be insufficient on paper, and measured sufficient in Flame -- most likely because ONNX Runtime is built with hidden visibility, so its internals never consult the global scope and there is nothing to capture.
+  dlopen("/usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime.so", 0x2)
+  handle 0x7f6b0b159160
+  OrtGetApiBase: ours 0x7f6a485444e0, host 0x7f829b676970 -- DISTINCT
+    ours resolves into /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime.so
+  reported version: 1.29.0
+    If this matches the host's ONNX Runtime version, the pointers above are
+    not evidence of isolation -- deliberately ship a different version so this
+    line discriminates.
+  CreateEnv: ok
+  CreateSessionFromArray: ok (128-byte embedded Add model)
+  Run: ok -- [11.0 22.0 33.0 44.0]
+
+  SEA-RAFT M real-network probe (selected plain RTLD_LOCAL mode)
+    model: /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Resources/models/sea-raft-m-opset17.onnx
+    CPU session 941.6 ms | first run 529.4 ms
+    CPU identity median EPE 0.0026 px
+    CPU forward median (4.0014, 0.0138) | reverse (-4.0034, -0.0134)
+    CPU direction/identity: CORRECT
+  available execution providers:
+    TensorrtExecutionProvider
+    CUDAExecutionProvider
+    CPUExecutionProvider
+    mapped CUDA/provider libraries before CUDA session creation:
+      /lib64/libcuda.so.1
+      /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+      /opt/Autodesk/lib64/2026.2.1/libcublasLt.so.12
+      /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+      /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+      /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+      /opt/Autodesk/lib64/2026.2.1/libnvinfer_plugin.so.10
+    mapped CUDA/provider libraries after CUDA session/run/teardown:
+      /lib64/libcuda.so.1
+      /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+      /opt/Autodesk/lib64/2026.2.1/libcublasLt.so.12
+      /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+      /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+      /opt/Autodesk/lib64/2026.2.1/libcudnn_engines_precompiled.so.9.9.0
+      /opt/Autodesk/lib64/2026.2.1/libcudnn_engines_runtime_compiled.so.9.9.0
+      /opt/Autodesk/lib64/2026.2.1/libcudnn_graph.so.9.9.0
+      /opt/Autodesk/lib64/2026.2.1/libcudnn_heuristic.so.9.9.0
+      /opt/Autodesk/lib64/2026.2.1/libcudnn_ops.so.9.9.0
+      /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+      /opt/Autodesk/lib64/2026.2.1/libnvinfer_plugin.so.10
+      /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime_providers_cuda.so
+      /usr/OFX/Plugins/WhiteWaterOrtProbe.ofx.bundle/Contents/Linux-x86-64/../Libraries/libonnxruntime_providers_shared.so
+    CUDA session 934.8 ms | first run 1164.0 ms
+    CUDA identity median EPE 0.0027 px
+    CUDA forward median (4.0017, 0.0137) | reverse (-4.0032, -0.0134)
+    CUDA direction/identity: CORRECT
+  teardown: ok
+  (handle intentionally not dlclosed -- see the note in the source)
+
+== VERDICT ==
+  Mode 1: RTLD_LOCAL | RTLD_DEEPBIND                   USABLE
+      opened 1 | distinct pointer 1 | version 1.29.0 | ran 1 | arithmetic 1
+  Mode 2: RTLD_LOCAL only                              USABLE
+      opened 1 | distinct pointer 1 | version 1.29.0 | ran 1 | arithmetic 1
+      SEA-RAFT configured 1 | CPU ran 1 | direction/identity 1
+      CUDA available 1 | ran 1 | direction/identity 1
+
+  At least one mode is usable, so IN-PROCESS inference is available.
+  Before committing to it, confirm the reported version is NOT the host's --
+  matching versions make the whole result ambiguous.
+
+  Phase 0B CPU real-network result: PASS
+  Phase 0B CUDA real-network result: PASS
+
+  Report: /tmp/whitewater-ortprobe.txt

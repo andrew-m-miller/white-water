@@ -14,13 +14,15 @@ Documents own facts; this file owns process. Do not restate a measured fact here
 
 ## Where the project is
 
-**Scaffolding, Phase 0A closed.** The build produces the two probes and nothing else. The
-plugin does not exist.
+**Scaffolding, Phase 0A closed; Phase 0B is in progress.** The build produces the two probes
+and nothing else. The plugin does not exist.
 
 Phase 0A answered all five questions in Flame on 2026-08-20, including the two that could
 have changed the architecture — `clipGetImage` works during render, and in-process inference
-works. **0B remains before inference implementation:** a pinned SEA-RAFT M probe export
-through the CUDA EP, plus its payload closure. **0C remains before ST/cache integration:**
+works. The 2026-08-21 SEA-RAFT M probe now passes identity and direction on both CPU and
+CUDA through the private runtime, but **0B remains before inference implementation** until
+the exact CUDA payload closure, VRAM, lifecycle, cancellation, fallback and warmed
+production-resolution measurements are complete. **0C remains before ST/cache integration:**
 Flame's ST convention and instance/process lifetime. Phase 1 and the host-free parts of
 Phase 2 are unblocked now.
 

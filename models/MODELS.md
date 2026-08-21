@@ -270,9 +270,18 @@ and stages that manifest beside the model so every test bundle records the exact
 measurements of the bytes it contains. The checked-in hash remains the first verified macOS
 export; it is not substituted for the target build's measured hash.
 
-This closes the export portion only. The artifact remains ignored by git and must be staged
-from a qualified build input. CPU/CUDA execution inside Flame, cancellation, repeated
-lifecycle, provider/OOM fallback, VRAM/latency, and CUDA payload closure remain open.
+The 2026-08-21 Flame 2026.2 run passed identity and both translation directions through
+private ONNX Runtime 1.29 on CPU and CUDA. This qualifies the real network and CUDA provider
+on that host/runtime pair; it does not choose a shipping model. Exact CUDA dependency
+ownership, VRAM, repeated lifecycle/node duplication, cancellation, provider/OOM fallback
+and warmed useful-resolution performance remain in Phase 0B.
+
+The first installed probe exposed a packaging fault before that pass: the ONNX existed but
+was mode `0600`, so the distinct Flame runtime user could not read it. Published model and
+manifest files are now required to be regular mode-`0644` files, and CI checks the exported,
+staged and extracted-package copies as well as their size and SHA256.
+
+The artifact remains ignored by git and must be staged from a qualified build input.
 
 ```bash
 python3.10 -m venv /path/to/searaft-export-env

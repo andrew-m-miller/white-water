@@ -499,47 +499,100 @@ worth re-checking whenever the bundled runtime version changes.
 
 ### What this does not establish
 
-- **The model is 128 bytes.** Partial symbol capture could still produce correct arithmetic
-  on a single `Add`. Re-run in Phase 0B with the pinned SEA-RAFT M probe export before any
-  inference implementation depends on this result.
-- **The CUDA execution provider is untested.** It is a separate `.so` that pulls in more
-  libraries, and Flame exposes `libcudart.so.12`, `libcudnn.so.9`, `libcublas.so.12` and
-  `libnvinfer.so.10` globally as well. The CPU result is necessary but not sufficient for
-  the thing actually wanted. This is the next measurement.
+- The initial isolation probe used a 128-byte `Add` model. The real SEA-RAFT M run below
+  now exercises a substantial network through both CPU and CUDA, so that narrow result is
+  no longer the evidence for the inference decision.
+- This isolation result does not establish lifecycle behaviour, VRAM headroom, cancellation,
+  provider-init or GPU-OOM fallback, or warmed production-resolution performance. Those are
+  still Phase 0B measurements.
 - **Only version 1.29.0 against 1.22.0.** If Flame ever ships the version we bundle, the
   version string stops discriminating — a probe concern rather than a runtime one, since
   matching versions are less dangerous, not more.
 
+## Measured — Phase 0B SEA-RAFT M in Flame
+
+Flame **2026.2** (`com.autodesk.flame`, OFX API 1.4, 72 CPUs) on `flame6`, Rocky 9.5,
+**2026-08-21**. The General-context probe ran the pinned, manifest-verified SEA-RAFT M
+export at 128×192 through the private ORT **1.29.0** opened with plain `RTLD_LOCAL`; Flame's
+global ORT is **1.22.0**. Raw transcripts:
+[`2026-08-21-ortprobe-sea-raft-m-flame.txt`](measurements/2026-08-21-ortprobe-sea-raft-m-flame.txt)
+and the separately captured provider warnings in
+[`2026-08-21-ortprobe-cuda-warnings.txt`](measurements/2026-08-21-ortprobe-cuda-warnings.txt).
+
+### Real-network result — PASS on CPU and CUDA
+
+| Path | Session creation | First run | Identity median EPE | Translation medians | Verdict |
+|---|---:|---:|---:|---|---|
+| CPU | 941.6 ms | 529.4 ms | 0.0026 px | forward (4.0014, 0.0138), reverse (−4.0034, −0.0134) | Correct |
+| CUDA | 934.8 ms | 1164.0 ms | 0.0027 px | forward (4.0017, 0.0137), reverse (−4.0032, −0.0134) | Correct |
+
+The real network preserves both identity and direction in the isolated runtime. These are
+session-creation and first-run timings at the tiny probe resolution, not a warmed
+production-resolution performance gate: initialization, transfers and provider setup are
+included, and the latter has not yet been measured at shipping resolutions.
+
+### Library ownership and provider diagnostics
+
+The bundled `libonnxruntime_providers_cuda.so` and
+`libonnxruntime_providers_shared.so` were mapped from the probe's private tree. Before CUDA
+session creation, the map already contained Flame's `/lib64/libcuda.so.1` and its
+`libcublas.so.12`, `libcublasLt.so.12`, `libcudart.so.12`, `libcudnn.so.9`,
+`libnvinfer.so.10` and `libnvinfer_plugin.so.10` under `/opt/Autodesk/lib64/2026.2.1/`.
+After provider session/run/teardown, the probe's two private ORT provider libraries and
+Flame's cuDNN component libraries were additionally mapped. TensorRT was already mapped;
+this report does not establish that the ORT CUDA EP selected or used it. The probe's
+library-name filter did **not** include `libcurand`, so it does not establish the owner of
+`libcurand.so.10`; the exact closure remains open.
+
+The shell warnings are performance diagnostics, not inference failures: ONNX Runtime
+inserted nine `Memcpy` nodes in the CUDAExecutionProvider graph and assigned some
+shape-related operations to CPU. They may reduce performance or prevent CUDA Graph
+execution, but both numerical checks passed. Verbose node assignment is a later optimization
+measurement, not a reason to reject the CUDA path.
+
+### Payload and staging findings
+
+The dependency-closure run measured a **646,116,341-byte** diagnostic payload, including a
+duplicate **31,958,904-byte** ORT copy; excluding that probe-only duplicate leaves about
+**614.2 MB**. **103,095,040 bytes** resolved to external libraries. The shell closure still
+reported unresolved `libcublas.so.12`, `libcublasLt.so.12`, `libcudart.so.12` and
+`libcurand.so.10`; the exact `libcurand` owner and a complete closure report are still
+required before packaging is decided.
+Raw: [`2026-08-21-ort-cuda-closure-flame.txt`](measurements/2026-08-21-ort-cuda-closure-flame.txt).
+
+An earlier report that the model was "absent" was a staging permissions failure, not a
+missing ONNX file: the file existed with mode **0600**, readable only by its owner, while
+the Flame runtime user was distinct and could not read it. It was corrected to **0644** and
+the probe then loaded it. Model staging and CI must assert mode **0644** (or an equivalent
+ACL that lets the Flame runtime user read the file) so this failure cannot recur.
+
 ## Open
 
-Phase 0A's five questions are closed — see *Measured — Phase 0 probe run in Flame*. What
-remains, grouped by the gate it blocks (`docs/plan.md`, *Phase 0*).
+Phase 0A's five questions are closed — see *Measured — Phase 0 probe run in Flame*. The
+real SEA-RAFT M network now passes on both CPU and CUDA in Phase 0B, but the rest of that
+gate remains open. The outstanding questions below are grouped by the gate they block
+(`docs/plan.md`, *Phase 0*).
 
 ### 0B — blocks the inference implementation
 
-**Implementation status, not a Flame measurement (2026-08-20).** The pinned SEA-RAFT M
-artifact is now manifest-verified and staged with the probe. The raw ORT C API path creates
-the real session, runs identity and both translation directions, checks the result
-numerically, records session and first-run latency, and takes the same path through the CUDA
-EP when it is available. The host-free macOS smoke test passes through the staged CPU
-runtime; that runtime has no CUDA EP, so this does not close any CUDA or Flame claim. CUDA
-library ownership, VRAM, repeated lifecycle and duplication, cross-thread cancellation,
-failure/OOM fallback, payload closure, and the Flame run remain open.
+**Measured status (2026-08-21):** the pinned SEA-RAFT M export passes identity and both
+translation directions through private ORT 1.29 on CPU and CUDA inside Flame 2026.2. The
+provider libraries and initial timings are recorded above. This does not choose the shipping
+model or close the remaining operational and packaging tests.
 
-1. **Does the CUDA execution provider survive the same treatment?** The CPU runtime is
-   measured isolated and working in-process; the CUDA provider is a separate `.so` pulling
-   in more libraries, against a host that exposes CUDA, cuDNN, cuBLAS and TensorRT globally.
-   Use the pinned **SEA-RAFT M probe export**, not the 128-byte `Add` model, and check
-   direction and identity numerically rather than settling for "it ran". Record its upstream
-   commit, checkpoint and ONNX hashes and tensor contract alongside which CUDA/cuDNN/cuBLAS
-   libraries actually get selected, provider init and first-run latency, peak and steady VRAM
-   beside a live Batch, repeated create/run/destroy, node duplication, cross-thread
-   cancellation via a per-run `RunOptions`, and the fallback path after both provider-init
-   failure and GPU OOM. This probe choice does not select the shipping default.
-2. **The exact dependency closure and on-disk size of the chosen ORT CUDA build.** Mocha's
-   equivalent payload measured 3.11 GB; whether a current ORT shrinks that materially decides
-   CPU-default versus separate GPU install, and bundled versus sibling runtime tree. See
-   *The payload is 3 GB, not 80 MB*.
+1. **Exact CUDA dependency closure and ownership.** Resolve the shell-closure misses,
+   especially `libcurand.so.10`, record the owner of every dependency, and record the final
+   on-disk size. The probe's map omitted `libcurand`, so this question is not answered by the
+   successful run.
+2. **Peak and steady VRAM** beside a live Batch, at the resolutions and model settings that
+   production will use.
+3. **Repeated create/run/destroy and node duplication**, including whether providers or CUDA
+   allocations leak or duplicate across lifecycle events.
+4. **Cross-thread cancellation** through a per-run `RunOptions`.
+5. **Fallbacks** after provider initialization failure and after GPU OOM, including the
+   documented CPU path and artist-visible diagnostic.
+6. **Warmed production-resolution performance**, separate from the tiny 128×192 first-run
+   timings above; include the effect of the nine inserted Memcpy nodes and CPU shape ops.
 
 ### 0C — blocks ST map and cache integration
 

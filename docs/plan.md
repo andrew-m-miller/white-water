@@ -101,9 +101,9 @@ risk; if either fails, the architecture changes:
   unwinding, and paying that to solve an already-solved problem would be a poor trade. The
   out-of-process design (warp-drive's `EditorProcess` plus `src/ipc/`, the shape Mocha Pro
   ships) is retained as a documented fallback rather than the plan. See
-  `docs/host-notes.md`. **Still to measure: the CUDA execution provider**, which is a
-  separate library against a host that also exposes CUDA, cuDNN, cuBLAS and TensorRT
-  globally.
+  `docs/host-notes.md`. The 2026-08-21 SEA-RAFT M run also passed through the CUDA
+  execution provider; the remaining 0B work is operational qualification and exact payload
+  closure, not basic provider initialization.
 
 ### 0A — closed 2026-08-20
 
@@ -129,6 +129,27 @@ and on the CUDA EP:
 - **the exact dependency closure and on-disk size of the chosen CUDA build**, which decides
   CPU-default versus separate GPU install, and bundle versus sibling tree (see *Build and
   packaging*).
+
+**Measured 2026-08-21:** the pinned SEA-RAFT M export passed identity and both translation
+directions on CPU and CUDA inside Flame 2026.2 through private ORT 1.29 under plain
+`RTLD_LOCAL`. At 128×192, CPU session/first-run timings were 941.6/529.4 ms with 0.0026 px
+identity EPE; CUDA timings were 934.8/1164.0 ms with 0.0027 px identity EPE. Flame's
+pre-existing CUDA, cuBLAS and cuDNN libraries were mapped alongside the probe's private ORT
+CUDA providers; cuDNN component libraries appeared after provider session/run. The raw report
+and ORT warnings are archived in
+`docs/measurements/2026-08-21-ortprobe-sea-raft-m-flame.txt` and
+`docs/measurements/2026-08-21-ortprobe-cuda-warnings.txt`.
+
+0B remains open for the exact `libcurand.so.10` ownership and complete closure, peak and
+steady VRAM, repeated lifecycle and node duplication, cross-thread cancellation, provider
+initialization/GPU-OOM fallback, and warmed production-resolution performance. The shell
+closure measured a 646,116,341-byte diagnostic payload (including a 31,958,904-byte
+probe-only ORT duplicate), about 614.2 MB without that duplicate, and 103,095,040 bytes of
+resolved external libraries; `libcublas.so.12`, `libcublasLt.so.12`, `libcudart.so.12` and
+`libcurand.so.10` remained unresolved in that shell report. The probe's library filter omitted
+`libcurand`, so a successful CUDA run does not close that ownership question. The CUDA log's
+nine inserted `Memcpy` nodes and CPU-assigned shape operations are performance warnings, not
+correctness failures.
 
 ### 0C — before ST map and cache integration
 
@@ -503,6 +524,11 @@ WhiteWater.ofx.bundle/Contents/
   the actual checkpoint file before it counts** — including backbone weights, which may carry
   different terms from the code that loads them, and secondhand claims from a review or a
   survey, which do not.
+- Model files must be readable by Flame. The 0B staging failure that reported the ONNX model
+  as absent was a present file installed mode `0600`, readable only by its owner while the
+  Flame runtime user was distinct; correcting it to `0644` made the same probe pass. Packaging
+  CI must assert mode `0644` (or an equivalent ACL for the Flame runtime user) so a mode bit
+  cannot masquerade as a missing model again.
 - CI mirrors warp-drive: `workflow_dispatch` only, with a required `purpose` input naming the
   human test. The Flame box is airgapped; artifacts are tarballs carried over with a SHA256.
 
@@ -565,7 +591,7 @@ thresholds tied to the exact model and runtime hashes.
 | Phase | Content | Exit |
 |---|---|---|
 | **0A** | Extended `hostprobe`, run in Flame | **Closed 2026-08-20.** All five questions answered; the measured report is the authority |
-| **0B** | Pinned SEA-RAFT M export through the private ORT on CPU and CUDA, in Flame | Export provenance and hashes recorded; direction and identity correct; provider libraries identified; abort exercised; VRAM, latency and **payload closure** recorded; repeated lifecycle clean. This does not choose the shipping default |
+| **0B** | Pinned SEA-RAFT M export through the private ORT on CPU and CUDA, in Flame | **In progress after the 2026-08-21 network pass.** Export provenance and hashes, direction/identity, provider libraries and initial latency are recorded; exact `libcurand`/payload closure, VRAM, abort, fallback/OOM and repeated lifecycle remain before the gate closes. This does not choose the shipping default |
 | **0C** | Flame ST round trip, and instance/process lifetime | Exact ST convention recorded; `Precache` persistence decided |
 | **1** | Vendor, CMake, **two descriptors**, bundle, harness, `describe`/`describeInContext`, passthrough render | Plugin loads with two inputs; parameters legible; workflow contracts settled — descriptor split, insert time, depth policy, cheap query actions, visible fallbacks |
 | **2** | `src/core/flow` complete, `NullPairwiseEstimator`, `ww-flow`, full unit + harness coverage | Separable lattice transform; typed flow links; confidence propagation; concurrency tests; all host-free tests green |

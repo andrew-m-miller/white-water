@@ -62,6 +62,38 @@ is a lead, and so is a reply to one.
 
 ---
 
+## Session 3 — 2026-08-21 — Phase 0B real-network run
+
+The Flame run replaced the 128-byte `Add` model with the pinned, manifest-verified SEA-RAFT
+M export. Through private ORT 1.29 opened under plain `RTLD_LOCAL` inside Flame 2026.2, the
+real network passed identity and both translation directions on CPU and CUDA at 128×192.
+CPU session/first-run timing was 941.6/529.4 ms with 0.0026 px identity EPE; CUDA was
+934.8/1164.0 ms with 0.0027 px identity EPE. The CUDA provider itself came from the probe's
+private tree. Flame's CUDA, cuBLAS and cuDNN libraries were already mapped before provider
+session creation; cuDNN component libraries appeared after provider session/run. TensorRT
+was also already mapped, but this run does not establish that the ORT CUDA EP selected or
+used it. The raw transcripts are archived in `docs/measurements/`.
+
+This closes the basic real-network CPU/CUDA inference question, not the whole 0B gate. The
+timings are tiny-input first-run measurements, so warmed production-resolution performance
+is still open. The CUDA log's nine inserted `Memcpy` nodes and CPU-assigned shape operations
+are performance warnings, not correctness failures.
+
+The closure measurement found a 646,116,341-byte diagnostic payload, including a
+31,958,904-byte probe-only duplicate of ORT; without that duplicate the payload is about
+614.2 MB, with 103,095,040 bytes resolved externally. The shell closure still reported
+`libcublas.so.12`, `libcublasLt.so.12`, `libcudart.so.12` and `libcurand.so.10` unresolved,
+and the probe's library filter omitted `libcurand`, so exact ownership and final packaging
+closure remain open. VRAM, repeated lifecycle/node duplication, cross-thread cancellation,
+and provider-init/GPU-OOM fallback remain unmeasured as well.
+
+The apparent missing-model result was a permissions defect: the ONNX file was present but
+mode 0600, readable only by its owner while the Flame runtime user was distinct. Staging it
+mode 0644 fixed the run. This is now a packaging invariant and needs a CI guard (mode 0644,
+or an equivalent ACL for the Flame runtime user), not a troubleshooting note.
+
+---
+
 ## Decisions
 
 ### Vendored from warp-drive rather than submoduled
@@ -224,13 +256,10 @@ is the right design.
   is worse than admitting the gap, because it stops anyone looking for the real remedy.
 - **Occlusion is opt-in.** The forward-backward check doubles inference cost, so it is off
   by default. Until an artist turns it on, a warped insert smears through an occlusion.
-- **In-process inference is measured working for the CPU runtime only.** The CUDA execution
-  provider is a separate library, and Flame exposes CUDA, cuDNN, cuBLAS and TensorRT
-  globally as well; nothing has tested that combination. It is the last thing gating the
-  inference design.
-- **The isolation result rests on a 128-byte model.** Partial symbol capture could still
-  produce correct arithmetic on one `Add` node. Worth re-running against a real network the
-  moment there is one.
+- **The real SEA-RAFT M network now passes in-process on both CPU and CUDA**, but the 0B gate
+  is not closed: exact `libcurand`/payload ownership, VRAM, repeated lifecycle and node
+  duplication, cross-thread cancellation, provider-init/GPU-OOM fallback, and warmed
+  production-resolution performance remain unmeasured.
 - **`RTLD_LOCAL` sufficing depends on ONNX Runtime's hidden visibility**, which is a
   property of their build rather than a guarantee. Re-check whenever the bundled version
   changes.
@@ -252,7 +281,9 @@ is the right design.
 - **`cmake/ofx.map` protects the host from us, not us from the host.** It stops our symbols
   being visible in Flame's process; it does nothing about our references binding to Flame's
   copy of something we also carry. Measured harmless for the CPU ONNX Runtime (see
-  `docs/host-notes.md`), and still unmeasured for the CUDA stack.
+  `docs/host-notes.md`), and the real SEA-RAFT M CUDA run also passed on this exact Flame
+  build. That is a qualification of this runtime/build pair, not a guarantee for future ORT
+  provider builds.
 
 ---
 
@@ -434,3 +465,15 @@ deferring to measurement when the **OFX specification** is unambiguous and sitti
 `third_party/`. Host behaviour is measured; protocol semantics are read. Confusing the two
 costs a probe cycle at best, and at worst produces a "measured" conclusion that is really an
 observation of one host on one day, generalised into a contract it never was.
+
+### 7. An owner-only model file looked absent to Flame
+
+**Symptom:** the first 0B run reported the model as absent even though the ONNX file had been
+staged into the bundle. The file was mode `0600`: owner-readable, but not readable by the
+distinct Flame runtime user. Changing it to `0644` made the same probe load the model and
+pass its real-network checks.
+
+The lesson is that an artifact can be present and still be absent from the host's point of
+view. Model staging must set mode `0644` (or an equivalent ACL for the Flame runtime user),
+and CI must assert that permission on the staged files. A packaging guard turns a silent host
+failure into a build failure.

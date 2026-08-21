@@ -33,7 +33,7 @@ if manifest["status"] == "provenance_pinned_export_pending":
     assert artifact_hash is None
     assert manifest["validation"]["observed"] is None
 else:
-    assert manifest["status"] == "host_probe_pending"
+    assert manifest["status"] in {"host_probe_pending", "host_probe_cpu_cuda_passed"}
     assert hex64(artifact_hash)
     assert manifest["export"]["size_bytes"] > 0
     assert manifest["validation"]["observed"] is not None

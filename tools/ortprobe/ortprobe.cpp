@@ -65,13 +65,19 @@
 
 #include <cstdarg>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <climits>
 #include <cmath>
+#include <cerrno>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <limits>
+#include <memory>
+#include <thread>
 #include <string>
 #include <utility>
 #include <vector>
@@ -80,6 +86,7 @@
 #if defined(__linux__)
 #include <link.h>
 #endif
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "ofxCore.h"
@@ -103,8 +110,55 @@ const OfxImageEffectSuiteV1 *gEffect = nullptr;
 const OfxPropertySuiteV1 *gProp = nullptr;
 const OfxParameterSuiteV1 *gParam = nullptr;
 const OfxMessageSuiteV1 *gMessage = nullptr;
+std::atomic<unsigned long long> gCreatedInstances{0};
+std::atomic<unsigned long long> gLiveInstances{0};
 
 const char *const kParamRunProbe = "runOrtProbe";
+
+// A check has three outcomes.  "Attempted" is kept separate from the result because an
+// unavailable CUDA provider, an absent NVML library, and a deliberately unsafe OOM exercise
+// are not failures.  Printing these as bools was how the first report ended up with a page of
+// misleading zeroes.
+enum class ProbeState { NotTested, Pass, Fail };
+
+const char *probeState(ProbeState state) {
+  switch (state) {
+  case ProbeState::Pass:
+    return "PASS";
+  case ProbeState::Fail:
+    return "FAIL";
+  case ProbeState::NotTested:
+    return "NOT TESTED";
+  }
+  return "NOT TESTED";
+}
+
+ProbeState stateFor(bool attempted, bool passed) {
+  if (!attempted)
+    return ProbeState::NotTested;
+  return passed ? ProbeState::Pass : ProbeState::Fail;
+}
+
+const char *yesNo(bool value) { return value ? "yes" : "no"; }
+
+std::string errnoDescription(int error) {
+  char buffer[256] = {0};
+#if defined(__GLIBC__) || defined(__APPLE__)
+  // strerror_r has two incompatible signatures.  The GNU variant returns a char pointer;
+  // the POSIX variant writes into our buffer.  Both are available on the supported hosts.
+#if defined(__GLIBC__) && defined(_GNU_SOURCE)
+  const char *message = ::strerror_r(error, buffer, sizeof(buffer));
+  return message ? message : "unknown error";
+#else
+  if (::strerror_r(error, buffer, sizeof(buffer)) == 0)
+    return buffer;
+  return "unknown error";
+#endif
+#else
+  const char *message = std::strerror(error);
+  return message ? message : "unknown error";
+#endif
+}
 
 std::string reportPath() {
   if (const char *explicitPath = std::getenv("WHITEWATER_ORT_PROBE_LOG"))
@@ -212,22 +266,6 @@ struct Mode {
   bool runRealModel;
 };
 
-struct ModeResult {
-  bool opened = false;
-  bool distinctFromHost = false;
-  bool versionReadable = false;
-  bool ranInference = false;
-  bool arithmeticCorrect = false;
-  bool realModelConfigured = false;
-  bool realModelRan = false;
-  bool realModelCorrect = false;
-  bool cudaAvailable = false;
-  bool cudaRan = false;
-  bool cudaCorrect = false;
-  std::string version;
-  std::string failure;
-};
-
 // The subset of the ORT C API this needs, fetched through our own handle.
 typedef const OrtApiBase *(*GetApiBaseFn)(void);
 
@@ -241,6 +279,84 @@ struct FlowRun {
   double forwardMedianY = 0.0;
   double reverseMedianX = 0.0;
   double reverseMedianY = 0.0;
+  struct TimingResult {
+    int height = 0;
+    int width = 0;
+    int steadySamples = 0;
+    double warmMilliseconds = 0.0;
+    double steadyMedianMilliseconds = 0.0;
+    double steadyMinimumMilliseconds = 0.0;
+    double steadyMaximumMilliseconds = 0.0;
+    ProbeState state = ProbeState::NotTested;
+    std::string failure;
+  };
+  struct VramMetrics {
+    bool attempted = false;
+    bool available = false;
+    bool hasSample = false;
+    bool hasSteadySample = false;
+    std::uint64_t totalBytes = 0;
+    std::uint64_t baselineUsedBytes = 0;
+    std::uint64_t peakUsedBytes = 0;
+    std::uint64_t steadyUsedBytes = 0;
+    ProbeState state = ProbeState::NotTested;
+    std::string failure;
+  };
+  bool cancellationAttempted = false;
+  bool cancellationObserved = false;
+  bool cancellationTimedOut = false;
+  ProbeState cancellationState = ProbeState::NotTested;
+  std::string cancellationFailure;
+  VramMetrics vram;
+  std::vector<TimingResult> timings;
+  bool leakedResources = false;
+  std::string failure;
+};
+
+struct LifecycleResult {
+  bool attempted = false;
+  int requested = 0;
+  int completed = 0;
+  ProbeState state = ProbeState::NotTested;
+  std::string failure;
+};
+
+struct FallbackResult {
+  bool attempted = false;
+  bool providerFailureObserved = false;
+  bool cpuFallbackRan = false;
+  ProbeState state = ProbeState::NotTested;
+  std::string failure;
+};
+
+struct ModeResult {
+  bool opened = false;
+  bool distinctFromHost = false;
+  bool versionReadable = false;
+  bool ranInference = false;
+  bool arithmeticCorrect = false;
+  bool realModelChecked = false;
+  bool realModelConfigured = false;
+  bool realModelRan = false;
+  bool realModelCorrect = false;
+  bool cudaAvailable = false;
+  bool cudaProviderChecked = false;
+  bool cudaRan = false;
+  bool cudaCorrect = false;
+  // The extended Phase 0B measurements are kept as structured values so the final verdict
+  // can say NOT TESTED instead of inventing a zero for a path the host did not offer.
+  bool cpuFlowAvailable = false;
+  bool cudaFlowAvailable = false;
+  FlowRun cpuFlow;
+  FlowRun cudaFlow;
+  LifecycleResult cpuLifecycle;
+  LifecycleResult cudaLifecycle;
+  FallbackResult providerFallback;
+  ProbeState gpuOomFallbackState = ProbeState::NotTested;
+  ProbeState nodeDuplicationState = ProbeState::NotTested;
+  std::string gpuOomFallbackFailure;
+  std::string nodeDuplicationFailure;
+  std::string version;
   std::string failure;
 };
 
@@ -311,6 +427,213 @@ std::vector<float> translateRight(const std::vector<float> &source, int height, 
             source[static_cast<std::size_t>(c) * plane +
                    static_cast<std::size_t>(y) * width + x - dx];
   return result;
+}
+
+// NVML is deliberately optional and reached through dlopen.  Linking it would add a new
+// dependency to the probe bundle and, worse, make a missing driver a load-time failure.  The
+// small ABI below is stable across the driver versions supported by Flame; no NVML header is
+// needed.  The values are process-wide device counters, so the report also records the Batch
+// baseline and does not pretend they are allocations belonging only to this plugin.
+#if defined(__linux__)
+struct NvmlMemoryInfo {
+  unsigned long long total;
+  unsigned long long free;
+  unsigned long long used;
+};
+
+using NvmlInitFn = int (*)();
+using NvmlShutdownFn = int (*)();
+using NvmlDeviceGetHandleByIndexFn = int (*)(unsigned int, void **);
+using NvmlDeviceGetMemoryInfoFn = int (*)(void *, NvmlMemoryInfo *);
+
+struct VramMonitor {
+  bool attempted = false;
+  bool initialized = false;
+  bool available = false;
+  void *handle = nullptr;
+  void *device = nullptr;
+  NvmlInitFn init = nullptr;
+  NvmlShutdownFn shutdown = nullptr;
+  NvmlDeviceGetHandleByIndexFn getDevice = nullptr;
+  NvmlDeviceGetMemoryInfoFn getMemory = nullptr;
+  std::string failure;
+
+  ~VramMonitor() {
+    if (initialized && shutdown)
+      shutdown();
+    if (handle)
+      dlclose(handle);
+  }
+
+  bool initialize() {
+    if (attempted)
+      return available;
+    attempted = true;
+    const char *overridePath = std::getenv("WHITEWATER_NVML_LIBRARY");
+    const char *path = overridePath && overridePath[0] ? overridePath : "libnvidia-ml.so.1";
+    dlerror();
+    handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    if (!handle) {
+      const char *error = dlerror();
+      failure = error ? error : "dlopen returned null with no error";
+      return false;
+    }
+    init = reinterpret_cast<NvmlInitFn>(dlsym(handle, "nvmlInit_v2"));
+    if (!init)
+      init = reinterpret_cast<NvmlInitFn>(dlsym(handle, "nvmlInit"));
+    shutdown = reinterpret_cast<NvmlShutdownFn>(dlsym(handle, "nvmlShutdown"));
+    getDevice = reinterpret_cast<NvmlDeviceGetHandleByIndexFn>(
+        dlsym(handle, "nvmlDeviceGetHandleByIndex_v2"));
+    if (!getDevice)
+      getDevice = reinterpret_cast<NvmlDeviceGetHandleByIndexFn>(
+          dlsym(handle, "nvmlDeviceGetHandleByIndex"));
+    getMemory = reinterpret_cast<NvmlDeviceGetMemoryInfoFn>(
+        dlsym(handle, "nvmlDeviceGetMemoryInfo"));
+    if (!init || !shutdown || !getDevice || !getMemory) {
+      failure = "NVML symbols missing (nvmlInit, nvmlDeviceGetHandleByIndex, "
+                "nvmlDeviceGetMemoryInfo, nvmlShutdown)";
+      return false;
+    }
+    const int initStatus = init();
+    if (initStatus != 0) {
+      char buffer[128];
+      std::snprintf(buffer, sizeof(buffer), "nvmlInit returned %d", initStatus);
+      failure = buffer;
+      return false;
+    }
+    initialized = true;
+    const int deviceStatus = getDevice(0, &device);
+    if (deviceStatus != 0 || !device) {
+      char buffer[128];
+      std::snprintf(buffer, sizeof(buffer), "nvmlDeviceGetHandleByIndex(0) returned %d",
+                    deviceStatus);
+      failure = buffer;
+      return false;
+    }
+    available = true;
+    emitf("    NVML VRAM monitor: available (device 0, %s)", path);
+    return true;
+  }
+
+  bool sample(NvmlMemoryInfo &memory) {
+    if (!available || !getMemory)
+      return false;
+    const int status = getMemory(device, &memory);
+    if (status != 0) {
+      char buffer[128];
+      std::snprintf(buffer, sizeof(buffer), "nvmlDeviceGetMemoryInfo returned %d", status);
+      failure = buffer;
+      return false;
+    }
+    return true;
+  }
+};
+#else
+struct VramMonitor {
+  bool attempted = false;
+  bool available = false;
+  std::string failure;
+
+  bool initialize() {
+    attempted = true;
+    failure = "NVML VRAM sampling is only available on Linux";
+    return false;
+  }
+};
+#endif
+
+void sampleVram(VramMonitor *monitor, FlowRun::VramMetrics &metrics, const char *label) {
+  if (!monitor)
+    return;
+  metrics.attempted = true;
+  metrics.available = monitor->available;
+  if (!monitor->available) {
+    metrics.state = ProbeState::NotTested;
+    if (metrics.failure.empty())
+      metrics.failure = monitor->failure;
+    return;
+  }
+#if defined(__linux__)
+  NvmlMemoryInfo sample = {};
+  if (!monitor->sample(sample)) {
+    metrics.state = ProbeState::Fail;
+    metrics.failure = monitor->failure;
+    return;
+  }
+  if (!metrics.hasSample) {
+    metrics.totalBytes = sample.total;
+    metrics.baselineUsedBytes = sample.used;
+    metrics.peakUsedBytes = sample.used;
+    metrics.hasSample = true;
+  } else {
+    metrics.peakUsedBytes = std::max(metrics.peakUsedBytes, sample.used);
+  }
+  if (std::strcmp(label, "steady") == 0) {
+    metrics.steadyUsedBytes = sample.used;
+    metrics.hasSteadySample = true;
+  }
+  metrics.state = ProbeState::Pass;
+  emitf("    VRAM %-14s total %.1f MiB | used %.1f MiB | free %.1f MiB (sample)", label,
+        static_cast<double>(sample.total) / (1024.0 * 1024.0),
+        static_cast<double>(sample.used) / (1024.0 * 1024.0),
+        static_cast<double>(sample.free) / (1024.0 * 1024.0));
+#else
+  (void)label;
+#endif
+}
+
+struct ProbeSize {
+  int height = 0;
+  int width = 0;
+};
+
+std::vector<ProbeSize> usefulProbeSizes() {
+  // These are deliberately useful but bounded: 480p exercises a dynamic shape and a
+  // host-sized transfer without turning a diagnostic button into a long blocking action.  A
+  // caller may select 720p (or other multiples of eight) explicitly, but the hard cap remains
+  // in force.  The 720p run is opt-in because SEA-RAFT's CPU cost grows quickly with pixels.
+  const char *spec = std::getenv("WHITEWATER_ORT_PROBE_SIZES");
+  if (!spec || !spec[0])
+    spec = "480x640";
+
+  std::vector<ProbeSize> sizes;
+  const std::string value(spec);
+  std::size_t begin = 0;
+  while (begin < value.size()) {
+    const std::size_t comma = value.find(',', begin);
+    const std::string token = value.substr(begin, comma == std::string::npos
+                                                    ? std::string::npos
+                                                    : comma - begin);
+    const std::size_t x = token.find_first_of("xX");
+    char *heightEnd = nullptr;
+    char *widthEnd = nullptr;
+    long height = 0;
+    long width = 0;
+    if (x != std::string::npos) {
+      const std::string heightText = token.substr(0, x);
+      const std::string widthText = token.substr(x + 1);
+      height = std::strtol(heightText.c_str(), &heightEnd, 10);
+      width = std::strtol(widthText.c_str(), &widthEnd, 10);
+    }
+    const bool parsed = x != std::string::npos && heightEnd && widthEnd &&
+                        *heightEnd == '\0' && *widthEnd == '\0';
+    const std::uint64_t pixels = parsed && height > 0 && width > 0
+                                     ? static_cast<std::uint64_t>(height) * width
+                                     : 0;
+    const bool bounded = parsed && height >= 8 && width >= 8 && height <= 2048 && width <= 2048 &&
+                         height % 8 == 0 && width % 8 == 0 && pixels <= 2u * 1024u * 1024u;
+    if (bounded) {
+      sizes.push_back({static_cast<int>(height), static_cast<int>(width)});
+    } else {
+      emitf("    timing size '%s' rejected (use HxW, multiples of 8, <=2048x2048 and "
+            "<=2 Mpix)",
+            token.c_str());
+    }
+    if (comma == std::string::npos)
+      break;
+    begin = comma + 1;
+  }
+  return sizes;
 }
 
 bool runFlowOnce(const OrtApi *api, OrtSession *session, OrtMemoryInfo *memory,
@@ -387,8 +710,213 @@ bool runFlowOnce(const OrtApi *api, OrtSession *session, OrtMemoryInfo *memory,
   return true;
 }
 
-FlowRun runSeaRaft(const OrtApi *api, OrtEnv *env, const std::string &path, bool cuda) {
+std::vector<FlowRun::TimingResult> runUsefulTimings(const OrtApi *api, OrtSession *session,
+                                                    OrtMemoryInfo *memory,
+                                                    VramMonitor *vramMonitor = nullptr,
+                                                    FlowRun::VramMetrics *vramMetrics = nullptr) {
+  std::vector<FlowRun::TimingResult> results;
+  const std::vector<ProbeSize> sizes = usefulProbeSizes();
+  for (const ProbeSize &size : sizes) {
+    FlowRun::TimingResult result;
+    result.height = size.height;
+    result.width = size.width;
+    result.steadySamples = 3;
+
+    const std::vector<float> first = makeTexture(size.height, size.width);
+    const std::vector<float> second = translateRight(first, size.height, size.width, 4);
+    std::vector<float> flow;
+    if (!runFlowOnce(api, session, memory, first, second, size.height, size.width, flow,
+                     result.warmMilliseconds, result.failure)) {
+      result.state = ProbeState::Fail;
+      results.push_back(std::move(result));
+      continue;
+    }
+    if (vramMonitor && vramMetrics)
+      sampleVram(vramMonitor, *vramMetrics, "timing warm");
+
+    std::vector<float> steady;
+    steady.reserve(static_cast<std::size_t>(result.steadySamples));
+    for (int sample = 0; sample < result.steadySamples; ++sample) {
+      double milliseconds = 0.0;
+      if (!runFlowOnce(api, session, memory, first, second, size.height, size.width, flow,
+                       milliseconds, result.failure)) {
+        result.state = ProbeState::Fail;
+        break;
+      }
+      if (vramMonitor && vramMetrics)
+        sampleVram(vramMonitor, *vramMetrics, "steady");
+      steady.push_back(static_cast<float>(milliseconds));
+    }
+    if (result.state != ProbeState::Fail &&
+        static_cast<int>(steady.size()) == result.steadySamples) {
+      result.steadyMedianMilliseconds = median(steady);
+      result.steadyMinimumMilliseconds = *std::min_element(steady.begin(), steady.end());
+      result.steadyMaximumMilliseconds = *std::max_element(steady.begin(), steady.end());
+      result.state = ProbeState::Pass;
+    }
+    results.push_back(std::move(result));
+  }
+  return results;
+}
+
+struct CancellationCall {
+  const OrtApi *api = nullptr;
+  OrtSession *session = nullptr;
+  OrtRunOptions *options = nullptr;
+  OrtValue *inputs[2] = {nullptr, nullptr};
+  OrtValue *output = nullptr;
+  // Keep the backing tensors alive if the bounded join ever has to detach the worker.  A
+  // detached diagnostic thread must never retain pointers into runCancellation's stack.
+  std::vector<float> first;
+  std::vector<float> second;
+  std::atomic<bool> started{false};
+  std::atomic<bool> finished{false};
+  bool runSucceeded = false;
+  bool terminationError = false;
+  std::string message;
+};
+
+bool looksLikeTermination(const std::string &message) {
+  std::string lower = message;
+  for (char &character : lower) {
+    if (character >= 'A' && character <= 'Z')
+      character = static_cast<char>(character - 'A' + 'a');
+  }
+  return lower.find("terminat") != std::string::npos ||
+         lower.find("cancel") != std::string::npos || lower.find("abort") != std::string::npos;
+}
+
+void releaseCancellationInputs(const std::shared_ptr<CancellationCall> &call) {
+  for (OrtValue *&input : call->inputs) {
+    if (input) {
+      call->api->ReleaseValue(input);
+      input = nullptr;
+    }
+  }
+  if (call->output) {
+    call->api->ReleaseValue(call->output);
+    call->output = nullptr;
+  }
+}
+
+void runCancellation(const OrtApi *api, OrtSession *session, OrtMemoryInfo *memory,
+                     FlowRun &result) {
+  result.cancellationAttempted = true;
+  constexpr int height = 480;
+  constexpr int width = 640;
+  const int64_t shape[4] = {1, 3, height, width};
+  auto call = std::make_shared<CancellationCall>();
+  call->api = api;
+  call->session = session;
+  call->first = makeTexture(height, width);
+  call->second = translateRight(call->first, height, width, 4);
+  const std::vector<float> *data[2] = {&call->first, &call->second};
+  for (int i = 0; i < 2; ++i) {
+    OrtStatus *status = api->CreateTensorWithDataAsOrtValue(
+        memory, const_cast<float *>(data[i]->data()), data[i]->size() * sizeof(float), shape, 4,
+        ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &call->inputs[i]);
+    if (status) {
+      result.cancellationState = ProbeState::Fail;
+      result.cancellationFailure = "CreateTensor for cancellation: " + takeStatus(api, status);
+      releaseCancellationInputs(call);
+      return;
+    }
+  }
+
+  OrtStatus *status = api->CreateRunOptions(&call->options);
+  if (status) {
+    result.cancellationState = ProbeState::Fail;
+    result.cancellationFailure = "CreateRunOptions: " + takeStatus(api, status);
+    releaseCancellationInputs(call);
+    return;
+  }
+  status = api->RunOptionsSetRunTag(call->options, "whitewater-phase0b-cancel");
+  if (status) {
+    result.cancellationState = ProbeState::Fail;
+    result.cancellationFailure = "RunOptionsSetRunTag: " + takeStatus(api, status);
+    api->ReleaseRunOptions(call->options);
+    call->options = nullptr;
+    releaseCancellationInputs(call);
+    return;
+  }
+
+  std::thread worker([call]() {
+    call->started.store(true, std::memory_order_release);
+    const char *inputNames[2] = {"image1", "image2"};
+    const char *outputNames[1] = {"flow"};
+    const OrtValue *inputs[2] = {call->inputs[0], call->inputs[1]};
+    OrtStatus *runStatus = call->api->Run(call->session, call->options, inputNames, inputs, 2,
+                                           outputNames, 1, &call->output);
+    if (runStatus) {
+      call->message = takeStatus(call->api, runStatus);
+      call->terminationError = looksLikeTermination(call->message);
+    } else {
+      call->runSucceeded = true;
+    }
+    releaseCancellationInputs(call);
+    call->finished.store(true, std::memory_order_release);
+  });
+
+  // Wait for the worker to enter Run, then request termination from this host thread.  The
+  // bounded waits are intentional: if a provider ignores RunOptionsSetTerminate, leaving the
+  // session pinned is safer than hanging Flame's UI.  The normal path joins and cleans up.
+  const auto startWait = std::chrono::steady_clock::now();
+  while (!call->started.load(std::memory_order_acquire) &&
+         std::chrono::steady_clock::now() - startWait < std::chrono::milliseconds(100))
+    std::this_thread::yield();
+
+  status = api->RunOptionsSetTerminate(call->options);
+  const bool terminateRequested = !status;
+  if (status)
+    result.cancellationFailure = "RunOptionsSetTerminate: " + takeStatus(api, status);
+
+  const auto finishWait = std::chrono::steady_clock::now();
+  while (!call->finished.load(std::memory_order_acquire) &&
+         std::chrono::steady_clock::now() - finishWait < std::chrono::seconds(5))
+    std::this_thread::yield();
+
+  if (!call->finished.load(std::memory_order_acquire)) {
+    worker.detach();
+    result.cancellationTimedOut = true;
+    result.cancellationState = ProbeState::Fail;
+    result.cancellationFailure = "RunOptions termination did not return within 5 seconds; "
+                                  "session resources intentionally retained";
+    result.leakedResources = true;
+    return;
+  }
+  worker.join();
+  if (call->options)
+    api->ReleaseRunOptions(call->options);
+  call->options = nullptr;
+
+  if (!terminateRequested) {
+    result.cancellationState = ProbeState::Fail;
+    if (result.cancellationFailure.empty())
+      result.cancellationFailure = "termination request failed";
+  } else if (call->terminationError) {
+    result.cancellationObserved = true;
+    result.cancellationState = ProbeState::Pass;
+    emitf("    cross-thread cancellation: observed provider termination (%s)",
+          call->message.c_str());
+  } else if (call->runSucceeded) {
+    // The model completed before the cancellation landed.  This is an attempted check, but
+    // not evidence that cancellation works or fails, so keep it visibly NOT TESTED.
+    result.cancellationState = ProbeState::NotTested;
+    result.cancellationFailure = "run completed before termination was observed";
+    emit("    cross-thread cancellation: NOT TESTED (run won the race)");
+  } else {
+    result.cancellationState = ProbeState::Fail;
+    result.cancellationFailure = call->message.empty() ? "Run failed without a termination "
+                                                          "message"
+                                                        : call->message;
+  }
+}
+
+FlowRun runSeaRaft(const OrtApi *api, OrtEnv *env, const std::string &path, bool cuda,
+                   bool extended = true, VramMonitor *vramMonitor = nullptr) {
   FlowRun result;
+  if (cuda && vramMonitor)
+    sampleVram(vramMonitor, result.vram, "before session");
   OrtSessionOptions *options = nullptr;
   OrtStatus *status = api->CreateSessionOptions(&options);
   if (status) {
@@ -427,6 +955,8 @@ FlowRun runSeaRaft(const OrtApi *api, OrtEnv *env, const std::string &path, bool
     result.failure = "CreateSession: " + takeStatus(api, status);
     return result;
   }
+  if (cuda && vramMonitor)
+    sampleVram(vramMonitor, result.vram, "after session");
 
   OrtMemoryInfo *memory = nullptr;
   status = api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory);
@@ -453,6 +983,8 @@ FlowRun runSeaRaft(const OrtApi *api, OrtEnv *env, const std::string &path, bool
     api->ReleaseSession(session);
     return result;
   }
+  if (cuda && vramMonitor)
+    sampleVram(vramMonitor, result.vram, "after first run");
 
   constexpr int border = 16;
   const std::size_t plane = static_cast<std::size_t>(height) * width;
@@ -480,8 +1012,108 @@ FlowRun runSeaRaft(const OrtApi *api, OrtEnv *env, const std::string &path, bool
                    std::abs(result.reverseMedianY) <= 2.0;
   if (!result.correct)
     result.failure = "inference ran but identity/direction thresholds failed";
-  api->ReleaseMemoryInfo(memory);
-  api->ReleaseSession(session);
+  if (extended && result.ran && result.correct) {
+    result.timings = runUsefulTimings(api, session, memory, vramMonitor, &result.vram);
+    for (const FlowRun::TimingResult &timing : result.timings)
+      emitf("    %s %dx%d warm %.1f ms | steady median %.1f ms (min %.1f, max %.1f; %d samples): %s",
+            cuda ? "CUDA" : "CPU", timing.height, timing.width, timing.warmMilliseconds,
+            timing.steadyMedianMilliseconds, timing.steadyMinimumMilliseconds,
+            timing.steadyMaximumMilliseconds, timing.steadySamples, probeState(timing.state));
+    if (cuda && vramMonitor)
+      sampleVram(vramMonitor, result.vram, "steady");
+    runCancellation(api, session, memory, result);
+  }
+  if (!result.leakedResources) {
+    api->ReleaseMemoryInfo(memory);
+    api->ReleaseSession(session);
+  }
+  return result;
+}
+
+LifecycleResult runLifecycle(const OrtApi *api, OrtEnv *env, const std::string &path, bool cuda) {
+  LifecycleResult result;
+  result.attempted = true;
+  result.requested = 3;
+  for (int iteration = 0; iteration < result.requested; ++iteration) {
+    FlowRun run = runSeaRaft(api, env, path, cuda, false, nullptr);
+    if (run.leakedResources) {
+      result.failure = "lifecycle iteration timed out during cancellation-safe teardown";
+      break;
+    }
+    if (!run.ran || !run.correct) {
+      result.failure = run.failure.empty() ? "session did not pass identity/direction" : run.failure;
+      break;
+    }
+    ++result.completed;
+  }
+  result.state = stateFor(result.attempted, result.completed == result.requested);
+  emitf("    repeated create/run/destroy (%s): %d/%d completed: %s", cuda ? "CUDA" : "CPU",
+        result.completed, result.requested, probeState(result.state));
+  if (!result.failure.empty())
+    emitf("      lifecycle detail: %s", result.failure.c_str());
+  return result;
+}
+
+FallbackResult exerciseProviderFailureFallback(const OrtApi *api, OrtEnv *env,
+                                               const std::string &path) {
+  FallbackResult result;
+  result.attempted = true;
+  OrtSessionOptions *options = nullptr;
+  OrtStatus *status = api->CreateSessionOptions(&options);
+  if (status) {
+    result.failure = "CreateSessionOptions: " + takeStatus(api, status);
+    result.state = ProbeState::Fail;
+    return result;
+  }
+  status = api->SetIntraOpNumThreads(options, 1);
+  if (status) {
+    result.failure = "SetIntraOpNumThreads: " + takeStatus(api, status);
+    api->ReleaseSessionOptions(options);
+    result.state = ProbeState::Fail;
+    return result;
+  }
+
+  // INT_MAX is a deterministic invalid device selector.  It fails at provider append or
+  // session creation without allocating a large arena, unlike trying to consume the remaining
+  // device memory.  The CPU path below is the fallback we need to prove.
+  OrtCUDAProviderOptions invalidCuda{};
+  invalidCuda.device_id = INT_MAX;
+  invalidCuda.cudnn_conv_algo_search = OrtCudnnConvAlgoSearchHeuristic;
+  status = api->SessionOptionsAppendExecutionProvider_CUDA(options, &invalidCuda);
+  if (status) {
+    result.providerFailureObserved = true;
+    result.failure = "invalid CUDA device rejected at provider init: " + takeStatus(api, status);
+  } else {
+    OrtSession *invalidSession = nullptr;
+    status = api->CreateSession(env, path.c_str(), options, &invalidSession);
+    if (status) {
+      result.providerFailureObserved = true;
+      result.failure = "invalid CUDA device rejected at session init: " + takeStatus(api, status);
+    } else {
+      // A provider that accepts INT_MAX is not a safe failure injection; do not run it.  It is
+      // released and the check is reported as failed rather than silently calling CPU.
+      result.failure = "invalid CUDA device was accepted; provider failure was not injected";
+      api->ReleaseSession(invalidSession);
+    }
+  }
+  api->ReleaseSessionOptions(options);
+
+  FlowRun fallback = runSeaRaft(api, env, path, false, false, nullptr);
+  result.cpuFallbackRan = fallback.ran && fallback.correct;
+  if (!result.providerFailureObserved) {
+    result.state = ProbeState::Fail;
+  } else if (result.cpuFallbackRan) {
+    result.state = ProbeState::Pass;
+  } else {
+    result.state = ProbeState::Fail;
+    if (!fallback.failure.empty())
+      result.failure += "; CPU fallback: " + fallback.failure;
+  }
+  emitf("    provider-init failure + CPU fallback: injected %s | CPU fallback %s | %s",
+        yesNo(result.providerFailureObserved), yesNo(result.cpuFallbackRan),
+        probeState(result.state));
+  if (!result.failure.empty())
+    emitf("      fallback detail: %s", result.failure.c_str());
   return result;
 }
 
@@ -509,11 +1141,23 @@ int collectAccelerationLibrary(struct dl_phdr_info *info, std::size_t, void *opa
   if (!info->dlpi_name || !info->dlpi_name[0])
     return 0;
   const std::string path = info->dlpi_name;
+  // Keep this list based on library families, not one release's exact SONAME.  CUDA EP
+  // builds commonly pull in curand/cufft/nvrtc/nvjitlink and the original probe silently
+  // omitted curand, which made its dependency report incomplete.
   if (path.find("onnxruntime_providers") != std::string::npos ||
       path.find("libcuda") != std::string::npos ||
+      path.find("libcudart") != std::string::npos ||
       path.find("libcudnn") != std::string::npos ||
       path.find("libcublas") != std::string::npos ||
-      path.find("libnvinfer") != std::string::npos)
+      path.find("libcurand") != std::string::npos ||
+      path.find("libcufft") != std::string::npos ||
+      path.find("libnvrtc") != std::string::npos ||
+      path.find("libnvjitlink") != std::string::npos ||
+      path.find("libnvjpeg") != std::string::npos ||
+      path.find("libnvinfer") != std::string::npos ||
+      path.find("libnvonnxparser") != std::string::npos ||
+      path.find("libnccl") != std::string::npos ||
+      path.find("libnvToolsExt") != std::string::npos)
     static_cast<std::vector<std::string> *>(opaque)->push_back(path);
   return 0;
 }
@@ -528,14 +1172,29 @@ void reportAccelerationLibraries(const char *when) {
     emit("      <none>");
     return;
   }
-  for (const std::string &library : libraries)
-    emitf("      %s", library.c_str());
+  std::uint64_t totalBytes = 0;
+  for (const std::string &library : libraries) {
+    struct stat fileStat = {};
+    if (::stat(library.c_str(), &fileStat) == 0 && fileStat.st_size >= 0) {
+      totalBytes += static_cast<std::uint64_t>(fileStat.st_size);
+      emitf("      %s | on-disk bytes %lld", library.c_str(),
+            static_cast<long long>(fileStat.st_size));
+    } else {
+      const int error = errno;
+      emitf("      %s | on-disk size unavailable: errno=%d (%s)", library.c_str(), error,
+            errnoDescription(error).c_str());
+    }
+  }
+  emitf("    mapped CUDA/provider file total: %llu bytes (%.1f MiB)",
+        static_cast<unsigned long long>(totalBytes),
+        static_cast<double>(totalBytes) / (1024.0 * 1024.0));
 }
 #else
 void reportAccelerationLibraries(const char *) {}
 #endif
 
-ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void *hostApiBase) {
+ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void *hostApiBase,
+                   bool runExtendedMeasurements) {
   ModeResult result;
 
   const std::string library = libraryBase + mode.librarySuffix;
@@ -543,6 +1202,11 @@ ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void 
   section(mode.name);
   emitf("  %s", mode.rationale);
   emitf("  dlopen(\"%s\", 0x%x)", library.c_str(), mode.flags);
+  if (access(library.c_str(), R_OK) != 0) {
+    const int error = errno;
+    emitf("  runtime access check failed: errno=%d (%s)", error,
+          errnoDescription(error).c_str());
+  }
 
   dlerror();
   void *handle = dlopen(library.c_str(), mode.flags);
@@ -730,15 +1394,23 @@ ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void 
     emit("");
     emit("  SEA-RAFT M real-network probe (selected plain RTLD_LOCAL mode)");
     emitf("    model: %s", seaRaftPath.c_str());
+    result.realModelChecked = true;
     if (access(seaRaftPath.c_str(), R_OK) != 0) {
-      emit("    SKIPPED: verified model is not staged (Add-model isolation check only)");
+      const int error = errno;
+      emitf("    NOT TESTED: model is not readable: errno=%d (%s)", error,
+            errnoDescription(error).c_str());
       api->ReleaseEnv(env);
       emit("  teardown: ok");
       emit("  (handle intentionally not dlclosed -- see the note in the source)");
       return result;
     }
     result.realModelConfigured = true;
-    const FlowRun cpu = runSeaRaft(api, env, seaRaftPath, false);
+    emitf("    model readable: yes (bytes checked below by ORT; path access errno diagnostics "
+          "are enabled)");
+    result.cpuFlow =
+        runSeaRaft(api, env, seaRaftPath, false, runExtendedMeasurements, nullptr);
+    result.cpuFlowAvailable = true;
+    const FlowRun &cpu = result.cpuFlow;
     result.realModelRan = cpu.ran;
     result.realModelCorrect = cpu.correct;
     if (cpu.ran) {
@@ -754,10 +1426,16 @@ ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void 
     if (!cpu.failure.empty() && result.failure.empty())
       result.failure = "SEA-RAFT CPU: " + cpu.failure;
 
+    result.cudaProviderChecked = true;
     result.cudaAvailable = providerAvailable(api, "CUDAExecutionProvider");
     if (result.cudaAvailable) {
+      VramMonitor vram;
+      vram.initialize();
       reportAccelerationLibraries("before CUDA session creation");
-      const FlowRun cuda = runSeaRaft(api, env, seaRaftPath, true);
+      result.cudaFlow =
+          runSeaRaft(api, env, seaRaftPath, true, runExtendedMeasurements, &vram);
+      result.cudaFlowAvailable = true;
+      const FlowRun &cuda = result.cudaFlow;
       reportAccelerationLibraries("after CUDA session/run/teardown");
       result.cudaRan = cuda.ran;
       result.cudaCorrect = cuda.correct;
@@ -774,12 +1452,55 @@ ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void 
       }
       if (!cuda.failure.empty() && result.failure.empty())
         result.failure = "SEA-RAFT CUDA: " + cuda.failure;
+
+      if (cuda.vram.attempted && !cuda.vram.available)
+        emitf("    VRAM result: %s (%s)", probeState(cuda.vram.state),
+              cuda.vram.failure.empty() ? "NVML unavailable" : cuda.vram.failure.c_str());
+      else if (cuda.vram.hasSample) {
+        const double observedDeltaMiB =
+            (static_cast<double>(cuda.vram.peakUsedBytes) -
+             static_cast<double>(cuda.vram.baselineUsedBytes)) /
+            (1024.0 * 1024.0);
+        emitf("    VRAM result: %s | baseline %.1f MiB | observed peak %.1f MiB | steady %.1f MiB | "
+              "observed delta %.1f MiB",
+              probeState(cuda.vram.state),
+              static_cast<double>(cuda.vram.baselineUsedBytes) / (1024.0 * 1024.0),
+              static_cast<double>(cuda.vram.peakUsedBytes) / (1024.0 * 1024.0),
+              static_cast<double>(cuda.vram.steadyUsedBytes) / (1024.0 * 1024.0),
+              observedDeltaMiB);
+      }
+
+      if (runExtendedMeasurements) {
+        result.cudaLifecycle = runLifecycle(api, env, seaRaftPath, true);
+        result.providerFallback = exerciseProviderFailureFallback(api, env, seaRaftPath);
+      }
     } else {
-      emit("    CUDAExecutionProvider not present in this runtime -- CPU-only host check complete.");
+      emit("    CUDAExecutionProvider not present in this runtime -- CUDA lifecycle, VRAM, "
+           "provider-failure and GPU-OOM checks are NOT TESTED.");
     }
+    if (runExtendedMeasurements)
+      result.cpuLifecycle = runLifecycle(api, env, seaRaftPath, false);
+    else
+      emit("    extended Phase 0B measurements disabled (set WHITEWATER_ORT_EXTENDED=1 to run)");
+    result.gpuOomFallbackState = ProbeState::NotTested;
+    result.gpuOomFallbackFailure =
+        "not safely exercised: consuming device memory to force a physical OOM could take "
+        "down Flame; provider-init fallback above is the deterministic safe exercise";
+    result.nodeDuplicationState = ProbeState::NotTested;
+    result.nodeDuplicationFailure =
+        "duplicate the OFX node in Flame and run this probe on each copy; compare the "
+        "instance handles, process counters and verdicts printed in both reports";
+    emitf("    GPU OOM fallback: %s (%s)", probeState(result.gpuOomFallbackState),
+          result.gpuOomFallbackFailure.c_str());
+    emitf("    node duplication equivalence: %s (%s)", probeState(result.nodeDuplicationState),
+          result.nodeDuplicationFailure.c_str());
   }
 
-  api->ReleaseEnv(env);
+  bool keepEnvironment = result.cpuFlow.leakedResources || result.cudaFlow.leakedResources;
+  if (!keepEnvironment)
+    api->ReleaseEnv(env);
+  else
+    emit("  teardown: session cancellation timed out; environment intentionally retained");
   emit("  teardown: ok");
 
   // Deliberately left open. dlclose of a runtime that registered thread-local state and
@@ -789,12 +1510,56 @@ ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void 
   return result;
 }
 
+void emitFlowExtendedVerdict(const char *label, const FlowRun &flow, bool available) {
+  if (!available) {
+    emitf("      %s extended measurements: NOT TESTED (session did not initialise)", label);
+    return;
+  }
+  emitf("      %s inference: %s | identity/direction: %s", label,
+        probeState(stateFor(available, flow.ran)), probeState(stateFor(flow.ran, flow.correct)));
+  if (!flow.timings.empty()) {
+    for (const FlowRun::TimingResult &timing : flow.timings)
+      emitf("      %s %dx%d warm %.1f ms | steady median %.1f ms | samples %d | %s", label,
+            timing.height, timing.width, timing.warmMilliseconds,
+            timing.steadyMedianMilliseconds, timing.steadySamples, probeState(timing.state));
+  } else {
+    emitf("      %s useful-size timing: NOT TESTED", label);
+  }
+  emitf("      %s cross-thread cancellation: attempted %s | %s", label,
+        yesNo(flow.cancellationAttempted), probeState(flow.cancellationState));
+  if (!flow.cancellationFailure.empty())
+    emitf("        cancellation detail: %s", flow.cancellationFailure.c_str());
+  if (flow.vram.attempted) {
+    if (flow.vram.hasSample)
+      emitf("      %s VRAM: attempted yes | %s | baseline %.1f MiB | observed peak %.1f MiB | steady %.1f MiB",
+            label, probeState(flow.vram.state),
+            static_cast<double>(flow.vram.baselineUsedBytes) / (1024.0 * 1024.0),
+            static_cast<double>(flow.vram.peakUsedBytes) / (1024.0 * 1024.0),
+            static_cast<double>(flow.vram.steadyUsedBytes) / (1024.0 * 1024.0));
+    else
+      emitf("      %s VRAM: attempted yes | %s (%s)", label, probeState(flow.vram.state),
+            flow.vram.failure.empty() ? "no sample" : flow.vram.failure.c_str());
+  } else {
+    emitf("      %s VRAM: NOT TESTED (CPU path)", label);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The probe
 // ---------------------------------------------------------------------------
 
 bool runProbe(OfxImageEffectHandle instance) {
   section("White Water ONNX Runtime isolation probe");
+
+  emitf("  plugin instance %p | instances created in process %llu | currently live %llu",
+        instance, gCreatedInstances.load(std::memory_order_relaxed),
+        gLiveInstances.load(std::memory_order_relaxed));
+
+  bool runExtendedMeasurements = true;
+  if (const char *extended = std::getenv("WHITEWATER_ORT_EXTENDED"))
+    runExtendedMeasurements = std::strcmp(extended, "0") != 0;
+  emitf("  extended Phase 0B measurements: %s",
+        runExtendedMeasurements ? "enabled" : "disabled");
 
   const std::string library = runtimeDirectory();
   emitf("  bundled runtime directory: %s", library.c_str());
@@ -852,7 +1617,7 @@ bool runProbe(OfxImageEffectHandle instance) {
 
   std::vector<ModeResult> results;
   for (const Mode &mode : modes)
-    results.push_back(runMode(mode, library, hostApiBase));
+    results.push_back(runMode(mode, library, hostApiBase, runExtendedMeasurements));
 
   // --- Verdict -------------------------------------------------------------
   section("VERDICT");
@@ -861,15 +1626,50 @@ bool runProbe(OfxImageEffectHandle instance) {
     const bool usable = r.opened && r.distinctFromHost && r.ranInference &&
                         r.arithmeticCorrect;
     emitf("  %-52s %s", modes[i].name, usable ? "USABLE" : "NOT USABLE");
-    emitf("      opened %d | distinct pointer %d | version %s | ran %d | arithmetic %d",
-          (int)r.opened, (int)r.distinctFromHost,
-          r.versionReadable ? r.version.c_str() : "<unread>", (int)r.ranInference,
-          (int)r.arithmeticCorrect);
+    emitf("      opened: attempted yes | %s", probeState(stateFor(true, r.opened)));
+    emitf("      distinct pointer: attempted %s | %s", yesNo(r.opened),
+          probeState(stateFor(r.opened, r.distinctFromHost)));
+    emitf("      version: attempted %s | %s (%s)", yesNo(r.opened),
+          probeState(stateFor(r.opened, r.versionReadable)),
+          r.versionReadable ? r.version.c_str() : "unreadable");
+    emitf("      Add inference: attempted %s | %s", yesNo(r.opened),
+          probeState(stateFor(r.opened, r.ranInference)));
+    emitf("      Add arithmetic: attempted %s | %s", yesNo(r.ranInference),
+          probeState(stateFor(r.ranInference, r.arithmeticCorrect)));
     if (modes[i].runRealModel) {
-      emitf("      SEA-RAFT configured %d | CPU ran %d | direction/identity %d",
-            (int)r.realModelConfigured, (int)r.realModelRan, (int)r.realModelCorrect);
-      emitf("      CUDA available %d | ran %d | direction/identity %d",
-            (int)r.cudaAvailable, (int)r.cudaRan, (int)r.cudaCorrect);
+      emitf("      SEA-RAFT model readability: attempted %s | %s",
+            yesNo(r.realModelChecked),
+            probeState(stateFor(r.realModelChecked, r.realModelConfigured)));
+      emitf("      SEA-RAFT CPU inference: attempted %s | %s",
+            yesNo(r.realModelConfigured),
+            probeState(stateFor(r.realModelConfigured, r.realModelRan)));
+      emitf("      CPU direction/identity: attempted %s | %s", yesNo(r.realModelRan),
+            probeState(stateFor(r.realModelRan, r.realModelCorrect)));
+      if (!r.cudaProviderChecked)
+        emit("      CUDA provider availability: NOT TESTED");
+      else
+        emitf("      CUDA provider availability: %s", r.cudaAvailable ? "AVAILABLE" : "ABSENT");
+      emitf("      CUDA direction/identity: attempted %s | %s", yesNo(r.cudaRan),
+            probeState(stateFor(r.cudaRan, r.cudaCorrect)));
+      emitFlowExtendedVerdict("CPU", r.cpuFlow, r.cpuFlowAvailable);
+      emitFlowExtendedVerdict("CUDA", r.cudaFlow, r.cudaFlowAvailable);
+      emitf("      CPU repeated lifecycle: attempted %s | %s (%d/%d)",
+            yesNo(r.cpuLifecycle.attempted), probeState(r.cpuLifecycle.state),
+            r.cpuLifecycle.completed, r.cpuLifecycle.requested);
+      emitf("      CUDA repeated lifecycle: attempted %s | %s (%d/%d)",
+            yesNo(r.cudaLifecycle.attempted), probeState(r.cudaLifecycle.state),
+            r.cudaLifecycle.completed, r.cudaLifecycle.requested);
+      emitf("      provider-init failure + CPU fallback: attempted %s | %s",
+            yesNo(r.providerFallback.attempted), probeState(r.providerFallback.state));
+      emitf("      GPU OOM fallback: attempted %s | %s (%s)",
+            r.gpuOomFallbackState == ProbeState::NotTested ? "no" : "yes",
+            probeState(r.gpuOomFallbackState),
+            r.gpuOomFallbackFailure.empty() ? "no safe exercise" : r.gpuOomFallbackFailure.c_str());
+      emitf("      node duplication equivalence: attempted %s | %s (%s)",
+            r.nodeDuplicationState == ProbeState::NotTested ? "no" : "yes",
+            probeState(r.nodeDuplicationState),
+            r.nodeDuplicationFailure.empty() ? "requires manual Flame action"
+                                              : r.nodeDuplicationFailure.c_str());
     }
     if (!r.failure.empty())
       emitf("      failure: %s", r.failure.c_str());
@@ -896,16 +1696,17 @@ bool runProbe(OfxImageEffectHandle instance) {
     const ModeResult &r = results[i];
     emit("");
     if (!r.realModelConfigured) {
-      emit("  Phase 0B real-network result: NOT CONFIGURED (model absent)");
+      emit("  Phase 0B real-network result: NOT TESTED (model unreadable or not configured; "
+           "see the access diagnostic above)");
     } else {
-      emitf("  Phase 0B CPU real-network result: %s",
-            r.realModelRan && r.realModelCorrect ? "PASS" : "FAIL");
+      emitf("  Phase 0B CPU real-network result: attempted %s | %s", yesNo(r.realModelRan),
+            probeState(stateFor(r.realModelRan, r.realModelCorrect)));
     }
     if (r.realModelConfigured && !r.cudaAvailable)
       emit("  Phase 0B CUDA result: NOT TESTED (CUDA EP absent from this runtime)");
     else if (r.realModelConfigured)
-      emitf("  Phase 0B CUDA real-network result: %s",
-            r.cudaRan && r.cudaCorrect ? "PASS" : "FAIL");
+      emitf("  Phase 0B CUDA real-network result: attempted %s | %s", yesNo(r.cudaRan),
+            probeState(stateFor(r.cudaRan, r.cudaCorrect)));
   }
   emit("");
   emitf("  Report: %s", reportPath().c_str());
@@ -919,7 +1720,17 @@ bool runProbe(OfxImageEffectHandle instance) {
     if (modes[i].runRealModel)
       realModelPassed = results[i].realModelRan && results[i].realModelCorrect;
   const char *required = std::getenv("WHITEWATER_ORT_REQUIRE_REAL_MODEL");
-  return !(required && std::strcmp(required, "0") != 0) || realModelPassed;
+  if (required && std::strcmp(required, "0") != 0 && !realModelPassed)
+    return false;
+  const char *requireLifecycle = std::getenv("WHITEWATER_ORT_REQUIRE_LIFECYCLE");
+  if (requireLifecycle && std::strcmp(requireLifecycle, "0") != 0) {
+    for (std::size_t i = 0; i < modes.size(); ++i) {
+      if (modes[i].runRealModel && results[i].realModelConfigured &&
+          results[i].cpuLifecycle.state != ProbeState::Pass)
+        return false;
+    }
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1052,6 +1863,24 @@ OfxStatus onInstanceChanged(OfxImageEffectHandle instance, OfxPropertySetHandle 
   return kOfxStatReplyDefault;
 }
 
+OfxStatus onCreateInstance(OfxImageEffectHandle instance) {
+  const unsigned long long created =
+      gCreatedInstances.fetch_add(1, std::memory_order_relaxed) + 1;
+  const unsigned long long live = gLiveInstances.fetch_add(1, std::memory_order_relaxed) + 1;
+  emitf("ORT probe instance created: handle %p | created in process %llu | live %llu", instance,
+        created, live);
+  return kOfxStatOK;
+}
+
+OfxStatus onDestroyInstance(OfxImageEffectHandle instance) {
+  const unsigned long long previous = gLiveInstances.fetch_sub(1, std::memory_order_relaxed);
+  const unsigned long long live = previous > 0 ? previous - 1 : 0;
+  if (previous == 0)
+    gLiveInstances.store(0, std::memory_order_relaxed);
+  emitf("ORT probe instance destroyed: handle %p | live %llu", instance, live);
+  return kOfxStatOK;
+}
+
 void setHostFunc(OfxHost *host) { gHost = host; }
 
 OfxStatus pluginMain(const char *action, const void *handle, OfxPropertySetHandle inArgs,
@@ -1064,6 +1893,10 @@ OfxStatus pluginMain(const char *action, const void *handle, OfxPropertySetHandl
       return onDescribe(effect);
     if (std::strcmp(action, kOfxImageEffectActionDescribeInContext) == 0)
       return onDescribeInContext(effect);
+    if (std::strcmp(action, kOfxActionCreateInstance) == 0)
+      return onCreateInstance(effect);
+    if (std::strcmp(action, kOfxActionDestroyInstance) == 0)
+      return onDestroyInstance(effect);
     if (std::strcmp(action, kOfxImageEffectActionRender) == 0)
       return onRender(effect, inArgs);
     if (std::strcmp(action, kOfxActionInstanceChanged) == 0)

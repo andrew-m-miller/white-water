@@ -10,18 +10,20 @@ Targets **Rocky Linux 9.5+** and **arm64 macOS**. MTI Film internal.
 
 ## Status
 
-**Scaffolding, with Phase 0A closed.** The build produces the host probe and the ONNX
-Runtime isolation probe; the plugin itself does not exist yet.
+**Scaffolding, with Phase 0A closed and Phase 0B in progress.** The build produces the host
+probe and the ONNX Runtime isolation probe; the plugin itself does not exist yet.
 
 All five Phase 0 questions were measured in Flame 2026.2 on 2026-08-20, and two came back
 better than budgeted: `clipGetImage` works at arbitrary times *during* render, and a private
 ONNX Runtime coexists with Flame's own in the same process. So the on-demand chain design
 holds, and inference runs **in-process** — no IPC boundary to build.
 
-Two measurement gates remain: **0B** puts a pinned SEA-RAFT M probe export through the CUDA
-execution provider before inference implementation; **0C** settles Flame's ST map convention
-and how long a plugin instance actually lives before ST/cache integration. Phase 1 and the
-host-free part of Phase 2 can proceed independently. See the Open section of
+The pinned SEA-RAFT M export now passes identity and direction on both CPU and CUDA through
+the private runtime inside Flame. **0B** remains open for exact CUDA payload ownership, VRAM,
+lifecycle, cancellation, fallback/OOM and warmed useful-resolution measurements before
+inference implementation; **0C** settles Flame's ST map convention and how long a plugin
+instance actually lives before ST/cache integration. Phase 1 and the host-free part of Phase
+2 can proceed independently. See the Open section of
 [docs/host-notes.md](docs/host-notes.md) and *Phase 0* in [docs/plan.md](docs/plan.md).
 
 ## Documents
@@ -74,7 +76,7 @@ Linux artifact in CI and carry it over, the way warp-drive does:
 
 Run the **build** workflow from the Actions tab. It is `workflow_dispatch` only and takes a
 required `purpose` — name the human test the build is for, so a run in the history says why
-it exists. It produces two artifacts, `whitewater-linux-rocky9` and `whitewater-macos`, each
+it exists. It produces two artifacts, `whitewater-linux-el8` and `whitewater-macos`, each
 a tarball with a SHA256 alongside and an `INSTALL.txt` inside.
 
 On the box, verify the checksum before unpacking:

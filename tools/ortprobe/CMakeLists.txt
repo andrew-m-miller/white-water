@@ -10,10 +10,12 @@
 # precisely the thing being measured. The runtime is reached only through dlopen/dlsym; the
 # ORT include directory below supplies struct layouts and nothing else.
 
+find_package(Threads REQUIRED)
+
 whitewater_add_ofx_bundle(
   NAME WhiteWaterOrtProbe
   SOURCES ortprobe.cpp
-  LIBRARIES ${CMAKE_DL_LIBS})
+  LIBRARIES ${CMAKE_DL_LIBS} Threads::Threads)
 
 target_include_directories(WhiteWaterOrtProbe SYSTEM PRIVATE "${WHITEWATER_ORT_INCLUDE_DIR}")
 # probe_model.inc lives beside the source.
@@ -51,9 +53,9 @@ add_custom_command(TARGET WhiteWaterOrtProbe POST_BUILD
 if(WHITEWATER_SEA_RAFT_MODEL)
   add_custom_command(TARGET WhiteWaterOrtProbe POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${ort_bundle_models}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    COMMAND "${CMAKE_COMMAND}" -E copy
             "${WHITEWATER_SEA_RAFT_MODEL}" "${ort_bundle_models}/sea-raft-m-opset17.onnx"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    COMMAND "${CMAKE_COMMAND}" -E copy
             "${WHITEWATER_SEA_RAFT_MANIFEST}" "${ort_bundle_models}/sea-raft-m.json"
     COMMENT "Staging verified SEA-RAFT M model and manifest into Contents/Resources/models"
     VERBATIM)
@@ -126,7 +128,8 @@ endif()
 # model parsed, ORT call sequence run, arithmetic checked. Without it, the first execution
 # of that code would be inside Flame on an airgapped box.
 add_executable(ortprobe_driver ortprobe_driver.cpp)
-target_link_libraries(ortprobe_driver PRIVATE whitewater::ofx_headers ${CMAKE_DL_LIBS})
+target_link_libraries(ortprobe_driver PRIVATE whitewater::ofx_headers ${CMAKE_DL_LIBS}
+                      Threads::Threads)
 add_dependencies(ortprobe_driver WhiteWaterOrtProbe)
 
 add_test(NAME ortprobe::runs
@@ -138,5 +141,21 @@ add_test(NAME ortprobe::runs
 # artifact keeps the original test contract and remains useful on developer machines.
 if(WHITEWATER_SEA_RAFT_MODEL)
   set_tests_properties(ortprobe::runs PROPERTIES
-    ENVIRONMENT "WHITEWATER_ORT_REQUIRE_REAL_MODEL=1")
+    ENVIRONMENT "WHITEWATER_ORT_REQUIRE_REAL_MODEL=1;WHITEWATER_ORT_EXTENDED=0")
+
+  # The exporter and the staging command both have to preserve a host-readable payload mode.
+  # Run this as a normal CTest test as well as in the packaging workflow: an owner can read a
+  # 0600 model, so an inference smoke test alone would not catch the Flame installation fault.
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME models::searaft_artifact
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/models/check_searaft_artifact.py"
+        "${WHITEWATER_SEA_RAFT_MANIFEST}"
+        "${WHITEWATER_SEA_RAFT_MODEL}")
+    add_test(NAME models::searaft_staged_artifact
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/models/check_searaft_artifact.py"
+        "${ort_bundle_models}/sea-raft-m.json"
+        "${ort_bundle_models}/sea-raft-m-opset17.onnx")
+  endif()
 endif()

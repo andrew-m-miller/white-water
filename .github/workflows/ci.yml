@@ -114,6 +114,12 @@ jobs:
             --output models/sea-raft-m-opset17.onnx \
             --update-manifest
 
+          # The exporting user owns the file, so a content/hash check alone would not catch
+          # the deterministic 0600 mode that Flame cannot read. Check the exact mode and
+          # bytes before they enter the bundle.
+          "$py" models/check_searaft_artifact.py \
+            models/sea-raft-m.json models/sea-raft-m-opset17.onnx
+
       - name: Configure
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
@@ -124,6 +130,12 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure --no-tests=error
+
+      - name: Verify staged SEA-RAFT payload
+        run: |
+          python3.11 models/check_searaft_artifact.py \
+            build/bundles/WhiteWaterOrtProbe.ofx.bundle/Contents/Resources/models/sea-raft-m.json \
+            build/bundles/WhiteWaterOrtProbe.ofx.bundle/Contents/Resources/models/sea-raft-m-opset17.onnx
 
       # Diagnostics only -- the gate below does not read these. Recorded every run because
       # the glibc *release* and the highest symbol version a libc *defines* are different
@@ -296,8 +308,15 @@ jobs:
 
           WhiteWaterOrtProbe contains the pinned SEA-RAFT M model and CUDA 12 execution
           provider for the Phase 0B measurement. Apply it and press "Run ORT Probe". It
-          checks runtime isolation, CPU and CUDA identity/direction, latency, and mapped
-          provider/CUDA libraries. Its report goes to $WHITEWATER_ORT_PROBE_LOG, else
+          checks runtime isolation, CPU and CUDA identity/direction, mapped provider/CUDA
+          libraries, VRAM checkpoints, warm/steady 480x640 timing, repeated session lifecycle,
+          cross-thread cancellation, and provider-init failure with CPU fallback. Extended
+          measurements are enabled in Flame by default and can take time. Set
+          WHITEWATER_ORT_PROBE_SIZES before launching Flame to select other bounded HxW sizes.
+          Physical GPU exhaustion is deliberately not attempted on a live Flame. Duplicate
+          the node and run the probe on each copy; instance handles and process-live counts
+          in the reports make that manual lifecycle check observable. Its report goes to
+          $WHITEWATER_ORT_PROBE_LOG, else
           $TMPDIR/whitewater-ortprobe.txt, else /tmp. Read the VERDICT block at the end;
           the reported version must NOT match Flame's own ONNX Runtime, or the result is
           ambiguous rather than positive.
@@ -315,6 +334,14 @@ jobs:
           probe exists to answer. Please send back the report file.
           EOF
           tar -czf "$staging.tar.gz" "$staging"
+          # Validate the extracted tarball too: this checks the final package payload rather
+          # than only the pre-archive staging directory.
+          package_check="$RUNNER_TEMP/whitewater-package-check"
+          mkdir -p "$package_check"
+          (umask 022; tar -xzf "$staging.tar.gz" -C "$package_check")
+          python3.11 models/check_searaft_artifact.py \
+            "$package_check/$staging/WhiteWaterOrtProbe.ofx.bundle/Contents/Resources/models/sea-raft-m.json" \
+            "$package_check/$staging/WhiteWaterOrtProbe.ofx.bundle/Contents/Resources/models/sea-raft-m-opset17.onnx"
           sha256sum "$staging.tar.gz" > "$staging.tar.gz.sha256"
 
       - uses: actions/upload-artifact@v7
