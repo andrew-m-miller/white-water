@@ -111,7 +111,8 @@ jobs:
           "$py" models/export_searaft.py \
             --upstream "$upstream" \
             --checkpoint "$checkpoint" \
-            --output models/sea-raft-m-opset17.onnx
+            --output models/sea-raft-m-opset17.onnx \
+            --update-manifest
 
       - name: Configure
         run: |

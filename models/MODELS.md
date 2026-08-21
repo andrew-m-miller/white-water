@@ -263,6 +263,13 @@ dynamic spatial axes. On a four-pixel synthetic translation, the exported model 
 median flow `(4.0042, 0.0087)` forward and `(-4.0097, -0.0004)` reverse; identical inputs
 had median EPE 0.0039 px. The manifest holds the full parity distribution and thresholds.
 
+ONNX protobuf bytes are not stable across the macOS arm64 and Linux x86-64 PyTorch
+exporters even when the pinned weights, graph structure and numerical validation agree. The
+artifact workflow therefore updates its checkout's manifest only after validation succeeds,
+and stages that manifest beside the model so every test bundle records the exact hash and
+measurements of the bytes it contains. The checked-in hash remains the first verified macOS
+export; it is not substituted for the target build's measured hash.
+
 This closes the export portion only. The artifact remains ignored by git and must be staged
 from a qualified build input. CPU/CUDA execution inside Flame, cancellation, repeated
 lifecycle, provider/OOM fallback, VRAM/latency, and CUDA payload closure remain open.
