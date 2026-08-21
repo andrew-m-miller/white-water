@@ -141,9 +141,12 @@ void section(const char *title) {
 // would silently answer a different question than the one being asked.
 
 #ifdef __APPLE__
-const char *const kRuntimeLeafName = "libonnxruntime.dylib";
+const char *const kRuntimeSuffixA = "libonnxruntime.dylib";
+// No second copy on macOS: only one mode runs there, so a second would be 40 MB of bundle
+// nobody opens.
 #else
-const char *const kRuntimeLeafName = "libonnxruntime.so";
+const char *const kRuntimeSuffixA = "libonnxruntime.so";
+const char *const kRuntimeSuffixB = "libonnxruntime-b.so";
 #endif
 
 // Where this plugin's own binary lives, so the runtime can be found beside it rather than
@@ -159,11 +162,13 @@ std::string moduleDirectory() {
   return ".";
 }
 
-std::string runtimePath() {
-  if (const char *override = std::getenv("WHITEWATER_ORT_LIBRARY"))
-    return override;
-  // Contents/<arch>/x.ofx -> Contents/Libraries/libonnxruntime.*
-  return moduleDirectory() + "/../Libraries/" + kRuntimeLeafName;
+// The directory the per-mode copies live in, with a trailing slash. Each mode appends its
+// own leaf name.
+std::string runtimeDirectory() {
+  if (const char *override = std::getenv("WHITEWATER_ORT_LIBRARY_DIR"))
+    return std::string(override) + "/";
+  // Contents/<arch>/x.ofx -> Contents/Libraries/
+  return moduleDirectory() + "/../Libraries/";
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +179,18 @@ struct Mode {
   const char *name;
   int flags;
   const char *rationale;
+  // Each mode opens its OWN copy of the runtime, at a distinct path.
+  //
+  // This is not tidiness, it is the difference between measuring and not. dlopen on a path
+  // that is already loaded returns the existing handle with a bumped refcount -- it does
+  // not reload -- and RTLD_DEEPBIND is only honoured at initial load. Measured 2026-08-20
+  // in Flame: mode 2 returned mode 1's library, both reported the identical OrtGetApiBase
+  // address, and the DEEPBIND column of that verdict meant nothing.
+  //
+  // dlclose between modes is not a fix: it is advisory, a runtime that registered
+  // thread-local state and atexit handlers may well stay mapped, and unloading ORT inside a
+  // host process is its own hazard. Distinct files are unambiguous.
+  const char *librarySuffix;
 };
 
 struct ModeResult {
@@ -189,8 +206,10 @@ struct ModeResult {
 // The subset of the ORT C API this needs, fetched through our own handle.
 typedef const OrtApiBase *(*GetApiBaseFn)(void);
 
-ModeResult runMode(const Mode &mode, const std::string &library, const void *hostApiBase) {
+ModeResult runMode(const Mode &mode, const std::string &libraryBase, const void *hostApiBase) {
   ModeResult result;
+
+  const std::string library = libraryBase + mode.librarySuffix;
 
   section(mode.name);
   emitf("  %s", mode.rationale);
@@ -205,6 +224,7 @@ ModeResult runMode(const Mode &mode, const std::string &library, const void *hos
     return result;
   }
   result.opened = true;
+  emitf("  handle %p", handle);
 
   // --- Level 1: resolution -------------------------------------------------
   dlerror();
@@ -392,8 +412,10 @@ ModeResult runMode(const Mode &mode, const std::string &library, const void *hos
 void runProbe(OfxImageEffectHandle instance) {
   section("White Water ONNX Runtime isolation probe");
 
-  const std::string library = runtimePath();
-  emitf("  bundled runtime: %s", library.c_str());
+  const std::string library = runtimeDirectory();
+  emitf("  bundled runtime directory: %s", library.c_str());
+  emit("  Each mode opens a separate copy, because dlopen returns the already-loaded");
+  emit("  library for a repeated path and RTLD_DEEPBIND only applies at initial load.");
   emitf("  header ORT_API_VERSION: %d", ORT_API_VERSION);
 
   // What the host already has, and where from. This is the thing we are trying not to bind
@@ -423,17 +445,25 @@ void runProbe(OfxImageEffectHandle instance) {
   modes.push_back({"Mode: plain dlopen (macOS two-level namespace)", RTLD_NOW | RTLD_LOCAL,
                    "macOS records which library each symbol came from, so the flat-namespace "
                    "capture this probe exists to measure does not arise. RTLD_DEEPBIND does "
-                   "not exist here."});
+                   "not exist here.",
+                   kRuntimeSuffixA});
 #else
-  modes.push_back({"Mode 1: RTLD_LOCAL only (expected INSUFFICIENT)", RTLD_NOW | RTLD_LOCAL,
-                   "RTLD_LOCAL keeps our symbols out of the global scope for later lookups. "
-                   "It does NOT change how our own library's relocations resolve -- those "
-                   "still search the global scope first. Measured here to show the contrast, "
-                   "not because it is expected to work."});
-  modes.push_back({"Mode 2: RTLD_LOCAL | RTLD_DEEPBIND (the candidate)",
-                   RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND,
+  // DEEPBIND first. If the two modes ever share a library again through some path this
+  // code did not anticipate, the mode that gets genuinely measured should be the one still
+  // in question -- not the one already answered.
+  modes.push_back({"Mode 1: RTLD_LOCAL | RTLD_DEEPBIND", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND,
                    "DEEPBIND makes the library prefer its own symbols over the global scope. "
-                   "This is the mode that decides whether in-process inference is available."});
+                   "Measured 2026-08-20: RTLD_LOCAL alone already sufficed in Flame, so what "
+                   "this mode now decides is whether DEEPBIND is safe to use, not whether it "
+                   "is necessary.",
+                   kRuntimeSuffixB});
+  modes.push_back({"Mode 2: RTLD_LOCAL only", RTLD_NOW | RTLD_LOCAL,
+                   "RTLD_LOCAL keeps our symbols out of the global scope for later lookups; "
+                   "it does not reorder how our own library's relocations resolve. Expected "
+                   "to be insufficient on paper, and measured sufficient in Flame -- most "
+                   "likely because ONNX Runtime is built with hidden visibility, so its "
+                   "internals never consult the global scope and there is nothing to capture.",
+                   kRuntimeSuffixA});
 #endif
 
   std::vector<ModeResult> results;

@@ -43,6 +43,26 @@ add_custom_command(TARGET WhiteWaterOrtProbe POST_BUILD
   COMMENT "Staging ${ort_library_name} into the ORT probe bundle as ${ort_staged_name}"
   VERBATIM)
 
+# A SECOND, byte-identical copy under a different name, on Linux only.
+#
+# Two modes have to open the runtime under different dlopen flags, and dlopen returns the
+# already-loaded library for a repeated path -- RTLD_DEEPBIND is honoured only at initial
+# load. Measured 2026-08-20 in Flame: without this, the second mode silently received the
+# first mode's library, both reported the identical OrtGetApiBase address, and the verdict
+# for the mode still in question was an artifact.
+#
+# dlclose between modes is not an alternative: it is advisory, and unloading a runtime that
+# has registered thread-local state inside a host process is its own hazard. Distinct files
+# are unambiguous, and 28 MB of duplication in a diagnostic bundle is a cheap price for a
+# measurement that means something.
+if(NOT APPLE)
+  add_custom_command(TARGET WhiteWaterOrtProbe POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${WHITEWATER_ORT_LIBRARY}" "${ort_bundle_libraries}/libonnxruntime-b.so"
+    COMMENT "Staging a second copy as libonnxruntime-b.so (per-mode isolation)"
+    VERBATIM)
+endif()
+
 # A minimal OFX host that drives the probe outside Flame. It cannot answer the DEEPBIND
 # question -- nothing here preloads a competing runtime -- but it does prove the probe
 # itself works: actions wired correctly, bundled runtime found by relative path, embedded
