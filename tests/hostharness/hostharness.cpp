@@ -1,4 +1,4 @@
-// Adapted from warp-drive 887a123, tests/hostharness/hostharness.cpp. MTI Film internal.
+// Adapted from warp-drive 887a123, tests/hostharness/hostharness.cpp.
 // White Water Phase 1 host contract harness.
 //
 // This is intentionally a small, dependency-free OFX host.  It uses the raw OFX C headers

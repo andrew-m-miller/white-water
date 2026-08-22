@@ -1,4 +1,4 @@
-// Adapted from warp-drive 887a123, src/ofx/Plugin.cpp. MTI Film internal.
+// Adapted from warp-drive 887a123, src/ofx/Plugin.cpp.
 // The bundle's sole module translation unit.  All implementation code lives in the static
 // host-bound library so it can be exercised without loading an OFX module in unit tests.
 

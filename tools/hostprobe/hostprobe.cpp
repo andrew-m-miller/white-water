@@ -1,6 +1,6 @@
 // White Water host capability probe.
 //
-// Vendored from warp-drive 887a123, tools/hostprobe/hostprobe.cpp. MTI Film internal.
+// Vendored from warp-drive 887a123, tools/hostprobe/hostprobe.cpp.
 // Currently unmodified apart from names: it still asks warp-drive's questions, and the
 // answers it produces are already recorded as "inherited" in docs/host-notes.md.
 //

@@ -1,4 +1,4 @@
-// Derived from warp-drive 887a123, src/ofx/FrameCapture.h. MTI Film internal.
+// Derived from warp-drive 887a123, src/ofx/FrameCapture.h.
 // Host-free owned frame value produced by an OFX capture boundary.
 //
 // The OFX image lifetime and pixel conversion belong in src/ofx/FrameCapture.{h,cpp}.
