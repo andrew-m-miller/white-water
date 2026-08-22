@@ -1,5 +1,5 @@
-# Phase 1 host-side verification.  This directory deliberately owns no production
-# targets: the harness is a raw OFX host and links only the vendored C headers.
+# Host-free Phase 2 unit coverage and the raw OFX host contract harness.
+add_subdirectory(unit)
 add_subdirectory(hostharness)
 
 # A module path is supplied by the top-level build once the plugin target exists. Without

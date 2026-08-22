@@ -40,6 +40,7 @@ in [docs/plan.md](docs/plan.md).
 | | |
 |---|---|
 | [docs/plan.md](docs/plan.md) | The approved plan: architecture, parameters, phasing, verification |
+| [docs/phase2-implementation-plan.md](docs/phase2-implementation-plan.md) | The scoped Phase 2 work packages and explicit later-phase exclusions |
 | [docs/host-notes.md](docs/host-notes.md) | What Flame actually does — measured, inherited, and open |
 | [docs/context.md](docs/context.md) | Why decisions went the way they did; known weaknesses |
 | [models/MODELS.md](models/MODELS.md) | Model provenance, licences, export procedure |
@@ -107,7 +108,7 @@ other versions. The module itself must retain no `DT_NEEDED` entry for ONNX Runt
 
 ```
 src/core/     host-free: the flow algebra and the resampler. No OFX, no ONNX Runtime, no I/O.
-src/infer/    ONNX Runtime loading and pairwise model execution. No OFX.
+src/infer/    Pairwise estimator contract and test double; ONNX Runtime arrives in Phase 3. No OFX.
 src/ofx/      the host boundary: image adapters, pixel formats, frame capture, host quirks
 tools/        hostprobe and ortprobe (Phase 0), ww-flow (Phase 2, offline CLI)
 cmake/        bundle layout, rpath, version script

@@ -13,7 +13,22 @@ add_library(whitewater_core STATIC
   warp/WarpMap.h
   warp/Resampler.h
   warp/Resampler.cpp
-  flow/Field.h)
+  flow/Field.h
+  flow/FlowLink.h
+  flow/FlowLink.cpp
+  flow/FlowCompose.h
+  flow/FlowCompose.cpp
+  flow/FlowChain.h
+  flow/FlowChain.cpp
+  flow/FlowCache.h
+  flow/FlowCache.cpp
+  flow/FlowWarpMap.h
+  flow/Preprocess.h
+  flow/Preprocess.cpp
+  flow/StMap.h
+  flow/StMap.cpp
+  flow/Composite.h
+  flow/Composite.cpp)
 
 add_library(whitewater::core ALIAS whitewater_core)
 

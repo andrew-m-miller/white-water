@@ -128,6 +128,7 @@ else()
 endif()
 
 add_subdirectory(src/core)
+add_subdirectory(src/infer)
 add_subdirectory(src/ofx)
 
 # Hand the host harness the concrete module, not the bundle directory. TARGET_FILE keeps
@@ -145,6 +146,8 @@ endif()
 if(WHITEWATER_BUILD_HOSTPROBE)
   add_subdirectory(tools/hostprobe)
 endif()
+
+add_subdirectory(tools/ww-flow)
 
 # The ONNX Runtime isolation probe, built only when pointed at an unpacked ORT release.
 # Off by default and never a hard error: the capability probe and the core must stay
@@ -172,17 +175,14 @@ add_test(NAME core::dependency_boundary_rejects_onnxruntime
     "-DCHECK_SCRIPT=${CMAKE_SOURCE_DIR}/scripts/check-core-dependencies.cmake"
     -P "${CMAKE_SOURCE_DIR}/scripts/expect-dependency-boundary-failure.cmake")
 
-# src/infer is deliberately not created as an empty production directory before Phase 3.
-# This small fixture exercises the second policy now: ONNX Runtime and file I/O are allowed,
-# while the separate negative test proves an OFX include is rejected.
+# The ORT-free inference contract arrives in Phase 2. ONNX Runtime and file I/O are allowed
+# by this layer's policy, while the separate negative fixture proves an OFX include is rejected.
 set(whitewater_boundary_script
     "${CMAKE_SOURCE_DIR}/scripts/check-core-dependencies.cmake")
-set(whitewater_infer_fixture
-    "${CMAKE_SOURCE_DIR}/scripts/dependency-boundary-fixtures/infer")
 add_test(NAME infer::dependency_boundary
   COMMAND "${CMAKE_COMMAND}"
-    "-DINFER_DIR=${whitewater_infer_fixture}"
-    "-DINFER_CMAKE=${whitewater_infer_fixture}/CMakeLists.txt"
+    "-DINFER_DIR=${CMAKE_SOURCE_DIR}/src/infer"
+    "-DINFER_CMAKE=${CMAKE_SOURCE_DIR}/src/infer/CMakeLists.txt"
     -P "${whitewater_boundary_script}")
 add_test(NAME infer::dependency_boundary_rejects_ofx
   COMMAND "${CMAKE_COMMAND}"
@@ -192,10 +192,8 @@ add_test(NAME infer::dependency_boundary_rejects_ofx
     "-DCHECK_SCRIPT=${whitewater_boundary_script}"
     -P "${CMAKE_SOURCE_DIR}/scripts/expect-dependency-boundary-failure.cmake")
 
-# Remaining production layers arrive with their phases -- see docs/plan.md:
-#
-#   src/infer      Phase 3   ONNX Runtime, model registry, selected pairwise estimators
-#   tools/ww-flow  Phase 2   offline flow CLI and the golden-test driver
+# The ONNX Runtime implementation, model registry, and selected estimators extend src/infer
+# in Phase 3; Phase 2 intentionally contains only the contract and analytic test double.
 
 message(STATUS "")
 message(STATUS "White Water ${PROJECT_VERSION}")
