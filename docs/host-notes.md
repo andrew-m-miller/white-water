@@ -738,6 +738,59 @@ the sub-zero edge columns into the least-squares; the OOR-free identity map is a
 exact. The native node's shift fit is clean because its OOR→black pixels are excluded from the
 fit.)
 
+## Measured — Phase 0C items 2-5: instance/process lifetime and render observations
+
+Flame **2026.2** (`com.autodesk.flame`) **and Autodesk Burn 2026.2**
+(`com.autodesk.backgroundreactor`) on `flame6`, Rocky 9.5, **2026-08-21**. General-context
+Batch node, 1920×1080 PAR 1, 50-frame clip. Raw:
+[`2026-08-21-hostprobe-0c-flame-burn.txt`](measurements/2026-08-21-hostprobe-0c-flame-burn.txt).
+The extended `hostprobe` logs a per-instance token with the process pid on every
+create/destroy and begin/end sequence render, and tallies render-scale, rowBytes sign,
+sub-window and anamorphic observations. All four processes appended to one `/tmp` report,
+so their interleaving is real concurrent output.
+
+### Item 2 — background/final render is a SEPARATE PROCESS. **This is the load-bearing result.**
+
+The foreground interactive session is Flame — `com.autodesk.flame`, pid **3948919**,
+`IsBackground=0`. It created two instances (token 1, then token 2 from **duplicating** the
+node) and rendered from the viewer, all under that one pid. Concurrently, a **second process
+— Autodesk Burn**, `com.autodesk.backgroundreactor`, pid **3954722**, `IsBackground=1` —
+rendered the **entire 0–49 range** (50 `begin sequence render` actions). Reopening Flame gave
+a fresh pid (3957948) with tokens renumbered from 1.
+
+So the final/background render runs in a **different process** from the foreground node. This
+is the "different process" branch of the 0C question, observed directly (not "background
+render does not apply") — Burn is a real second process that did the full-range render.
+
+**Consequence, and it is architectural: a RAM-only `Precache` has no production value for the
+final render.** Anything cached in the Flame foreground process is invisible to Burn. This
+resolves the deferred fork in `docs/plan.md`: the choice is now between dropping the `Precache`
+button and building an **explicitly user-managed** disk cache — never an automatic one, because
+a persistent cache that cannot detect an upstream regrade silently serves stale flow. It does
+**not** change the instance-lifetime cache design: within one process, `duplicate` = a new
+instance (new token, same pid), so per-instance caches are correct as planned.
+
+Corollary: **the probe loads and runs under Burn too**, a second Autodesk host sharing Flame's
+OFX implementation — same suites, `MultipleClipDepths=0`, GPU-property strings, and the same
+globally-loaded ORT/CUDA/TensorRT libraries. `HostQuirks` should recognise
+`com.autodesk.backgroundreactor` alongside `com.autodesk.flame`.
+
+### Items 3, 4 — render scale, rowBytes, sub-window: closed negative
+
+Across **122 renders in the two hosts** (72 in Flame, 50 in Burn): `renderScale` was `[1, 1]`
+every time; `kOfxImagePropRowBytes` was never negative; and no image was a sub-window of a
+larger allocation (bounds always equalled the full render window). The probe emits an inline
+line the first time it sees any of these — none appear in the transcript. Render scale is now
+confirmed unit in a background/final render, not just the interactive viewer.
+
+### Item 5 — anamorphic tile re-check: NOT yet exercised
+
+All renders were PAR 1.0, so the anamorphic re-check did not run — the report's own summary
+says so. This needs one more pass: a **PAR≠1** clip, rendered, with **Run Probe pressed in that
+same session** (the render-observation tallies are per-process, so pressing Run Probe in a
+fresh un-rendered session — as happened here — prints "NO RENDERS YET" even though earlier
+sessions rendered plenty). Cheap; just needs an anamorphic source on the next box visit.
+
 ## Open
 
 Phase 0A's five questions and all Phase 0B measurements are closed — see the measured sections
@@ -763,34 +816,28 @@ diagnostic remain Phase 4.
    RoD-vs-project-extent normalization edge is deliberately left open (needs an undersized/offset
    source; out of v1 scope). The depth half was already answered: `MultipleClipDepths = 0`, so
    the ST descriptor declares float only.
-2. **Instance and process lifetime.** Save and reload a Batch setup; switch away from the node
-   and back; duplicate it; render foreground versus background/final; reopen Flame. This
-   decides whether `Precache` has production value: a RAM-only precache is worthless if final
-   render happens in another process. Distinguish "background render is another process" from
-   "background render does not apply to this node type" — same practical effect, different
-   implications later. **Instrumented in `hostprobe.cpp`:** every `create`/`destroy instance`
-   and `begin`/`end sequence render` action logs a per-instance token, this process's pid, and
-   interactive/sequential status; `reportInstanceLifetime()` prints the procedure and how to
-   read the log (same pid ⇒ RAM precache viable; different pid ⇒ another process; no second
-   render seen ⇒ ambiguous, and it says which). Run the procedure and read the tokens/pids.
+2. **Instance and process lifetime. — CLOSED 2026-08-21.** Measured: **background/final render
+   runs in a separate process — Autodesk Burn (`com.autodesk.backgroundreactor`,
+   `IsBackground=1`)**, a different pid from the Flame foreground session, which rendered the
+   full frame range. Duplicating the node makes a new instance in the *same* process; reopening
+   Flame is a new process. **A RAM-only `Precache` therefore has no production value for the
+   final render.** See *Measured — Phase 0C items 2-5* above; this settles the `Precache` fork.
 
 ### Unblocking nothing in particular
 
-All three are now instrumented in `hostprobe.cpp` and reported together by
-`reportRenderObservations()` on **Run Probe** — they need only that a render has happened
-(view the node in the viewer), including one anamorphic-clip render for item 5.
+Instrumented in `hostprobe.cpp` and reported by `reportRenderObservations()` on **Run Probe**.
+Note the tallies are per-process: press Run Probe in the *same* session that rendered, or the
+summary reads "NO RENDERS YET" (as happened on 2026-08-21 — the raw per-render log still
+carried the answer for items 3 and 4).
 
-3. **Whether render scale is ever anything but 1.** Every observation so far is `[1, 1]`,
-   at both pixel aspect ratios. The probe now tracks per-axis min/max across every render and
-   flags any non-unit scale.
-4. **Whether `kOfxImagePropRowBytes` can be negative** in Flame, and whether images are ever
-   windows into larger allocations. The vendored `HostImage` handles both; nothing has
-   confirmed Flame exercises either. The probe flags a negative stride (and skips its own
-   pass-through copy for that render rather than walking off the allocation) and flags an
-   image whose bounds are a strict sub-window of the render window.
-5. **Re-run the tile check on an anamorphic clip** with the PAR fix in place, to confirm
-   what the corrected arithmetic already shows: that those renders were full frames. The probe
-   now tallies PAR≠1 renders and how many were partial, so one anamorphic render closes it.
+3. **Whether render scale is ever anything but 1. — CLOSED 2026-08-21.** `[1, 1]` across all
+   122 renders in both Flame and Burn, including the background/final render.
+4. **Whether `kOfxImagePropRowBytes` can be negative, or images are sub-windows. — CLOSED
+   2026-08-21 (negative).** Neither seen in any of the 122 renders across the two hosts; the
+   vendored `HostImage` still handles both defensively.
+5. **Re-run the tile check on an anamorphic clip. — STILL OPEN.** The 2026-08-21 run was all
+   PAR 1.0, so the anamorphic re-check did not execute. Needs one PAR≠1 render with Run Probe
+   pressed in that same session. Cheap; carry an anamorphic source next visit.
 
 ### Procedure
 

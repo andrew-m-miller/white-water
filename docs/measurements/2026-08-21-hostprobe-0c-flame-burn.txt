@@ -1,0 +1,1073 @@
+
+=========================================================================
+White Water host probe -- session started 2026-08-21 19:19:23 (pid 3948919)
+Report file: /tmp/whitewater-hostprobe.txt
+Host used OfxSetHost entry point: yes
+=========================================================================
+
+== Suites ==
+  OfxImageEffectSuite                v1  available
+  OfxPropertySuite                   v1  available
+  OfxParameterSuite                  v1  available
+  OfxMemorySuite                     v1  available
+  OfxMultiThreadSuite                v1  available
+  OfxMessageSuite                    v1  available
+  OfxMessageSuite                    v2  available
+  OfxProgressSuite                   v1  available
+  OfxProgressSuite                   v2  available
+  OfxTimeLineSuite                   v1  available
+  OfxParametricParameterSuite        v1  MISSING
+  OfxInteractSuite                   v1  available
+  OfxDrawSuite                       v1  available
+  OfxImageEffectOpenGLRenderSuite    v1  available
+  OfxOpenCLProgramSuite              v1  MISSING
+  multiThreadNumCPUs                      = 72
+
+== Host properties ==
+  OfxPropName                                          = "com.autodesk.flame"
+  OfxPropLabel                                         = "Flame"
+  OfxPropVersion                                       = 2026, 2
+  OfxPropVersionLabel                                  = "2026.2"
+  OfxPropAPIVersion                                    = 1, 4
+  OfxImageEffectHostPropIsBackground                   = 0
+  OfxImageEffectHostPropNativeOrigin                   = <present, dimension 0>
+  OfxImageEffectPropSupportsOverlays                   = 1
+  OfxImageEffectPropSupportsMultiResolution            = 0
+  OfxImageEffectPropSupportsTiles                      = 1
+  OfxImageEffectPropTemporalClipAccess                 = 1
+  OfxImageEffectPropMultipleClipDepths                 = 0
+  OfxImageEffectPropSupportsMultipleClipPARs           = 0
+  OfxImageEffectPropSetableFrameRate                   = 0
+  OfxImageEffectPropSetableFielding                    = 0
+  OfxImageEffectInstancePropSequentialRender           = 0
+  OfxImageEffectPropSupportedContexts                  = "OfxImageEffectContextFilter", "OfxImageEffectContextGeneral", "OfxImageEffectContextGenerator", "OfxImageEffectContextTransition"
+  OfxImageEffectPropSupportedPixelDepths               = "OfxBitDepthByte", "OfxBitDepthShort", "OfxBitDepthFloat", "OfxBitDepthHalf"
+  OfxImageEffectPropSupportedComponents                = "OfxImageComponentRGBA", "OfxImageComponentRGB", "OfxImageComponentAlpha"
+  OfxImageEffectPropRenderQualityDraft                 = 0
+  OfxParamHostPropSupportsCustomInteract               = 0
+  OfxParamHostPropSupportsStringAnimation              = 0
+  OfxParamHostPropSupportsChoiceAnimation              = 1
+  OfxParamHostPropSupportsStrChoice                    = 1
+  OfxParamHostPropSupportsStrChoiceAnimation           = 1
+  OfxParamHostPropSupportsBooleanAnimation             = 1
+  OfxParamHostPropSupportsCustomAnimation              = 0
+  OfxParamHostPropMaxParameters                        = -1
+  OfxParamHostPropMaxPages                             = 0
+  OfxParamHostPropPageRowColumnCount                   = 0, 0
+  OfxImageEffectPropOpenGLRenderSupported              = "true"
+  OfxImageEffectPropCudaRenderSupported                = "false"
+  OfxImageEffectPropCudaStreamSupported                = "false"
+  OfxImageEffectPropMetalRenderSupported               = "false"
+  OfxImageEffectPropOpenCLRenderSupported              = "false"
+  OfxImageEffectPropOpenCLSupported                    = <absent: kOfxStatErrUnknown>
+  -- GPU render support, re-read as int --
+  OfxImageEffectPropOpenGLRenderSupported              = <kOfxStatErrUnknown>
+  OfxImageEffectPropCudaRenderSupported                = <kOfxStatErrUnknown>
+  OfxImageEffectPropMetalRenderSupported               = <kOfxStatErrUnknown>
+  OfxImageEffectPropOpenCLRenderSupported              = <kOfxStatErrUnknown>
+
+== Global symbol scope (would our bundled libraries be captured?) ==
+  dlsym(RTLD_DEFAULT, ...) from inside the loaded plugin. A hit means the host's
+  copy is visible to us and our references would bind to it, first-loaded-wins.
+  A miss means the host loaded it privately (RTLD_LOCAL) and there is no collision.
+  VISIBLE  OrtGetApiBase                                  (ONNX Runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  VISIBLE  OrtSessionOptionsAppendExecutionProvider_CUDA  (ONNX Runtime CUDA EP)
+           from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  VISIBLE  cudaRuntimeGetVersion                          (CUDA runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  VISIBLE  cudaMalloc                                     (CUDA runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  VISIBLE  cudnnGetVersion                                (cuDNN)
+           from /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+  VISIBLE  cublasCreate_v2                                (cuBLAS)
+           from /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+  VISIBLE  createInferBuilder_INTERNAL                    (TensorRT)
+           from /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+  absent   protobuf_shutdown                              (protobuf (old ABI))
+  absent   _ZN6google8protobuf8internal14ShutdownEveryN   (protobuf (C++ ABI))
+  VISIBLE  TBB_runtime_interface_version                  (TBB)
+           from /opt/Autodesk/lib64/2026.2.1/libtbb.so.12
+
+  At least one symbol is globally visible. Bundling our own copy of that library
+  risks our calls binding to the host's while our state came from ours -- a
+  version-skew crash with no useful backtrace. Mitigations, in order: run
+  inference out of process; or dlopen ours RTLD_LOCAL|RTLD_DEEPBIND; or link it
+  statically with hidden visibility.
+
+== Loaded objects of interest (from inside the host process) ==
+  /opt/Autodesk/lib64/2026.2.1/libcublasLt.so.12
+  /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+  /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  /opt/Autodesk/lib64/libicudata.so.77
+  /opt/Autodesk/lib64/2026.2.1/libtbb.so.12
+  /opt/Autodesk/lib64/2026.2.1/libtbbmalloc.so.2
+  /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+  /opt/Autodesk/lib64/2026.2.1/libnvinfer_plugin.so.10
+  /opt/Autodesk/lib64/2026.2.1/libnvonnxparser.so.10
+  /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+  /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  /lib64/libcuda.so.1
+  /opt/Autodesk/lib64/libicudata.so.60
+  /lib64/libtbb.so.2
+  /opt/Autodesk/lib64/2026.2.1/libArriImageSdkTransformsCuda_module.9.0.0.so
+Registered overlay entry point via OfxImageEffectPluginPropOverlayInteractV2: kOfxStatOK
+
+== Describe in context "OfxImageEffectContextGeneral" ==
+  Defined optional second clip 'Insert': clipDefine kOfxStatOK, OfxImageClipPropOptional kOfxStatOK
+
+== Parameter types accepted by paramDefine ==
+  OfxParamTypeInteger      accepted
+  OfxParamTypeInteger2D    accepted
+  OfxParamTypeInteger3D    accepted
+  OfxParamTypeDouble       accepted
+  OfxParamTypeDouble2D     accepted
+  OfxParamTypeDouble3D     accepted
+  OfxParamTypeRGB          accepted
+  OfxParamTypeRGBA         accepted
+  OfxParamTypeBoolean      accepted
+  OfxParamTypeChoice       accepted
+  OfxParamTypeStrChoice    accepted
+  OfxParamTypeString       accepted
+  OfxParamTypeCustom       accepted
+  OfxParamTypeGroup        accepted
+  OfxParamTypePage         accepted
+  OfxParamTypePushButton   accepted
+  OfxParamTypeParametric   kOfxStatErrUnsupported
+0C item 2: Action: create instance  token=1 pid=3948919 live=1
+  INTERACT ACTION: OfxActionDescribe  (handle 0x32c92810)
+  INTERACT ACTION: OfxActionCreateInstance  (handle 0x32d28990)
+Action: getFramesNeeded at t=10.000 (call 1) -- declaring only {N}
+  OfxImageClipPropFrameRange_Source = [10 10]: kOfxStatOK
+  OfxImageClipPropFrameRange_Insert = [10 10]: kOfxStatOK
+Action: getFramesNeeded at t=10.000 (call 2) -- declaring only {N}
+  OfxImageClipPropFrameRange_Source = [10 10]: kOfxStatOK
+  OfxImageClipPropFrameRange_Insert = [10 10]: kOfxStatOK
+Action: getFramesNeeded at t=10.000 (call 3) -- declaring only {N}
+  OfxImageClipPropFrameRange_Source = [10 10]: kOfxStatOK
+  OfxImageClipPropFrameRange_Insert = [10 10]: kOfxStatOK
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[10.000 10.000] interactive=0 sequential=1
+
+== First render ==
+  OfxPropTime                                          = 10
+  OfxImageEffectPropFieldToRender                      = "OfxFieldNone"
+  OfxImageEffectPropRenderWindow                       = 0, 0, 1920, 1080
+  OfxImageEffectPropRenderScale                        = 1, 1
+  OfxImageEffectPropSequentialRenderStatus             = 1
+  OfxImageEffectPropInteractiveRenderStatus            = 0
+  OfxImageEffectPropRenderQualityDraft                 = 0
+  OfxImageEffectPropOpenGLEnabled                      = 0
+  OfxImageEffectPropCudaEnabled                        = <absent: kOfxStatErrUnknown>
+  OfxImageEffectPropMetalEnabled                       = <absent: kOfxStatErrUnknown>
+  OfxImageEffectPropOpenCLEnabled                      = <absent: kOfxStatErrUnknown>
+
+== Effect instance properties ==
+  OfxImageEffectPropContext                            = "OfxImageEffectContextGeneral"
+  OfxImageEffectPropProjectSize                        = 1920, 1080
+  OfxImageEffectPropProjectExtent                      = 1920, 1080
+  OfxImageEffectPropProjectOffset                      = 0, 0
+  OfxImageEffectPropPixelAspectRatio                   = 1
+  OfxImageEffectInstancePropEffectDuration             = 50
+  OfxImageEffectPropFrameRate                          = 23.976
+  OfxPropIsInteractive                                 = 0
+  -- Source clip --
+  OfxImageEffectPropPixelDepth                         = "OfxBitDepthFloat"
+  OfxImageEffectPropComponents                         = "OfxImageComponentRGBA"
+  OfxImageEffectPropPreMultiplication                  = "OfxImageAlphaUnPremultiplied"
+  OfxImagePropPixelAspectRatio                         = 1
+  OfxImageEffectPropFrameRate                          = 23.976
+  OfxImageEffectPropFrameRange                         = 0, 49
+  OfxImageClipPropConnected                            = 1
+  OfxImageClipPropContinuousSamples                    = 0
+
+== Optional second input clip ==
+  clipGetHandle('Insert'): kOfxStatOK
+  OfxImageClipPropConnected                            = 0
+  OfxImageClipPropOptional                             = 1
+  OfxImageEffectPropPixelDepth                         = "OfxBitDepthFloat"
+  OfxImageEffectPropComponents                         = "OfxImageComponentRGBA"
+  OfxImageEffectPropPreMultiplication                  = "OfxImageAlphaUnPremultiplied"
+  OfxImagePropPixelAspectRatio                         = 1
+  OfxImageEffectPropFrameRange                         = 0, 49
+  clipGetImage: kOfxStatFailed
+  render 1: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+
+== In-render frame access (clipGetImage DURING kOfxImageEffectActionRender) ==
+  This is the assumption the on-demand flow chain rests on. warp-drive only ever
+  measured the equivalent from an instance-changed action, which is a host at rest.
+  requesting t-1 ...
+  t-1: OK  bounds [0, 0, 1920, 1080]
+  requesting t+1 ...
+  t+1: OK  bounds [0, 0, 1920, 1080]
+  requesting t-10 ...
+  t-10: OK  bounds [0, 0, 1920, 1080]
+  requesting t+10 ...
+  t+10: OK  bounds [0, 0, 1920, 1080]
+  requesting t-100 ...
+  t-100: OK  bounds [0, 0, 1920, 1080]
+  requesting t+100 ...
+  t+100: OK  bounds [0, 0, 1920, 1080]
+  NOTE: check these against the clip's frame range. A host that clamps rather than
+  failing will return a valid image for a time outside the clip, so the chain must
+  consult kOfxImageEffectPropFrameRange itself and never infer range from failure.
+  Survived every pull without deadlocking. If this line is missing from the report,
+  the host hung or died on one of the requests above -- which is itself the answer.
+0C item 2: Action: end sequence render  token=1 pid=3948919
+  INTERACT ACTION: OfxInteractActionDraw  (handle 0x32d28990)
+    draw: pixel scale [1, 1]  render scale [1, 1]  background [0, 0, 0]
+    draw: pixel scale [1, 1]  render scale [1, 1]  background [0, 0, 0]
+    draw: pixel scale [1, 1]  render scale [1, 1]  background [0, 0, 0]
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[22.000 22.000] interactive=0 sequential=1
+  render 2: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[23.000 23.000] interactive=0 sequential=1
+  render 3: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[24.000 24.000] interactive=0 sequential=1
+  render 4: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[25.000 25.000] interactive=0 sequential=1
+  render 5: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[26.000 26.000] interactive=0 sequential=1
+  render 6: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[27.000 27.000] interactive=0 sequential=1
+  render 7: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[28.000 28.000] interactive=0 sequential=1
+  render 8: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[29.000 29.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[30.000 30.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[31.000 31.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[32.000 32.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[33.000 33.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[33.000 33.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[33.000 33.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+  INTERACT ACTION: OfxInteractActionPenMotion  (handle 0x32d28990)
+    pen: canonical [3573.72, 1076.32]  viewport [3573, 1076]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 33
+    pen: canonical [3573.72, 1067.91]  viewport [3573, 1067]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 33
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[29.000 29.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[23.000 23.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[21.000 21.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[20.000 20.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[18.000 18.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[15.000 15.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+0C item 2: Action: begin sequence render  token=1 pid=3948919 frameRange=[15.000 15.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3948919
+    pen: canonical [3266.8, -718.949]  viewport [3266, -718]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 15
+    pen: canonical [3266.8, -718.949]  viewport [3266, -718]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 15
+    pen: canonical [3174.31, -693.723]  viewport [3174, -693]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 15
+    pen: canonical [3157.49, -685.314]  viewport [3157, -685]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 15
+    pen: canonical [3144.88, -676.905]  viewport [3144, -676]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 15
+    pen: canonical [3128.06, -668.496]  viewport [3128, -668]  pressure 0
+    pixel scale [1, 1]  render scale [1, 1]  time 15
+0C item 2: Action: create instance  token=2 pid=3948919 live=2
+  INTERACT ACTION: OfxInteractActionLoseFocus  (handle 0x32d28990)
+  INTERACT ACTION: OfxInteractActionGainFocus  (handle 0x3440bea0)
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[0.000 0.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[1.000 1.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[2.000 2.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[3.000 3.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[4.000 4.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[5.000 5.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[6.000 6.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[7.000 7.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[8.000 8.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[9.000 9.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[10.000 10.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[11.000 11.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[12.000 12.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[13.000 13.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[14.000 14.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[15.000 15.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[16.000 16.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[17.000 17.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[18.000 18.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[19.000 19.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[20.000 20.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[21.000 21.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[22.000 22.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[23.000 23.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[24.000 24.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[25.000 25.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[26.000 26.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[27.000 27.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[28.000 28.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[29.000 29.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[30.000 30.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[31.000 31.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[32.000 32.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[33.000 33.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[34.000 34.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[35.000 35.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[36.000 36.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[37.000 37.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[38.000 38.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[39.000 39.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[40.000 40.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[41.000 41.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[42.000 42.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[43.000 43.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[44.000 44.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[45.000 45.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[46.000 46.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[47.000 47.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[48.000 48.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+0C item 2: Action: begin sequence render  token=2 pid=3948919 frameRange=[49.000 49.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=2 pid=3948919
+
+=========================================================================
+White Water host probe -- session started 2026-08-21 19:20:21 (pid 3954722)
+Report file: /tmp/whitewater-hostprobe.txt
+Host used OfxSetHost entry point: yes
+=========================================================================
+
+== Suites ==
+  OfxImageEffectSuite                v1  available
+  OfxPropertySuite                   v1  available
+  OfxParameterSuite                  v1  available
+  OfxMemorySuite                     v1  available
+  OfxMultiThreadSuite                v1  available
+  OfxMessageSuite                    v1  available
+  OfxMessageSuite                    v2  available
+  OfxProgressSuite                   v1  available
+  OfxProgressSuite                   v2  available
+  OfxTimeLineSuite                   v1  available
+  OfxParametricParameterSuite        v1  MISSING
+  OfxInteractSuite                   v1  available
+  OfxDrawSuite                       v1  available
+  OfxImageEffectOpenGLRenderSuite    v1  available
+  OfxOpenCLProgramSuite              v1  MISSING
+  multiThreadNumCPUs                      = 72
+
+== Host properties ==
+  OfxPropName                                          = "com.autodesk.backgroundreactor"
+  OfxPropLabel                                         = "Burn"
+  OfxPropVersion                                       = 2026, 2
+  OfxPropVersionLabel                                  = "2026.2"
+  OfxPropAPIVersion                                    = 1, 4
+  OfxImageEffectHostPropIsBackground                   = 1
+  OfxImageEffectHostPropNativeOrigin                   = <present, dimension 0>
+  OfxImageEffectPropSupportsOverlays                   = 1
+  OfxImageEffectPropSupportsMultiResolution            = 0
+  OfxImageEffectPropSupportsTiles                      = 1
+  OfxImageEffectPropTemporalClipAccess                 = 1
+  OfxImageEffectPropMultipleClipDepths                 = 0
+  OfxImageEffectPropSupportsMultipleClipPARs           = 0
+  OfxImageEffectPropSetableFrameRate                   = 0
+  OfxImageEffectPropSetableFielding                    = 0
+  OfxImageEffectInstancePropSequentialRender           = 0
+  OfxImageEffectPropSupportedContexts                  = "OfxImageEffectContextFilter", "OfxImageEffectContextGeneral", "OfxImageEffectContextGenerator", "OfxImageEffectContextTransition"
+  OfxImageEffectPropSupportedPixelDepths               = "OfxBitDepthByte", "OfxBitDepthShort", "OfxBitDepthFloat", "OfxBitDepthHalf"
+  OfxImageEffectPropSupportedComponents                = "OfxImageComponentRGBA", "OfxImageComponentRGB", "OfxImageComponentAlpha"
+  OfxImageEffectPropRenderQualityDraft                 = 0
+  OfxParamHostPropSupportsCustomInteract               = 0
+  OfxParamHostPropSupportsStringAnimation              = 0
+  OfxParamHostPropSupportsChoiceAnimation              = 1
+  OfxParamHostPropSupportsStrChoice                    = 1
+  OfxParamHostPropSupportsStrChoiceAnimation           = 1
+  OfxParamHostPropSupportsBooleanAnimation             = 1
+  OfxParamHostPropSupportsCustomAnimation              = 0
+  OfxParamHostPropMaxParameters                        = -1
+  OfxParamHostPropMaxPages                             = 0
+  OfxParamHostPropPageRowColumnCount                   = 0, 0
+  OfxImageEffectPropOpenGLRenderSupported              = "true"
+  OfxImageEffectPropCudaRenderSupported                = "false"
+  OfxImageEffectPropCudaStreamSupported                = "false"
+  OfxImageEffectPropMetalRenderSupported               = "false"
+  OfxImageEffectPropOpenCLRenderSupported              = "false"
+  OfxImageEffectPropOpenCLSupported                    = <absent: kOfxStatErrUnknown>
+  -- GPU render support, re-read as int --
+  OfxImageEffectPropOpenGLRenderSupported              = <kOfxStatErrUnknown>
+  OfxImageEffectPropCudaRenderSupported                = <kOfxStatErrUnknown>
+  OfxImageEffectPropMetalRenderSupported               = <kOfxStatErrUnknown>
+  OfxImageEffectPropOpenCLRenderSupported              = <kOfxStatErrUnknown>
+
+== Global symbol scope (would our bundled libraries be captured?) ==
+  dlsym(RTLD_DEFAULT, ...) from inside the loaded plugin. A hit means the host's
+  copy is visible to us and our references would bind to it, first-loaded-wins.
+  A miss means the host loaded it privately (RTLD_LOCAL) and there is no collision.
+  VISIBLE  OrtGetApiBase                                  (ONNX Runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  VISIBLE  OrtSessionOptionsAppendExecutionProvider_CUDA  (ONNX Runtime CUDA EP)
+           from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  VISIBLE  cudaRuntimeGetVersion                          (CUDA runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  VISIBLE  cudaMalloc                                     (CUDA runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  VISIBLE  cudnnGetVersion                                (cuDNN)
+           from /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+  VISIBLE  cublasCreate_v2                                (cuBLAS)
+           from /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+  VISIBLE  createInferBuilder_INTERNAL                    (TensorRT)
+           from /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+  absent   protobuf_shutdown                              (protobuf (old ABI))
+  absent   _ZN6google8protobuf8internal14ShutdownEveryN   (protobuf (C++ ABI))
+  VISIBLE  TBB_runtime_interface_version                  (TBB)
+           from /opt/Autodesk/lib64/2026.2.1/libtbb.so.12
+
+  At least one symbol is globally visible. Bundling our own copy of that library
+  risks our calls binding to the host's while our state came from ours -- a
+  version-skew crash with no useful backtrace. Mitigations, in order: run
+  inference out of process; or dlopen ours RTLD_LOCAL|RTLD_DEEPBIND; or link it
+  statically with hidden visibility.
+
+== Loaded objects of interest (from inside the host process) ==
+  /opt/Autodesk/lib64/2026.2.1/libcublasLt.so.12
+  /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+  /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  /opt/Autodesk/lib64/libicudata.so.77
+  /opt/Autodesk/lib64/2026.2.1/libtbb.so.12
+  /opt/Autodesk/lib64/2026.2.1/libtbbmalloc.so.2
+  /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+  /opt/Autodesk/lib64/2026.2.1/libnvinfer_plugin.so.10
+  /opt/Autodesk/lib64/2026.2.1/libnvonnxparser.so.10
+  /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+  /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  /lib64/libcuda.so.1
+  /opt/Autodesk/lib64/libicudata.so.60
+  /lib64/libtbb.so.2
+  /opt/Autodesk/lib64/2026.2.1/libArriImageSdkTransformsCuda_module.9.0.0.so
+Registered overlay entry point via OfxImageEffectPluginPropOverlayInteractV2: kOfxStatOK
+
+== Describe in context "OfxImageEffectContextGeneral" ==
+  Defined optional second clip 'Insert': clipDefine kOfxStatOK, OfxImageClipPropOptional kOfxStatOK
+
+== Parameter types accepted by paramDefine ==
+  OfxParamTypeInteger      accepted
+  OfxParamTypeInteger2D    accepted
+  OfxParamTypeInteger3D    accepted
+  OfxParamTypeDouble       accepted
+  OfxParamTypeDouble2D     accepted
+  OfxParamTypeDouble3D     accepted
+  OfxParamTypeRGB          accepted
+  OfxParamTypeRGBA         accepted
+  OfxParamTypeBoolean      accepted
+  OfxParamTypeChoice       accepted
+  OfxParamTypeStrChoice    accepted
+  OfxParamTypeString       accepted
+  OfxParamTypeCustom       accepted
+  OfxParamTypeGroup        accepted
+  OfxParamTypePage         accepted
+  OfxParamTypePushButton   accepted
+  OfxParamTypeParametric   kOfxStatErrUnsupported
+0C item 2: Action: create instance  token=1 pid=3954722 live=1
+  INTERACT ACTION: OfxActionDescribe  (handle 0x12a5aa60)
+  INTERACT ACTION: OfxActionCreateInstance  (handle 0x12b89820)
+Action: getFramesNeeded at t=0.000 (call 1) -- declaring only {N}
+  OfxImageClipPropFrameRange_Source = [0 0]: kOfxStatOK
+  OfxImageClipPropFrameRange_Insert = [0 0]: kOfxStatOK
+Action: getFramesNeeded at t=0.000 (call 2) -- declaring only {N}
+  OfxImageClipPropFrameRange_Source = [0 0]: kOfxStatOK
+  OfxImageClipPropFrameRange_Insert = [0 0]: kOfxStatOK
+Action: getFramesNeeded at t=0.000 (call 3) -- declaring only {N}
+  OfxImageClipPropFrameRange_Source = [0 0]: kOfxStatOK
+  OfxImageClipPropFrameRange_Insert = [0 0]: kOfxStatOK
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[0.000 0.000] interactive=0 sequential=1
+
+== First render ==
+  OfxPropTime                                          = 0
+  OfxImageEffectPropFieldToRender                      = "OfxFieldNone"
+  OfxImageEffectPropRenderWindow                       = 0, 0, 1920, 1080
+  OfxImageEffectPropRenderScale                        = 1, 1
+  OfxImageEffectPropSequentialRenderStatus             = 1
+  OfxImageEffectPropInteractiveRenderStatus            = 0
+  OfxImageEffectPropRenderQualityDraft                 = 0
+  OfxImageEffectPropOpenGLEnabled                      = 0
+  OfxImageEffectPropCudaEnabled                        = <absent: kOfxStatErrUnknown>
+  OfxImageEffectPropMetalEnabled                       = <absent: kOfxStatErrUnknown>
+  OfxImageEffectPropOpenCLEnabled                      = <absent: kOfxStatErrUnknown>
+
+== Effect instance properties ==
+  OfxImageEffectPropContext                            = "OfxImageEffectContextGeneral"
+  OfxImageEffectPropProjectSize                        = 1920, 1080
+  OfxImageEffectPropProjectExtent                      = 1920, 1080
+  OfxImageEffectPropProjectOffset                      = 0, 0
+  OfxImageEffectPropPixelAspectRatio                   = 1
+  OfxImageEffectInstancePropEffectDuration             = 50
+  OfxImageEffectPropFrameRate                          = 23.976
+  OfxPropIsInteractive                                 = 0
+  -- Source clip --
+  OfxImageEffectPropPixelDepth                         = "OfxBitDepthFloat"
+  OfxImageEffectPropComponents                         = "OfxImageComponentRGBA"
+  OfxImageEffectPropPreMultiplication                  = "OfxImageAlphaUnPremultiplied"
+  OfxImagePropPixelAspectRatio                         = 1
+  OfxImageEffectPropFrameRate                          = 23.976
+  OfxImageEffectPropFrameRange                         = 0, 49
+  OfxImageClipPropConnected                            = 1
+  OfxImageClipPropContinuousSamples                    = 0
+
+== Optional second input clip ==
+  clipGetHandle('Insert'): kOfxStatOK
+  OfxImageClipPropConnected                            = 0
+  OfxImageClipPropOptional                             = 1
+  OfxImageEffectPropPixelDepth                         = "OfxBitDepthFloat"
+  OfxImageEffectPropComponents                         = "OfxImageComponentRGBA"
+  OfxImageEffectPropPreMultiplication                  = "OfxImageAlphaUnPremultiplied"
+  OfxImagePropPixelAspectRatio                         = 1
+  OfxImageEffectPropFrameRange                         = 0, 49
+  clipGetImage: kOfxStatFailed
+  render 1: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+
+== In-render frame access (clipGetImage DURING kOfxImageEffectActionRender) ==
+  This is the assumption the on-demand flow chain rests on. warp-drive only ever
+  measured the equivalent from an instance-changed action, which is a host at rest.
+  requesting t-1 ...
+  t-1: OK  bounds [0, 0, 1920, 1080]
+  requesting t+1 ...
+  t+1: OK  bounds [0, 0, 1920, 1080]
+  requesting t-10 ...
+  t-10: OK  bounds [0, 0, 1920, 1080]
+  requesting t+10 ...
+  t+10: OK  bounds [0, 0, 1920, 1080]
+  requesting t-100 ...
+  t-100: OK  bounds [0, 0, 1920, 1080]
+  requesting t+100 ...
+  t+100: OK  bounds [0, 0, 1920, 1080]
+  NOTE: check these against the clip's frame range. A host that clamps rather than
+  failing will return a valid image for a time outside the clip, so the chain must
+  consult kOfxImageEffectPropFrameRange itself and never infer range from failure.
+  Survived every pull without deadlocking. If this line is missing from the report,
+  the host hung or died on one of the requests above -- which is itself the answer.
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[1.000 1.000] interactive=0 sequential=1
+  render 2: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[2.000 2.000] interactive=0 sequential=1
+  render 3: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[3.000 3.000] interactive=0 sequential=1
+  render 4: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[4.000 4.000] interactive=0 sequential=1
+  render 5: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[5.000 5.000] interactive=0 sequential=1
+  render 6: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[6.000 6.000] interactive=0 sequential=1
+  render 7: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[7.000 7.000] interactive=0 sequential=1
+  render 8: window [0 0 1920 1080] rod(canonical) [0 0 1920 1080] par 1.000 -> rod(pixels) [0 0 1920 1080] full frame
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[8.000 8.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[9.000 9.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[10.000 10.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[11.000 11.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[12.000 12.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[13.000 13.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[14.000 14.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[15.000 15.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[16.000 16.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[17.000 17.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[18.000 18.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[19.000 19.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[20.000 20.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[21.000 21.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[22.000 22.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[23.000 23.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[24.000 24.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[25.000 25.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[26.000 26.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[27.000 27.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[28.000 28.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[29.000 29.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[30.000 30.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[31.000 31.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[32.000 32.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[33.000 33.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[34.000 34.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[35.000 35.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[36.000 36.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[37.000 37.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[38.000 38.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[39.000 39.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[40.000 40.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[41.000 41.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[42.000 42.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[43.000 43.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[44.000 44.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[45.000 45.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[46.000 46.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[47.000 47.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[48.000 48.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+0C item 2: Action: begin sequence render  token=1 pid=3954722 frameRange=[49.000 49.000] interactive=0 sequential=1
+0C item 2: Action: end sequence render  token=1 pid=3954722
+  INTERACT ACTION: OfxActionDestroyInstance  (handle 0x3440bea0)
+0C item 2: Action: destroy instance  token=2 pid=3948919 live=1
+0C item 2: Action: destroy instance  token=1 pid=3948919 live=0
+Action: unload
+  INTERACT ACTION: OfxActionDestroyInstance  (handle 0x12b89820)
+0C item 2: Action: destroy instance  token=1 pid=3954722 live=0
+Action: unload
+
+=========================================================================
+White Water host probe -- session started 2026-08-21 19:21:42 (pid 3957948)
+Report file: /tmp/whitewater-hostprobe.txt
+Host used OfxSetHost entry point: yes
+=========================================================================
+
+== Suites ==
+  OfxImageEffectSuite                v1  available
+  OfxPropertySuite                   v1  available
+  OfxParameterSuite                  v1  available
+  OfxMemorySuite                     v1  available
+  OfxMultiThreadSuite                v1  available
+  OfxMessageSuite                    v1  available
+  OfxMessageSuite                    v2  available
+  OfxProgressSuite                   v1  available
+  OfxProgressSuite                   v2  available
+  OfxTimeLineSuite                   v1  available
+  OfxParametricParameterSuite        v1  MISSING
+  OfxInteractSuite                   v1  available
+  OfxDrawSuite                       v1  available
+  OfxImageEffectOpenGLRenderSuite    v1  available
+  OfxOpenCLProgramSuite              v1  MISSING
+  multiThreadNumCPUs                      = 72
+
+== Host properties ==
+  OfxPropName                                          = "com.autodesk.flame"
+  OfxPropLabel                                         = "Flame"
+  OfxPropVersion                                       = 2026, 2
+  OfxPropVersionLabel                                  = "2026.2"
+  OfxPropAPIVersion                                    = 1, 4
+  OfxImageEffectHostPropIsBackground                   = 0
+  OfxImageEffectHostPropNativeOrigin                   = <present, dimension 0>
+  OfxImageEffectPropSupportsOverlays                   = 1
+  OfxImageEffectPropSupportsMultiResolution            = 0
+  OfxImageEffectPropSupportsTiles                      = 1
+  OfxImageEffectPropTemporalClipAccess                 = 1
+  OfxImageEffectPropMultipleClipDepths                 = 0
+  OfxImageEffectPropSupportsMultipleClipPARs           = 0
+  OfxImageEffectPropSetableFrameRate                   = 0
+  OfxImageEffectPropSetableFielding                    = 0
+  OfxImageEffectInstancePropSequentialRender           = 0
+  OfxImageEffectPropSupportedContexts                  = "OfxImageEffectContextFilter", "OfxImageEffectContextGeneral", "OfxImageEffectContextGenerator", "OfxImageEffectContextTransition"
+  OfxImageEffectPropSupportedPixelDepths               = "OfxBitDepthByte", "OfxBitDepthShort", "OfxBitDepthFloat", "OfxBitDepthHalf"
+  OfxImageEffectPropSupportedComponents                = "OfxImageComponentRGBA", "OfxImageComponentRGB", "OfxImageComponentAlpha"
+  OfxImageEffectPropRenderQualityDraft                 = 0
+  OfxParamHostPropSupportsCustomInteract               = 0
+  OfxParamHostPropSupportsStringAnimation              = 0
+  OfxParamHostPropSupportsChoiceAnimation              = 1
+  OfxParamHostPropSupportsStrChoice                    = 1
+  OfxParamHostPropSupportsStrChoiceAnimation           = 1
+  OfxParamHostPropSupportsBooleanAnimation             = 1
+  OfxParamHostPropSupportsCustomAnimation              = 0
+  OfxParamHostPropMaxParameters                        = -1
+  OfxParamHostPropMaxPages                             = 0
+  OfxParamHostPropPageRowColumnCount                   = 0, 0
+  OfxImageEffectPropOpenGLRenderSupported              = "true"
+  OfxImageEffectPropCudaRenderSupported                = "false"
+  OfxImageEffectPropCudaStreamSupported                = "false"
+  OfxImageEffectPropMetalRenderSupported               = "false"
+  OfxImageEffectPropOpenCLRenderSupported              = "false"
+  OfxImageEffectPropOpenCLSupported                    = <absent: kOfxStatErrUnknown>
+  -- GPU render support, re-read as int --
+  OfxImageEffectPropOpenGLRenderSupported              = <kOfxStatErrUnknown>
+  OfxImageEffectPropCudaRenderSupported                = <kOfxStatErrUnknown>
+  OfxImageEffectPropMetalRenderSupported               = <kOfxStatErrUnknown>
+  OfxImageEffectPropOpenCLRenderSupported              = <kOfxStatErrUnknown>
+
+== Global symbol scope (would our bundled libraries be captured?) ==
+  dlsym(RTLD_DEFAULT, ...) from inside the loaded plugin. A hit means the host's
+  copy is visible to us and our references would bind to it, first-loaded-wins.
+  A miss means the host loaded it privately (RTLD_LOCAL) and there is no collision.
+  VISIBLE  OrtGetApiBase                                  (ONNX Runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  VISIBLE  OrtSessionOptionsAppendExecutionProvider_CUDA  (ONNX Runtime CUDA EP)
+           from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  VISIBLE  cudaRuntimeGetVersion                          (CUDA runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  VISIBLE  cudaMalloc                                     (CUDA runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  VISIBLE  cudnnGetVersion                                (cuDNN)
+           from /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+  VISIBLE  cublasCreate_v2                                (cuBLAS)
+           from /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+  VISIBLE  createInferBuilder_INTERNAL                    (TensorRT)
+           from /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+  absent   protobuf_shutdown                              (protobuf (old ABI))
+  absent   _ZN6google8protobuf8internal14ShutdownEveryN   (protobuf (C++ ABI))
+  VISIBLE  TBB_runtime_interface_version                  (TBB)
+           from /opt/Autodesk/lib64/2026.2.1/libtbb.so.12
+
+  At least one symbol is globally visible. Bundling our own copy of that library
+  risks our calls binding to the host's while our state came from ours -- a
+  version-skew crash with no useful backtrace. Mitigations, in order: run
+  inference out of process; or dlopen ours RTLD_LOCAL|RTLD_DEEPBIND; or link it
+  statically with hidden visibility.
+
+== Loaded objects of interest (from inside the host process) ==
+  /opt/Autodesk/lib64/2026.2.1/libcublasLt.so.12
+  /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+  /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  /opt/Autodesk/lib64/libicudata.so.77
+  /opt/Autodesk/lib64/2026.2.1/libtbb.so.12
+  /opt/Autodesk/lib64/2026.2.1/libtbbmalloc.so.2
+  /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+  /opt/Autodesk/lib64/2026.2.1/libnvinfer_plugin.so.10
+  /opt/Autodesk/lib64/2026.2.1/libnvonnxparser.so.10
+  /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+  /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  /lib64/libcuda.so.1
+  /opt/Autodesk/lib64/libicudata.so.60
+  /lib64/libtbb.so.2
+  /opt/Autodesk/lib64/2026.2.1/libArriImageSdkTransformsCuda_module.9.0.0.so
+Registered overlay entry point via OfxImageEffectPluginPropOverlayInteractV2: kOfxStatOK
+
+== Describe in context "OfxImageEffectContextGeneral" ==
+  Defined optional second clip 'Insert': clipDefine kOfxStatOK, OfxImageClipPropOptional kOfxStatOK
+
+== Parameter types accepted by paramDefine ==
+  OfxParamTypeInteger      accepted
+  OfxParamTypeInteger2D    accepted
+  OfxParamTypeInteger3D    accepted
+  OfxParamTypeDouble       accepted
+  OfxParamTypeDouble2D     accepted
+  OfxParamTypeDouble3D     accepted
+  OfxParamTypeRGB          accepted
+  OfxParamTypeRGBA         accepted
+  OfxParamTypeBoolean      accepted
+  OfxParamTypeChoice       accepted
+  OfxParamTypeStrChoice    accepted
+  OfxParamTypeString       accepted
+  OfxParamTypeCustom       accepted
+  OfxParamTypeGroup        accepted
+  OfxParamTypePage         accepted
+  OfxParamTypePushButton   accepted
+  OfxParamTypeParametric   kOfxStatErrUnsupported
+0C item 2: Action: create instance  token=1 pid=3957948 live=1
+  INTERACT ACTION: OfxActionDescribe  (handle 0x289a8760)
+  INTERACT ACTION: OfxActionCreateInstance  (handle 0x2336a8c0)
+0C item 2: Action: create instance  token=2 pid=3957948 live=2
+  INTERACT ACTION: OfxInteractActionGainFocus  (handle 0x233d9a80)
+Action: getFramesNeeded at t=15.000 (call 1) -- declaring only {N}
+  OfxImageClipPropFrameRange_Source = [15 15]: kOfxStatOK
+  OfxImageClipPropFrameRange_Insert = [15 15]: kOfxStatOK
+Action: getFramesNeeded at t=15.000 (call 2) -- declaring only {N}
+  OfxImageClipPropFrameRange_Source = [15 15]: kOfxStatOK
+  OfxImageClipPropFrameRange_Insert = [15 15]: kOfxStatOK
+Action: getFramesNeeded at t=15.000 (call 3) -- declaring only {N}
+  OfxImageClipPropFrameRange_Source = [15 15]: kOfxStatOK
+  OfxImageClipPropFrameRange_Insert = [15 15]: kOfxStatOK
+
+== Host properties ==
+  OfxPropName                                          = "com.autodesk.flame"
+  OfxPropLabel                                         = "Flame"
+  OfxPropVersion                                       = 2026, 2
+  OfxPropVersionLabel                                  = "2026.2"
+  OfxPropAPIVersion                                    = 1, 4
+  OfxImageEffectHostPropIsBackground                   = 0
+  OfxImageEffectHostPropNativeOrigin                   = <present, dimension 0>
+  OfxImageEffectPropSupportsOverlays                   = 1
+  OfxImageEffectPropSupportsMultiResolution            = 0
+  OfxImageEffectPropSupportsTiles                      = 1
+  OfxImageEffectPropTemporalClipAccess                 = 1
+  OfxImageEffectPropMultipleClipDepths                 = 0
+  OfxImageEffectPropSupportsMultipleClipPARs           = 0
+  OfxImageEffectPropSetableFrameRate                   = 0
+  OfxImageEffectPropSetableFielding                    = 0
+  OfxImageEffectInstancePropSequentialRender           = 0
+  OfxImageEffectPropSupportedContexts                  = "OfxImageEffectContextFilter", "OfxImageEffectContextGeneral", "OfxImageEffectContextGenerator", "OfxImageEffectContextTransition"
+  OfxImageEffectPropSupportedPixelDepths               = "OfxBitDepthByte", "OfxBitDepthShort", "OfxBitDepthFloat", "OfxBitDepthHalf"
+  OfxImageEffectPropSupportedComponents                = "OfxImageComponentRGBA", "OfxImageComponentRGB", "OfxImageComponentAlpha"
+  OfxImageEffectPropRenderQualityDraft                 = 0
+  OfxParamHostPropSupportsCustomInteract               = 0
+  OfxParamHostPropSupportsStringAnimation              = 0
+  OfxParamHostPropSupportsChoiceAnimation              = 1
+  OfxParamHostPropSupportsStrChoice                    = 1
+  OfxParamHostPropSupportsStrChoiceAnimation           = 1
+  OfxParamHostPropSupportsBooleanAnimation             = 1
+  OfxParamHostPropSupportsCustomAnimation              = 0
+  OfxParamHostPropMaxParameters                        = -1
+  OfxParamHostPropMaxPages                             = 0
+  OfxParamHostPropPageRowColumnCount                   = 0, 0
+  OfxImageEffectPropOpenGLRenderSupported              = "true"
+  OfxImageEffectPropCudaRenderSupported                = "false"
+  OfxImageEffectPropCudaStreamSupported                = "false"
+  OfxImageEffectPropMetalRenderSupported               = "false"
+  OfxImageEffectPropOpenCLRenderSupported              = "false"
+  OfxImageEffectPropOpenCLSupported                    = <absent: kOfxStatErrUnknown>
+  -- GPU render support, re-read as int --
+  OfxImageEffectPropOpenGLRenderSupported              = <kOfxStatErrUnknown>
+  OfxImageEffectPropCudaRenderSupported                = <kOfxStatErrUnknown>
+  OfxImageEffectPropMetalRenderSupported               = <kOfxStatErrUnknown>
+  OfxImageEffectPropOpenCLRenderSupported              = <kOfxStatErrUnknown>
+
+== Effect instance properties ==
+  OfxImageEffectPropContext                            = "OfxImageEffectContextGeneral"
+  OfxImageEffectPropProjectSize                        = 1920, 1080
+  OfxImageEffectPropProjectExtent                      = 1920, 1080
+  OfxImageEffectPropProjectOffset                      = 0, 0
+  OfxImageEffectPropPixelAspectRatio                   = 1
+  OfxImageEffectInstancePropEffectDuration             = 50
+  OfxImageEffectPropFrameRate                          = 23.976
+  OfxPropIsInteractive                                 = 0
+  -- Source clip --
+  OfxImageEffectPropPixelDepth                         = "OfxBitDepthFloat"
+  OfxImageEffectPropComponents                         = "OfxImageComponentRGBA"
+  OfxImageEffectPropPreMultiplication                  = "OfxImageAlphaUnPremultiplied"
+  OfxImagePropPixelAspectRatio                         = 1
+  OfxImageEffectPropFrameRate                          = 23.976
+  OfxImageEffectPropFrameRange                         = 0, 49
+  OfxImageClipPropConnected                            = 1
+  OfxImageClipPropContinuousSamples                    = 0
+
+== Optional second input clip ==
+  clipGetHandle('Insert'): kOfxStatOK
+  OfxImageClipPropConnected                            = 0
+  OfxImageClipPropOptional                             = 1
+  OfxImageEffectPropPixelDepth                         = "OfxBitDepthFloat"
+  OfxImageEffectPropComponents                         = "OfxImageComponentRGBA"
+  OfxImageEffectPropPreMultiplication                  = "OfxImageAlphaUnPremultiplied"
+  OfxImagePropPixelAspectRatio                         = 1
+  OfxImageEffectPropFrameRange                         = 0, 49
+  clipGetImage: kOfxStatFailed
+
+== Out-of-render frame access (clipGetImage outside kOfxImageEffectActionRender) ==
+  A working fast path here means the editor can pull frames on demand. If every
+  offset fails, the frame cache must be filled by a pass-through render instead.
+  t+0: OK  bounds [0, 0, 1920, 1080]
+  t-1: OK  bounds [0, 0, 1920, 1080]
+  t+1: OK  bounds [0, 0, 1920, 1080]
+  t-5: OK  bounds [0, 0, 1920, 1080]
+  t+5: OK  bounds [0, 0, 1920, 1080]
+  t-24: OK  bounds [0, 0, 1920, 1080]
+  t+24: OK  bounds [0, 0, 1920, 1080]
+
+== Global symbol scope (would our bundled libraries be captured?) ==
+  dlsym(RTLD_DEFAULT, ...) from inside the loaded plugin. A hit means the host's
+  copy is visible to us and our references would bind to it, first-loaded-wins.
+  A miss means the host loaded it privately (RTLD_LOCAL) and there is no collision.
+  VISIBLE  OrtGetApiBase                                  (ONNX Runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  VISIBLE  OrtSessionOptionsAppendExecutionProvider_CUDA  (ONNX Runtime CUDA EP)
+           from /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  VISIBLE  cudaRuntimeGetVersion                          (CUDA runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  VISIBLE  cudaMalloc                                     (CUDA runtime)
+           from /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  VISIBLE  cudnnGetVersion                                (cuDNN)
+           from /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+  VISIBLE  cublasCreate_v2                                (cuBLAS)
+           from /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+  VISIBLE  createInferBuilder_INTERNAL                    (TensorRT)
+           from /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+  absent   protobuf_shutdown                              (protobuf (old ABI))
+  absent   _ZN6google8protobuf8internal14ShutdownEveryN   (protobuf (C++ ABI))
+  VISIBLE  TBB_runtime_interface_version                  (TBB)
+           from /opt/Autodesk/lib64/2026.2.1/libtbb.so.12
+
+  At least one symbol is globally visible. Bundling our own copy of that library
+  risks our calls binding to the host's while our state came from ours -- a
+  version-skew crash with no useful backtrace. Mitigations, in order: run
+  inference out of process; or dlopen ours RTLD_LOCAL|RTLD_DEEPBIND; or link it
+  statically with hidden visibility.
+
+== Loaded objects of interest (from inside the host process) ==
+  /opt/Autodesk/lib64/2026.2.1/libcublasLt.so.12
+  /opt/Autodesk/lib64/2026.2.1/libcublas.so.12
+  /opt/Autodesk/lib64/2026.2.1/libcudart.so.12
+  /opt/Autodesk/lib64/libicudata.so.77
+  /opt/Autodesk/lib64/2026.2.1/libtbb.so.12
+  /opt/Autodesk/lib64/2026.2.1/libtbbmalloc.so.2
+  /opt/Autodesk/lib64/2026.2.1/libnvinfer.so.10
+  /opt/Autodesk/lib64/2026.2.1/libnvinfer_plugin.so.10
+  /opt/Autodesk/lib64/2026.2.1/libnvonnxparser.so.10
+  /opt/Autodesk/lib64/2026.2.1/libcudnn.so.9
+  /opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1
+  /lib64/libcuda.so.1
+  /opt/Autodesk/lib64/libicudata.so.60
+  /lib64/libtbb.so.2
+  /opt/Autodesk/lib64/2026.2.1/libArriImageSdkTransformsCuda_module.9.0.0.so
+
+== Overlay interact ==
+  Host reports OfxImageEffectPropSupportsOverlays = 1
+  Overlay entry point registered at describe time: yes
+  Actions received (count is every event, not just the sampled ones):
+    OfxActionDescribe                        1
+    OfxActionCreateInstance                  2
+    OfxInteractActionGainFocus               1
+  Editing capability check:
+    OfxInteractActionDraw                    NEVER RECEIVED
+    OfxInteractActionPenDown                 NEVER RECEIVED
+    OfxInteractActionPenUp                   NEVER RECEIVED
+    OfxInteractActionPenMotion               NEVER RECEIVED
+    OfxInteractActionKeyDown                 NEVER RECEIVED
+    OfxInteractActionKeyUp                   NEVER RECEIVED
+  If key actions were never received, exercise the viewer with the pen and the
+  keyboard before trusting that result -- then treat it as final.
+
+== PHASE 0 SUMMARY ==
+  1. Second optional clip     : defined -- see 'Optional second input clip' above
+  2. clipGetImage in render   : NOT ATTEMPTED (the node never rendered; view it in the viewer)
+  3. ORT/CUDA symbol capture  : see 'Global symbol scope' above.
+       VISIBLE lines mean a bundled copy would be captured by the host's, so
+       inference goes out of process or through RTLD_DEEPBIND. All absent means
+       in-process bundling is clean.
+  4. Tiles (SupportsTiles=0)  : NO RENDERS YET
+  5. getFramesNeeded          : called 10 times; we declared only {N} each time. Cross-check against whether item 2's pulls still succeeded.
+
+  Paste this report into docs/host-notes.md under a Measured heading, with the
+  host build and the date. Items 2 and 3 decide the architecture.
+
+== 0C render observations (items 3, 4, 5) ==
+  3. Render scale             : NO RENDERS YET
+  4. Negative rowBytes seen   : no
+     Sub-window images seen   : no
+  5. Anamorphic tile re-check : no PAR != 1 render observed on this clip; the PAR
+       fix in the tile check above is unexercised here.
+
+  Paste this section into docs/host-notes.md alongside the Phase 0 summary above.
+
+== 0C item 2: instance and process lifetime ==
+  Current pid: 3957948
+  Instances seen in this process so far: 2 total, 2 currently live
+
+  Procedure to run in Flame (this is 0C item 2 -- ST convention is item 1, tracked
+  separately):
+    1. Put this probe on a Batch node. Save the setup, then reload it.
+    2. Switch the Batch schematic away from the node and back to it.
+    3. DUPLICATE the node.
+    4. Render the node in the FOREGROUND / interactive path (e.g. step the viewer).
+    5. Render the node with a BACKGROUND or FINAL render.
+    6. Quit Flame, reopen it, and repeat steps 4-5.
+
+  How to read it: every 'create instance' / 'destroy instance' line carries a
+  token and this process's pid. Every 'begin sequence render' line carries the
+  same token, this pid, the frame range, and interactive/sequential status.
+
+  SAME pid on the foreground render and on the final/background render: a
+  RAM-only Precache survives into the final render, so it is production-viable.
+
+  DIFFERENT pid on the final/background render: it runs in a separate process,
+  so a RAM-only Precache built in the foreground process is invisible to it and
+  has no production value.
+
+  NO second 'begin sequence render' observed at all for a background render:
+  this has the same practical effect as 'different process' -- no precache
+  benefit -- but a DIFFERENT meaning, and the two must not be conflated in
+  docs/host-notes.md. Read it as EITHER 'background/final render does not apply
+  to this node type or context' OR 'it was never actually exercised in this
+  session' -- and say in the report which of the two actually happened (i.e.
+  whether a background render was attempted at all).
+
+Probe complete.
+  INTERACT ACTION: OfxInteractActionLoseFocus  (handle 0x233d9a80)
+  INTERACT ACTION: OfxActionDestroyInstance  (handle 0x233d9a80)
+0C item 2: Action: destroy instance  token=2 pid=3957948 live=1
+0C item 2: Action: destroy instance  token=1 pid=3957948 live=0
+Action: unload

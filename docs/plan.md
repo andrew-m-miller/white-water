@@ -218,12 +218,14 @@ Two questions, both cheap, both answerable with probe extensions:
    blacks, Action mirrors. RoD-vs-project-extent normalization is left open (needs an
    undersized/offset source; out of v1 scope). See `docs/host-notes.md`, *Measured — Phase 0C
    item 1*. This settles the `stOrigin` default and the `StMap.{h,cpp}` encoding.
-2. **Instance and process lifetime.** Save/reload a setup, switch away and back, duplicate
-   the node, foreground versus background/final render, reopen Flame. This decides whether
-   `Precache` has production value at all: if final render happens in another process, a
-   RAM-only precache is worthless for the thing artists actually care about. Distinguish
-   "background render is another process" from "background render does not apply to this
-   node type" — same practical effect, different implications later.
+2. **Instance and process lifetime. — MEASURED 2026-08-21.** Background/final render runs in a
+   **separate process — Autodesk Burn** (`com.autodesk.backgroundreactor`, `IsBackground=1`),
+   a different pid from the Flame foreground session, and it rendered the full range.
+   Duplicating the node = new instance, same process; reopening Flame = new process. **So a
+   RAM-only `Precache` has no production value for the final render.** See `docs/host-notes.md`,
+   *Measured — Phase 0C items 2-5*. This selects the disk-cache fork in *Deferred* below.
+   (Items 3 and 4 also closed there; item 5, the anamorphic tile re-check, still needs one
+   PAR≠1 render.)
 
 *The depth half of question 1 is already answered:* Flame reports
 `SupportsMultipleClipDepths = 0`, so no depth negotiation is possible and the ST descriptor
@@ -664,12 +666,14 @@ thresholds tied to the exact model and runtime hashes.
 
 - Third matte mode ("matte as flow confidence") — cheap to add on top of `fbCheck`'s
   confidence plumbing, but the user asked for two modes.
-- **Disk-backed flow cache surviving a Flame restart — gated on 0C, not categorically
-  deferred.** If foreground and final render keep the same instance and process, a RAM-only
-  `Precache` is viable and ships as-is. If final render is another process, `Precache` has no
-  production value and the choice is between dropping the button and building an explicitly
-  **user-managed** disk cache — never automatic, because persistence that cannot detect an
-  upstream regrade silently serves stale flow, which is worse than no cache at all.
+- **Disk-backed flow cache surviving a Flame restart — 0C ANSWERED 2026-08-21: final render is
+  another process (Burn), so a RAM-only `Precache` is not production-viable.** The remaining
+  choice is between **dropping the `Precache` button** and building an explicitly **user-managed**
+  disk cache — never automatic, because persistence that cannot detect an upstream regrade
+  silently serves stale flow, which is worse than no cache at all. That product decision is not
+  yet taken; until it is, the `precache*` parameters and button in *Parameters* are provisional.
+  Whatever ships, per-instance in-RAM caching is still correct for interactive work (duplicate =
+  new instance in the same process, measured).
 - Display-only overlay showing the reference frame and chain state. Flame does deliver pen
   events and the `OfxDrawSuite`, but **never keyboard events**, and `kOfxInteractPropPixelScale`
   reads `[1,1]` at every zoom — so any overlay must be display-only and zoom-independent.
