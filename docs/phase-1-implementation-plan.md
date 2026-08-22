@@ -4,8 +4,10 @@ Phase 1 turns the closed host measurements into the smallest real White Water pl
 purpose is to freeze and verify the OFX-facing workflow contract before flow algebra or ONNX
 Runtime enters the module.
 
-The implementation lives on `codex/phase-1`. Nothing from this phase lands directly on
-`main`; the finished branch is pushed and opened as a human-review PR.
+**Status: closed 2026-08-22.** The implementation lived on `codex/phase-1`, passed all eleven
+local tests and the Flame 2026.2 product smoke test, and merged through PR #1 at `5fa267f`.
+The topic branch was deleted. This document remains the historical work breakdown and exclusion
+record; `docs/plan.md` and `docs/context.md` own the current phase status.
 
 ## Exit contract
 
@@ -114,7 +116,10 @@ cmake --build build-phase1 -j
 ctest --test-dir build-phase1 --output-on-failure
 ```
 
-The PR body records the local matrix actually run and asks for a `workflow_dispatch` artifact
-with a purpose naming the Flame Phase 1 contract test. On the target box, install the bundle,
-confirm both nodes appear with legible labels, exercise Source/Insert and ST fallback renders,
-and inspect `/opt/Autodesk/log/` for the load report. The PR remains unmerged for human review.
+The PR recorded the local matrix and dispatched an EL8 artifact for the Flame Phase 1 contract
+test. On-box verification confirmed both nodes and sockets, legible and descriptor-specific
+controls, scalar Set Ref behavior, Source/Insert routing, connected and disconnected mattes,
+partial renders, the native ST round-trip, and clean load diagnostics. The test exposed a missing
+menu-grouping property; the standard `White Water` grouping and a harness assertion were added
+before PR #1 merged. The replacement artifact was not reinstalled before merge by explicit human
+choice because the change matches both already-working probes and is low-risk to correct later.

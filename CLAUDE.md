@@ -14,17 +14,14 @@ Documents own facts; this file owns process. Do not restate a measured fact here
 
 ## Where the project is
 
-**Scaffolding, all of Phase 0 closed (0A, 0B, 0C).** The build produces the two probes and
-nothing else. The plugin does not exist.
+**Phases 0 and 1 are closed.** The build now produces the permanent White Water product bundle
+and its diagnostic probes. The product contains separate Track/Insert and float-only ST Map
+descriptors with deterministic Phase 1 fallbacks; inference is not wired into the product yet.
 
-Read the measured Phase 0 record in `docs/host-notes.md` rather than restating it here.
-**0C closed 2026-08-21:** the ST convention is measured (`(x+0.5)/N`, bottom-left, U→R/V→G,
-per-node out-of-range behaviour), and final render is a separate process (Autodesk Burn).
-**Precache decided 2026-08-22: v1 ships a RAM-only cache, no persistence** — the facility renders
-almost everything in the foreground and uses single-node Burn rarely, never fanned out, so RAM
-covers it; a durable disk cache is a future option gated on Burn renders fanning out across a
-farm (see `docs/context.md`, `docs/plan.md` *Deferred*). Phase 1 is now the next work, and per
-*Branching and review* it lands on reviewed PRs, not `main`.
+Read the measured Phase 0 and Phase 1 records in `docs/host-notes.md` rather than restating them
+here. Phase 1 merged through PR #1 on 2026-08-22 after Flame verified the workflow, fallback,
+matte, partial-render and ST contracts. **Phase 2 is next:** host-free flow algebra,
+`NullPairwiseEstimator`, `ww-flow`, and expanded unit/harness coverage.
 
 The plan was amended on 2026-08-20 after an architecture review. Read `docs/plan.md` and
 `docs/context.md` before writing code against anything you remember about it.
@@ -41,7 +38,8 @@ whole value is being run on the box the same day.
 - Branch from an up-to-date `main`, one topic per branch.
 - Commit there, push, and open a PR with `gh pr create`. The PR body says what was measured
   or tested, not just what changed.
-- **Do not merge it.** The PR exists to be reviewed by a human; that review is the point.
+- **Do not merge it unless the human explicitly asks after review.** The PR exists for human
+  review; that review is the point.
 - Once it is merged, delete the branch, local and remote.
 - Never commit or push to `main` from Phase 1 onward, and never force-push a branch under
   review.
@@ -71,10 +69,9 @@ These are warp-drive's, paid for in lost days. They apply here unchanged.
 - **Export only the three OFX entry points.** `cmake/ofx.map` plus `--no-undefined`. This
   matters more here than in warp-drive: ONNX Runtime drags in protobuf, abseil and a CUDA
   runtime, all of which Flame may already have loaded at other versions.
-- **`src/core` stays host-free.** No OFX, no ONNX Runtime, no I/O. Enforced by
-  `ctest -R core::dependency_boundary`, not by convention. `src/infer` must stay OFX-free
-  too — that half is **not yet gated**, and the plan as first written broke it. Give the
-  script its second invocation before relying on the rule.
+- **`src/core` stays host-free.** No OFX, no ONNX Runtime, no I/O. `src/infer` stays OFX-free.
+  Both are enforced by separate `ctest` dependency-boundary policies with expected-failure
+  fixtures, not by convention.
 - **Build Linux artifacts in an `almalinux:8` container** against a hard-coded glibc 2.28
   baseline, and gate with `scripts/check-glibc-baseline.sh`. Never derive that floor from the
   build machine. A local modern-distro build is not a Flame artifact — a wrong-glibc plugin is

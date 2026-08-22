@@ -245,10 +245,12 @@ src/infer/   ONNX Runtime, no OFX                          → testable with a C
 src/ofx/     the plugin; one TU (Plugin.cpp) in the module
 ```
 
-**The gate currently covers `src/core` only.** It takes a single `CORE_DIR`, so the
-`src/infer` half of that promise is enforced by nothing — and the plan as first written broke
-it, by handing `src/infer` a type that lives in `src/ofx`. Phase 1 gives the script a second
-invocation with its own allow-list. A layering rule with no gate is a comment.
+**Both boundaries are now gated.** Phase 1 gave the dependency script separate `src/core`
+and `src/infer` invocations with distinct allow-lists: core rejects OFX, ONNX Runtime and I/O;
+infer rejects OFX while allowing inference dependencies. Each policy has a negative fixture
+test that must fail for the expected diagnostic, so the gate is known to reject the dependency
+it forbids rather than merely passing the current tree. The plan as first written broke this
+boundary by handing `src/infer` a type from `src/ofx`; `OwnedFrame` now lives in `src/core`.
 
 ### Vendored verbatim from warp-drive
 
@@ -488,7 +490,8 @@ regardless. Declaring float across the *whole* plugin would instead force float 
 byte source in Composite mode as well: 4× the memory on 4K, for a mode that does not need it.
 Two descriptors confine the float cost to the output that requires the precision.
 
-Both identifiers are permanent from the first artist build, so this split has to happen now.
+Both identifiers were made permanent in Phase 1, before the first artist build, so saved setups
+never observe a temporary combined descriptor.
 
 - **`getFramesNeeded`** declares `{N}` on Source, and `{N}` or `{R}` on Insert per
   `insertTime`; chain frames are pulled with `clipGetImage`. Declaring `[R..N]` would invite
@@ -640,9 +643,10 @@ serving `clipGetImage` at arbitrary times):
 - The plugin loads under `--host-name com.autodesk.flame` so the Flame quirk branch is walked
   by something other than Flame, and under a host that refuses the file-path string mode.
 
-**On the box**: run the Phase 0 probe first; then the plugin in a Batch node with a real plate
-and insert; check `/opt/Autodesk/log/` for the plugin's stderr, which is the only diagnostic
-channel on a machine nobody can attach a debugger to.
+**On the box**: when the host build or environment changes, run the Phase 0 probe first. On the
+qualified Flame 2026.2 host, install the plugin in a Batch node with a real plate and insert;
+check `/opt/Autodesk/log/` for the plugin's stderr, which is the only diagnostic channel on a
+machine nobody can attach a debugger to.
 
 **Performance gate**: 1080p and 4K, each selected candidate at the shipping megapixel caps,
 ms/frame and peak VRAM recorded on the target box before optimisation, with regression
@@ -657,7 +661,7 @@ thresholds tied to the exact model and runtime hashes.
 | **0A** | Extended `hostprobe`, run in Flame | **Closed 2026-08-20.** All five questions answered; the measured report is the authority |
 | **0B** | Pinned SEA-RAFT M export through the private ORT on CPU and CUDA, in Flame | **Closed 2026-08-21.** Export provenance and hashes, direction/identity, exact CUDA payload closure/ownership, 480p–1080p VRAM/timing, cancellation, provider-init fallback, controlled arena-limit/CPU recovery, lifecycle and duplicate-node behavior are recorded. UHD, DCI 4K and Alexa 35 open gate each produced a valid bounded-allocation-stop measurement under the 16 GiB arena ceiling. This does not choose the shipping default or impose a product resolution cap |
 | **0C** | Flame ST round trip, and instance/process lifetime | **Closed 2026-08-21.** ST convention measured (item 1); final render is a separate process — Burn (item 2); render scale, rowBytes/sub-window and anamorphic tiling closed at PAR 1 and PAR 2 (items 3–5). **`Precache` decided 2026-08-22: RAM-only, no persistence** (facility is foreground / single-node Burn); durable disk cache deferred until Burn renders fan out |
-| **1** | Vendor, CMake, **two descriptors**, bundle, harness, `describe`/`describeInContext`, passthrough render | Plugin loads with two inputs; parameters legible; workflow contracts settled — descriptor split, insert time, depth policy, cheap query actions, visible fallbacks |
+| **1** | Vendor, CMake, **two descriptors**, bundle, harness, `describe`/`describeInContext`, passthrough render | **Closed 2026-08-22.** PR #1 merged at `5fa267f`. All eleven Release CTest gates pass; exact exports and both dependency boundaries are enforced. Flame 2026.2 verified sockets, parameter separation, Set Ref, Current/Reference routing, colour/matte fallbacks, partial renders, native ST round-trip and load diagnostics. The empty-menu grouping found on-box was corrected before merge; its replacement artifact was deliberately not reinstalled because the fix is a standard property matching both probes |
 | **2** | `src/core/flow` complete, `NullPairwiseEstimator`, `ww-flow`, full unit + harness coverage | Separable lattice transform; typed flow links; confidence propagation; concurrency tests; all host-free tests green |
 | **2.5** | Model and export bake-off in `ww-flow` | One default and one fast alternative selected **by the exact ONNX artifact**, on target performance, quality and a licence audit. Only now do `model` and `inputCurve` get their option order |
 | **3** | Runtime loader, `ModelRegistry`, `OrtEnvironment`, selected estimators, library packaging | No link-time ORT dependency; `ORT_API_MANUAL_INIT`; CPU/CUDA/CoreML qualified; packaging baseline passes for every shipped library |

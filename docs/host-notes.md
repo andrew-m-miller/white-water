@@ -822,8 +822,10 @@ contains no recovered describe action, and records the expected Phase 1 fallback
 One descriptor defect was exposed: both product nodes appeared inside an **unnamed submenu**,
 while the probes appeared under `White Water`. The product descriptors had omitted
 `kOfxImageEffectPluginPropGrouping`; Phase 1 now sets it to `White Water` and the raw host
-harness asserts the value. This requires one short on-box confirmation with the replacement
-artifact before merge.
+harness asserts the value. A replacement artifact can confirm Flame's presentation when
+convenient, but the fix was accepted and merged without another airgapped install cycle: it uses
+the same standard property already working in both probes, and the human reviewer judged any
+remaining presentation issue easy to correct later.
 
 The connected Warped Insert RGB appeared full-frame rather than visually cut by its matte.
 That is expected for an unpremultiplied RGB view: this output preserves RGB and carries alpha

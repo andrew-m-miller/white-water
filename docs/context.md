@@ -193,6 +193,46 @@ separate-process final render would have justified a persistent cache, but the f
 almost everything in the foreground (same process, cache already warm) and uses single-node Burn
 rarely and never fanned out, so RAM covers it and a disk cache would be pure staleness risk.
 
+## Session 8 — 2026-08-22 — Phase 1 implemented, reviewed, measured and merged
+
+Phase 1 created the first product bundle. One `WhiteWater.ofx.bundle` now enumerates two
+permanent descriptors: Track/Insert at `com.mtifilm.whitewater.opticalflow`, and a separate
+float-only ST Map at `com.mtifilm.whitewater.stmap`. The real inference pipeline is still absent
+by design; Phase 1 freezes the host-facing contract with deterministic outputs: Composite copies
+Source, Warped Insert copies the selected Current or Reference Insert (or black when disconnected),
+and ST Map emits an exact identity field.
+
+Three Luna-max work packages built the descriptor/fallback contract, raw OFX host harness, and
+bundle/boundary gates. Integration moved `OwnedFrame` below the OFX boundary, added independent
+core and infer dependency policies with expected-failure fixtures, and asserted the exact three
+module exports on both platforms. A clean Release build passed all eleven tests, including the
+Flame-name and refused-string-mode harness variants.
+
+Review caught four changes worth keeping: Set Ref now replaces a non-animating scalar instead of
+planting keys; the ST expected-U test matches production double-then-float arithmetic; dead host
+harness ternaries were removed; and both row renderers share one worker partition/abort/write-back
+base. A proposed Output-dependent ROI/frame-needs optimization was deliberately rejected: both
+Source N and Insert N/R feed the future flow chain even though the Phase 1 fallback copies only
+one final input.
+
+The EL8/glibc-2.28 artifact was then exercised in Flame 2026.2. Both nodes and their sockets
+appeared; labels and descriptor-specific controls were legible; deferred bake-off choices stayed
+absent; Model Dir was safe; repeated Set Ref presses replaced one Batch-relative value; Current
+and Reference Insert routing were distinct; disconnected colour and matte were black; connected
+Insert matte propagated correctly; partial renders were seamless; and the default absolute-UV,
+bottom-left ST output reproduced Source through Flame's native ST Map node. Load diagnostics
+recognized Flame and reported no recovered describe action.
+
+That run exposed one small descriptor omission: the product nodes appeared in an unnamed OFX
+submenu because they lacked `kOfxImageEffectPluginPropGrouping`, while both probes set it to
+`White Water`. The property and a harness assertion were added. The fix was accepted without a
+second airgapped artifact cycle because it is the same standard property already proven by both
+probes and is easy to correct later if Flame still presents it differently.
+
+PR #1 merged Phase 1 to `main` at `5fa267f`; its topic branch was deleted. Phase 2 — host-free
+flow algebra, `NullPairwiseEstimator`, the offline CLI and their expanded tests — is now the next
+implementation phase.
+
 ---
 
 ## Decisions
