@@ -1,0 +1,571 @@
+#!/usr/bin/env python3
+"""Machine test driver for the Phase 2.5 protocol, corpus and report contracts."""
+
+from __future__ import annotations
+
+import copy
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from validator import (  # type: ignore  # pylint: disable=wrong-import-position
+    ValidationError,
+    canonical_sha256,
+    load_json,
+    _expected_analysis_dimensions,
+    validate,
+    validate_corpus_consistency,
+    validate_protocol_and_schemas,
+    validate_protocol_consistency,
+    validate_report_consistency,
+)
+
+
+def expect_failure(label: str, callback) -> None:
+    try:
+        callback()
+    except (ValidationError, ValueError):
+        return
+    raise AssertionError(f"{label}: invalid fixture was accepted")
+
+
+def set_matrix(report, *, candidate_ids, shot_ids, conditioning_tokens, cap_tokens, providers) -> None:
+    """Replace a report selector and bind its canonical hash for mutation tests."""
+
+    selector = {
+        "candidate_ids": list(candidate_ids),
+        "shot_ids": list(shot_ids),
+        "conditioning_tokens": list(conditioning_tokens),
+        "cap_tokens": list(cap_tokens),
+        "providers": copy.deepcopy(providers),
+    }
+    selector["matrix_sha256"] = canonical_sha256(selector)
+    report["matrix"] = selector
+
+
+def main() -> int:
+    protocol = load_json(ROOT / "bakeoff/protocol-v1.json")
+    protocol_schema = load_json(ROOT / "bakeoff/protocol-v1.schema.json")
+    corpus_schema = load_json(ROOT / "bakeoff/corpus-v1.schema.json")
+    report_schema = load_json(ROOT / "bakeoff/report-v1.schema.json")
+    validate_protocol_and_schemas(protocol, protocol_schema, corpus_schema, report_schema)
+    validate_protocol_consistency(protocol, protocol_schema)
+
+    positive_corpus = load_json(ROOT / "bakeoff/fixtures/positive/corpus-v1.json")
+    validate_corpus_consistency(positive_corpus, protocol, corpus_schema)
+    positive_report = load_json(ROOT / "bakeoff/fixtures/positive/report-v1.json")
+    validate_report_consistency(positive_report, protocol, report_schema, positive_corpus)
+
+    corpus_id_mismatch = copy.deepcopy(positive_report)
+    corpus_id_mismatch["corpus_id"] = "other-corpus"
+    expect_failure(
+        "report corpus id binding",
+        lambda: validate_report_consistency(corpus_id_mismatch, protocol, report_schema, positive_corpus),
+    )
+    corpus_hash_mismatch = copy.deepcopy(positive_report)
+    corpus_hash_mismatch["corpus_sha256"] = "0" * 64
+    expect_failure(
+        "report corpus hash binding",
+        lambda: validate_report_consistency(corpus_hash_mismatch, protocol, report_schema, positive_corpus),
+    )
+    expect_failure(
+        "report requires corpus document",
+        lambda: validate_report_consistency(positive_report, protocol, report_schema),
+    )
+
+    negative_corpus = load_json(ROOT / "bakeoff/fixtures/negative/corpus-v1-unknown-category.json")
+    expect_failure(
+        "unknown corpus category",
+        lambda: validate_corpus_consistency(negative_corpus, protocol, corpus_schema),
+    )
+    incomplete_corpus = copy.deepcopy(positive_corpus)
+    incomplete_corpus["partitions"][0]["shots"].pop()
+    expect_failure(
+        "incomplete synthetic case coverage",
+        lambda: validate_corpus_consistency(incomplete_corpus, protocol, corpus_schema),
+    )
+    public_without_terms = copy.deepcopy(positive_corpus)
+    public_shot = copy.deepcopy(public_without_terms["partitions"][0]["shots"][0])
+    public_shot["id"] = "public-identity"
+    public_shot["path_pattern"] = "public/identity/plate.%04d.exr"
+    public_without_terms["partitions"].append({
+        "id": "public",
+        "kind": "public",
+        "shots": [public_shot],
+    })
+    expect_failure(
+        "public corpus terms",
+        lambda: validate_corpus_consistency(public_without_terms, protocol, corpus_schema),
+    )
+    public_with_terms = copy.deepcopy(public_without_terms)
+    public_with_terms["partitions"][-1]["terms"] = {
+        "source": "fixture-public-dataset",
+        "usage": "evaluation-only",
+        "training_overlap": "none_found",
+        "record": "fixture-terms-v1",
+    }
+    validate_corpus_consistency(public_with_terms, protocol, corpus_schema)
+
+    corpus_missing_metadata = copy.deepcopy(positive_corpus)
+    corpus_missing_metadata["partitions"][0]["shots"][0].pop("width")
+    expect_failure(
+        "corpus shot metadata",
+        lambda: validate_corpus_consistency(corpus_missing_metadata, protocol, corpus_schema),
+    )
+    corpus_nonanalytic = copy.deepcopy(positive_corpus)
+    corpus_nonanalytic["partitions"][0]["shots"][0]["truth"]["kind"] = "none"
+    expect_failure(
+        "synthetic analytic truth",
+        lambda: validate_corpus_consistency(corpus_nonanalytic, protocol, corpus_schema),
+    )
+    corpus_non_exr = copy.deepcopy(positive_corpus)
+    corpus_non_exr["partitions"][1]["shots"][0]["path_pattern"] = "shots/motion-blur/plate.mov"
+    expect_failure(
+        "production metadata-only EXR path",
+        lambda: validate_corpus_consistency(corpus_non_exr, protocol, corpus_schema),
+    )
+    corpus_payload = copy.deepcopy(positive_corpus)
+    corpus_payload["partitions"][0]["shots"][0]["generator_parameters"] = {
+        "nested": {"pixel_data": [0.0, 1.0]},
+    }
+    expect_failure(
+        "generator pixel payload",
+        lambda: validate_corpus_consistency(corpus_payload, protocol, corpus_schema),
+    )
+    corpus_duplicate_frame_numbers = copy.deepcopy(positive_corpus)
+    corpus_duplicate_frame_numbers["partitions"][0]["shots"][0]["frame_sha256"] = [
+        {"frame": 3, "sha256": "a" * 64},
+        {"frame": 3, "sha256": "b" * 64},
+    ]
+    expect_failure(
+        "duplicate corpus frame numbers",
+        lambda: validate_corpus_consistency(corpus_duplicate_frame_numbers, protocol, corpus_schema),
+    )
+    corpus_empty_truth = copy.deepcopy(positive_corpus)
+    corpus_empty_truth["partitions"][0]["shots"][0]["truth"]["definition"] = ""
+    expect_failure(
+        "analytic truth definition",
+        lambda: validate_corpus_consistency(corpus_empty_truth, protocol, corpus_schema),
+    )
+    corpus_short_chain = copy.deepcopy(positive_corpus)
+    chain_shot = next(
+        shot for shot in corpus_short_chain["partitions"][0]["shots"]
+        if shot["case_id"] == "chain-8"
+    )
+    chain_shot["last_frame"] = chain_shot["first_frame"] + 7
+    expect_failure(
+        "chain frame range",
+        lambda: validate_corpus_consistency(corpus_short_chain, protocol, corpus_schema),
+    )
+    corpus_bad_fhd = copy.deepcopy(positive_corpus)
+    fhd_shot = next(
+        shot for shot in corpus_bad_fhd["partitions"][0]["shots"]
+        if shot["case_id"] == "fhd-1920x1080-par1"
+    )
+    fhd_shot["width"] = 1919
+    expect_failure(
+        "exact FHD performance dimensions",
+        lambda: validate_corpus_consistency(corpus_bad_fhd, protocol, corpus_schema),
+    )
+
+    protocol_bad_cap = copy.deepcopy(protocol)
+    protocol_bad_cap["analysis_caps"][2]["decimal_megapixels"] = 2.1
+    expect_failure(
+        "frozen cap numeric value",
+        lambda: validate_protocol_consistency(protocol_bad_cap, protocol_schema),
+    )
+    protocol_bad_provider = copy.deepcopy(protocol)
+    protocol_bad_provider["providers"][0]["cap_tokens"].append("mp1")
+    expect_failure(
+        "frozen provider mapping",
+        lambda: validate_protocol_consistency(protocol_bad_provider, protocol_schema),
+    )
+    protocol_bad_formula = copy.deepcopy(protocol)
+    protocol_bad_formula["conditioning"][1]["accepted_encoding"] = "log"
+    expect_failure(
+        "frozen conditioning encoding",
+        lambda: validate_protocol_consistency(protocol_bad_formula, protocol_schema),
+    )
+    cli_bad_cap_protocol = copy.deepcopy(protocol)
+    cli_bad_cap_protocol["analysis_caps"][2]["decimal_megapixels"] = 2.1
+    expect_failure(
+        "corpus/report protocol bundle cap gate",
+        lambda: validate_protocol_and_schemas(
+            cli_bad_cap_protocol, protocol_schema, corpus_schema, report_schema,
+        ),
+    )
+    cli_bad_provider_protocol = copy.deepcopy(protocol)
+    cli_bad_provider_protocol["providers"][0]["cap_tokens"].append("mp1")
+    expect_failure(
+        "corpus/report protocol bundle provider gate",
+        lambda: validate_protocol_and_schemas(
+            cli_bad_provider_protocol, protocol_schema, corpus_schema, report_schema,
+        ),
+    )
+    for label, mutation in (
+        ("required identity policy", lambda value: value["eligibility"].__setitem__("required_identity", ["source_commit"])),
+        ("source target policy", lambda value: value["cap_accounting"].__setitem__("source_targets", ["fhd-1920x1080-par1"])),
+        ("padding policy", lambda value: value.__setitem__("padding_comparison_policy", "caller-defined")),
+        ("quantile policy", lambda value: value["quantile"].__setitem__("index", "h=n*p")),
+        ("aggregation policy", lambda value: value["aggregation"].__setitem__("shot_weighting", "weighted")),
+    ):
+        mutated_protocol = copy.deepcopy(protocol)
+        mutation(mutated_protocol)
+        expect_failure(
+            label,
+            lambda mutated_protocol=mutated_protocol: validate_protocol_consistency(mutated_protocol, protocol_schema),
+        )
+
+    excluded_candidate = copy.deepcopy(positive_report)
+    excluded_candidate["candidates"].append({
+        "candidate_id": "waft-twins",
+        "status": "excluded",
+        "exclusion_reason": {
+            "type": "license_not_permitted",
+            "message": "fixture exclusion: redistribution terms are not permitted",
+        },
+    })
+    validate_report_consistency(excluded_candidate, protocol, report_schema, positive_corpus)
+    negative_missing_failure = load_json(ROOT / "bakeoff/fixtures/negative/report-v1-missing-failure.json")
+    expect_failure(
+        "non-pass result without failure",
+        lambda: validate_report_consistency(negative_missing_failure, protocol, report_schema, positive_corpus),
+    )
+    negative_unknown_token = load_json(ROOT / "bakeoff/fixtures/negative/report-v1-unknown-token.json")
+    expect_failure(
+        "unknown conditioning token",
+        lambda: validate_report_consistency(negative_unknown_token, protocol, report_schema, positive_corpus),
+    )
+    negative_duplicate = load_json(ROOT / "bakeoff/fixtures/negative/report-v1-duplicate-cell.json")
+    expect_failure(
+        "duplicate result cell",
+        lambda: validate_report_consistency(negative_duplicate, protocol, report_schema, positive_corpus),
+    )
+    negative_runtime_hash = load_json(ROOT / "bakeoff/fixtures/negative/report-v1-missing-runtime-hash.json")
+    expect_failure(
+        "missing evaluator runtime hash",
+        lambda: validate_report_consistency(negative_runtime_hash, protocol, report_schema, positive_corpus),
+    )
+    negative_duplicate_candidates = load_json(ROOT / "bakeoff/fixtures/negative/report-v1-duplicate-candidates.json")
+    expect_failure(
+        "duplicate candidate fixture",
+        lambda: validate_report_consistency(negative_duplicate_candidates, protocol, report_schema, positive_corpus),
+    )
+    negative_missing_result = load_json(ROOT / "bakeoff/fixtures/negative/report-v1-missing-result.json")
+    expect_failure(
+        "missing result fixture",
+        lambda: validate_report_consistency(negative_missing_result, protocol, report_schema, positive_corpus),
+    )
+    missing_artifact_size = copy.deepcopy(positive_report)
+    missing_artifact_size["candidates"][0].pop("artifact_size_bytes")
+    expect_failure(
+        "eligible candidate artifact size",
+        lambda: validate_report_consistency(missing_artifact_size, protocol, report_schema, positive_corpus),
+    )
+    bad_redistribution = copy.deepcopy(positive_report)
+    bad_redistribution["candidates"][0]["redistribution_permitted"]["backbone"] = "unknown"
+    expect_failure(
+        "eligible redistribution verdict",
+        lambda: validate_report_consistency(bad_redistribution, protocol, report_schema, positive_corpus),
+    )
+    mixed_environment = copy.deepcopy(positive_report)
+    set_matrix(
+        mixed_environment,
+        candidate_ids=["sea-raft-m"],
+        shot_ids=["syn-identity"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp0_5"],
+        providers=[
+            {"token": "cpu", "host_loads": ["not_applicable"]},
+            {"token": "coreml", "host_loads": ["not_applicable"]},
+        ],
+    )
+    expect_failure(
+        "mixed provider environments",
+        lambda: validate_report_consistency(mixed_environment, protocol, report_schema, positive_corpus),
+    )
+    bad_platform = copy.deepcopy(positive_report)
+    bad_platform["hardware"]["platform"] = "macOS"
+    expect_failure(
+        "environment platform binding",
+        lambda: validate_report_consistency(bad_platform, protocol, report_schema, positive_corpus),
+    )
+
+    # Focused report-identity checks.  These are kept as mutations of the complete positive
+    # report so each failure reaches the intended cross-document rule rather than stopping at
+    # an unrelated missing measurement field.
+    duplicate_candidates = copy.deepcopy(positive_report)
+    duplicate_candidates["candidates"].append(copy.deepcopy(duplicate_candidates["candidates"][0]))
+    expect_failure(
+        "duplicate candidate ids",
+        lambda: validate_report_consistency(duplicate_candidates, protocol, report_schema, positive_corpus),
+    )
+
+    summary_mismatch = copy.deepcopy(positive_report)
+    summary_mismatch["summary"]["required_cells"] = 2
+    expect_failure(
+        "summary/result row mismatch",
+        lambda: validate_report_consistency(summary_mismatch, protocol, report_schema, positive_corpus),
+    )
+
+    mislabeled_cap = copy.deepcopy(positive_report)
+    mislabeled_cap["results"][0]["geometry"]["analysis_width"] = 63
+    expect_failure(
+        "mislabeled analysis cap geometry",
+        lambda: validate_report_consistency(mislabeled_cap, protocol, report_schema, positive_corpus),
+    )
+
+    incompatible_conditioning = copy.deepcopy(positive_report)
+    incompatible_conditioning["results"][0]["conditioning_token"] = "native-log-v1"
+    set_matrix(
+        incompatible_conditioning,
+        candidate_ids=["sea-raft-m"],
+        shot_ids=["syn-identity"],
+        conditioning_tokens=["native-log-v1"],
+        cap_tokens=["mp0_5"],
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
+    )
+    expect_failure(
+        "conditioning and shot encoding compatibility",
+        lambda: validate_report_consistency(incompatible_conditioning, protocol, report_schema, positive_corpus),
+    )
+
+    percentile_report = copy.deepcopy(positive_report)
+    percentile_report["results"][0]["conditioning_token"] = "pair-percentile-v1"
+    percentile_report["results"][0]["conditioning_parameters"] = {
+        "low": 0.1, "high": 0.9, "epsilon": 1e-6,
+    }
+    set_matrix(
+        percentile_report,
+        candidate_ids=["sea-raft-m"],
+        shot_ids=["syn-identity"],
+        conditioning_tokens=["pair-percentile-v1"],
+        cap_tokens=["mp0_5"],
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
+    )
+    validate_report_consistency(percentile_report, protocol, report_schema, positive_corpus)
+    bad_percentile = copy.deepcopy(percentile_report)
+    bad_percentile["results"][0]["conditioning_parameters"]["high"] = 0.1
+    expect_failure(
+        "invalid percentile conditioning parameters",
+        lambda: validate_report_consistency(bad_percentile, protocol, report_schema, positive_corpus),
+    )
+
+    cuda_hardware_missing = copy.deepcopy(positive_report)
+    cuda_hardware_missing["hardware"].pop("gpu")
+    cuda_hardware_missing["hardware"].pop("driver")
+    set_matrix(
+        cuda_hardware_missing,
+        candidate_ids=["sea-raft-m"],
+        shot_ids=["syn-identity"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp0_5"],
+        providers=[{"token": "cuda", "host_loads": ["idle"]}],
+    )
+    expect_failure(
+        "CUDA hardware identity",
+        lambda: validate_report_consistency(cuda_hardware_missing, protocol, report_schema, positive_corpus),
+    )
+
+    excluded_in_matrix = copy.deepcopy(positive_report)
+    excluded_in_matrix["candidates"].append({
+        "candidate_id": "waft-twins",
+        "status": "excluded",
+        "exclusion_reason": {"type": "license_not_permitted", "message": "excluded fixture"},
+    })
+    excluded_in_matrix["matrix"]["candidate_ids"] = ["waft-twins"]
+    excluded_in_matrix["matrix"]["matrix_sha256"] = canonical_sha256({
+        key: value for key, value in excluded_in_matrix["matrix"].items() if key != "matrix_sha256"
+    })
+    excluded_in_matrix["results"][0]["candidate_id"] = "waft-twins"
+    expect_failure(
+        "excluded candidate matrix selection",
+        lambda: validate_report_consistency(excluded_in_matrix, protocol, report_schema, positive_corpus),
+    )
+
+    bad_timing = copy.deepcopy(positive_report)
+    bad_timing["results"][0]["timing"]["session_creation_ms"] = 0.3
+    expect_failure(
+        "timing median binding",
+        lambda: validate_report_consistency(bad_timing, protocol, report_schema, positive_corpus),
+    )
+
+    bad_spacing = copy.deepcopy(positive_report)
+    bad_spacing["results"][0]["geometry"]["spacing_x_source_pixels"] = 2.0
+    expect_failure(
+        "spacing geometry binding",
+        lambda: validate_report_consistency(bad_spacing, protocol, report_schema, positive_corpus),
+    )
+    duplicate_input_frames = copy.deepcopy(positive_report)
+    duplicate_input_frames["results"][0]["input_frames"][1]["frame"] = 3
+    expect_failure(
+        "distinct input frames",
+        lambda: validate_report_consistency(duplicate_input_frames, protocol, report_schema, positive_corpus),
+    )
+    out_of_range_input_frame = copy.deepcopy(positive_report)
+    out_of_range_input_frame["results"][0]["input_frames"][0]["frame"] = 99
+    expect_failure(
+        "input frame range",
+        lambda: validate_report_consistency(out_of_range_input_frame, protocol, report_schema, positive_corpus),
+    )
+    corpus_with_frame_hashes = copy.deepcopy(positive_corpus)
+    identity_shot = corpus_with_frame_hashes["partitions"][0]["shots"][0]
+    identity_shot["frame_sha256"] = [
+        {"frame": 3, "sha256": "a" * 64},
+        {"frame": 4, "sha256": "b" * 64},
+    ]
+    report_with_frame_hashes = copy.deepcopy(positive_report)
+    report_with_frame_hashes["corpus_sha256"] = canonical_sha256(corpus_with_frame_hashes)
+    validate_report_consistency(report_with_frame_hashes, protocol, report_schema, corpus_with_frame_hashes)
+    bad_frame_hash = copy.deepcopy(report_with_frame_hashes)
+    bad_frame_hash["results"][0]["input_frames"][0]["sha256"] = "c" * 64
+    expect_failure(
+        "input frame hash binding",
+        lambda: validate_report_consistency(bad_frame_hash, protocol, report_schema, corpus_with_frame_hashes),
+    )
+
+    missing_result = copy.deepcopy(positive_report)
+    set_matrix(
+        missing_result,
+        candidate_ids=["sea-raft-m"],
+        shot_ids=["syn-identity", "syn-translation-x-positive"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp0_5"],
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
+    )
+    expect_failure(
+        "missing declared matrix result",
+        lambda: validate_report_consistency(missing_result, protocol, report_schema, positive_corpus),
+    )
+
+    final_cuda_unpaired = copy.deepcopy(positive_report)
+    set_matrix(
+        final_cuda_unpaired,
+        candidate_ids=["sea-raft-m"],
+        shot_ids=["syn-fhd-1920x1080-par1", "syn-uhd-3840x2160-par1"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp2"],
+        providers=[{"token": "cuda", "host_loads": ["idle", "live_flame"]}],
+    )
+    final_cuda_unpaired["profile"] = "final"
+
+    def make_final_result(shot_id, host_load):
+        result = copy.deepcopy(positive_report["results"][0])
+        shot = next(
+            shot for partition in positive_corpus["partitions"]
+            for shot in partition["shots"] if shot["id"] == shot_id
+        )
+        analysis_width, analysis_height = _expected_analysis_dimensions(
+            shot["width"], shot["height"], shot["pixel_aspect_ratio"], 2.0,
+        )
+        result.update({
+            "shot_id": shot_id,
+            "provider": "cuda",
+            "cap_token": "mp2",
+            "host_load": host_load,
+        })
+        result["geometry"].update({
+            "source_width": shot["width"],
+            "source_height": shot["height"],
+            "source_pixel_aspect_ratio": shot["pixel_aspect_ratio"],
+            "canonical_width": shot["width"] * shot["pixel_aspect_ratio"],
+            "canonical_height": shot["height"],
+            "analysis_width": analysis_width,
+            "analysis_height": analysis_height,
+            "padded_width": analysis_width,
+            "padded_height": analysis_height,
+            "effective_padded_megapixels": analysis_width * analysis_height / 1_000_000.0,
+            "spacing_x_source_pixels": shot["width"] / analysis_width,
+            "spacing_y_source_pixels": shot["height"] / analysis_height,
+        })
+        result["timing"]["session_creation_ms"] = 0.2
+        result["timing"]["first_inference_ms"] = 1.2
+        result["timing"]["steady_inference_ms"] = 1.0
+        result["timing"]["total_pair_ms"] = 1.2
+        result["timing"]["steady_samples_ms"] = [1.0] * 30
+        result["timing"]["sessions"] = [
+            {
+                "session_index": session_index,
+                "warmup_recorded": True,
+                "warmup_ms": 1.0,
+                "session_creation_ms": 0.2,
+                "first_inference_ms": 1.2,
+                "steady_samples_ms": [1.0] * 10,
+            }
+            for session_index in range(3)
+        ]
+        result["resource"]["nvml_samples"] = [
+            {"stage": stage, "used_mib": 100.0}
+            for stage in ("baseline", "session_create", "steady", "cleanup", "process_exit")
+        ]
+        return result
+
+    final_targets = ["syn-fhd-1920x1080-par1", "syn-uhd-3840x2160-par1"]
+    final_cuda_unpaired["results"] = [make_final_result(shot_id, "idle") for shot_id in final_targets]
+    final_cuda_unpaired["summary"] = {
+        "required_cells": 2,
+        "passed_cells": 2,
+        "failed_cells": 0,
+        "skipped_cells": 0,
+    }
+    expect_failure(
+        "final CUDA idle/live pairing",
+        lambda: validate_report_consistency(final_cuda_unpaired, protocol, report_schema, positive_corpus),
+    )
+
+    final_cuda_mixed_status = copy.deepcopy(final_cuda_unpaired)
+    for idle_failure in final_cuda_mixed_status["results"]:
+        idle_failure["status"] = "fail"
+        idle_failure["failure"] = {"type": "out_of_memory", "message": "idle fixture failure"}
+    final_cuda_mixed_status["results"].extend(
+        make_final_result(shot_id, "live_flame") for shot_id in final_targets
+    )
+    final_cuda_mixed_status["summary"] = {
+        "required_cells": 4,
+        "passed_cells": 2,
+        "failed_cells": 2,
+        "skipped_cells": 0,
+    }
+    validate_report_consistency(final_cuda_mixed_status, protocol, report_schema, positive_corpus)
+
+    final_cuda_missing_nvml = copy.deepcopy(final_cuda_mixed_status)
+    final_cuda_missing_nvml["results"][2]["resource"]["nvml_samples"] = [
+        sample
+        for sample in final_cuda_missing_nvml["results"][2]["resource"]["nvml_samples"]
+        if sample["stage"] != "process_exit"
+    ]
+    expect_failure(
+        "final CUDA pass NVML stages",
+        lambda: validate_report_consistency(final_cuda_missing_nvml, protocol, report_schema, positive_corpus),
+    )
+
+    report_with_selection = copy.deepcopy(positive_report)
+    report_with_selection["selection"] = {"default": {"candidate_id": "sea-raft-m"}}
+    expect_failure(
+        "selection is a separate P25-7 record",
+        lambda: validate_report_consistency(report_with_selection, protocol, report_schema, positive_corpus),
+    )
+
+    # Exercise the schema-level unknown-property gate and the no-OFX-index rule without
+    # adding another bulky fixture whose only difference is one key.
+    protocol_with_index = copy.deepcopy(protocol)
+    protocol_with_index["default_index"] = 0
+    expect_failure(
+        "persistent OFX option index",
+        lambda: validate_protocol_consistency(protocol_with_index, protocol_schema),
+    )
+    report_with_payload = copy.deepcopy(positive_report)
+    report_with_payload["results"][0]["source_pixels"] = [0.0]
+    expect_failure(
+        "embedded source pixels",
+        lambda: validate_report_consistency(report_with_payload, protocol, report_schema, positive_corpus),
+    )
+
+    print("Phase 2.5 protocol/schema fixtures passed")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

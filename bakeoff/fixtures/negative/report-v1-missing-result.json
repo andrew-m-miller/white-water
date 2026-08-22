@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "protocol_id": "whitewater-p25-v1",
+  "report_id": "invalid-missing-result",
+  "corpus_id": "p25-fixture-corpus",
+  "profile": "screen",
+  "runner": {
+    "name": "ww-bakeoff",
+    "version": "0.1.0-fixture",
+    "source_commit": "9137517ba24e628442aec097d3afe71d03503b75",
+    "evaluator_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+    "runtime": "python-stdlib",
+    "runtime_sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "hardware": {"platform": "fixture", "architecture": "x86_64", "os_release": "fixture-el8", "cpu": "fixture-cpu"},
+  "matrix": {
+    "candidate_ids": ["sea-raft-m"],
+    "shot_ids": ["syn-identity", "syn-translation-x-positive"],
+    "conditioning_tokens": ["native-clamp01-v1"],
+    "cap_tokens": ["mp0_5"],
+    "providers": [{"token": "cpu", "host_loads": ["not_applicable"]}],
+    "matrix_sha256": "5dea641e940db425fba0d037db7dd69c493fef8098f59a32d47b60a52fedbb8e"
+  },
+  "candidates": [
+    {
+      "candidate_id": "sea-raft-m",
+      "status": "eligible",
+      "source_commit": "9137517ba24e628442aec097d3afe71d03503b75",
+      "checkpoint_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "artifact_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "export_environment_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "manifest_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "artifact_size_bytes": 1000000,
+      "license_verdicts": {
+        "code": "commercial_use_permitted",
+        "checkpoint": "commercial_use_permitted",
+        "backbone": "commercial_use_permitted"
+      },
+      "redistribution_terms_reviewed": {"code": true, "checkpoint": true, "backbone": true}
+    }
+  ],
+  "results": [
+    {
+      "candidate_id": "sea-raft-m",
+      "shot_id": "syn-identity",
+      "conditioning_token": "native-clamp01-v1",
+      "cap_token": "mp0_5",
+      "provider": "cpu",
+      "status": "skip",
+      "host_load": "not_applicable",
+      "failure": {"type": "not_attempted", "message": "fixture omits the second declared cell"}
+    }
+  ],
+  "summary": {"required_cells": 1, "passed_cells": 0, "failed_cells": 0, "skipped_cells": 1}
+}
