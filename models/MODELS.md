@@ -10,7 +10,10 @@ and a binary in git history proves nothing about where it came from.
 
 ## Selection state
 
-**Nothing is selected to ship.** Choice option order is persistent setup API, so the default
+**Nothing is selected to ship.** P25-0's protocol/schema package is implemented and under review
+in PR #6, but no P25 bake-off candidate artifact has been measured or selected. The Phase 0B
+SEA-RAFT M probe remains qualification evidence, not a P25 selection. Choice option order is
+persistent setup API, so the default
 and fast alternative are chosen only by the Phase 2.5 bake-off of the exact exported ONNX
 artifacts. SEA-RAFT is the leading conservative candidate, WAFT is the quality/memory
 candidate, and NeuFlow v2 is the leading fast stateless candidate. Original RAFT remains a

@@ -14,14 +14,18 @@ Documents own facts; this file owns process. Do not restate a measured fact here
 
 ## Where the project is
 
-**Phases 0 and 1 are closed.** The build now produces the permanent White Water product bundle
-and its diagnostic probes. The product contains separate Track/Insert and float-only ST Map
-descriptors with deterministic Phase 1 fallbacks; inference is not wired into the product yet.
+**Phases 0, 1 and 2 are closed.** The build now produces the permanent White Water product
+bundle and its diagnostic probes. The product contains separate Track/Insert and float-only ST
+Map descriptors with deterministic Phase 1 fallbacks; the host-free flow pipeline, deterministic
+null estimator and `ww-flow` CLI from Phase 2 are present, but production inference is not wired
+into the product yet.
 
 Read the measured Phase 0 and Phase 1 records in `docs/host-notes.md` rather than restating them
 here. Phase 1 merged through PR #1 on 2026-08-22 after Flame verified the workflow, fallback,
-matte, partial-render and ST contracts. **Phase 2 is next:** host-free flow algebra,
-`NullPairwiseEstimator`, `ww-flow`, and expanded unit/harness coverage.
+matte, partial-render and ST contracts. Phase 2 merged through PR #4; its host-free flow algebra,
+`NullPairwiseEstimator`, `ww-flow`, and expanded unit/harness coverage are now the base for the
+Phase 2.5 bake-off. P25-0 is implemented and under review in PR #6: it freezes the protocol and
+versioned corpus/report schemas, but does not select a model or publish OFX choice indices.
 
 The plan was amended on 2026-08-20 after an architecture review. Read `docs/plan.md` and
 `docs/context.md` before writing code against anything you remember about it.

@@ -8,8 +8,12 @@ backbone terms.
 
 This phase starts from Phase 2 at merge `4495224`: the host-free flow algebra, caches,
 preprocessing, `PairwiseFlowEstimator`, `NullPairwiseEstimator`, and the ORT-free `ww-flow`
-PFM CLI are present. The broader documentation closeout for both Phases 2 and 2.5 is deferred
-until this phase finishes, so status text is not updated piecemeal while the bake-off is open.
+PFM CLI are present. **P25-0 is implemented and under review in PR #6.** It adds the frozen
+protocol decision record, versioned corpus/report schemas, standard-library validator and CLI,
+positive/negative fixtures, and the `bakeoff::protocol_schema` CTest gate. No candidate artifact
+manifest, export, production measurement, ranking decision, shipping model, or OFX choice order
+has been selected; those remain in the later packages. Broader closeout for Phases 2 and 2.5
+remains deferred while the bake-off is open.
 
 ## Exit
 
@@ -112,6 +116,8 @@ Each implementation package uses its own `codex/` topic branch and pull request.
 without human review.
 
 ### P25-0 - Protocol and report schema - Luna A
+
+**Status: implementation complete; PR #6 is under review.**
 
 Freeze before measurement:
 

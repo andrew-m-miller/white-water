@@ -10,10 +10,10 @@ Targets **Rocky Linux 9.5+** and **arm64 macOS**.
 
 ## Status
 
-**Phases 0 and 1 are closed.** The repository now builds the permanent
+**Phases 0, 1 and 2 are closed.** The repository now builds the permanent
 `WhiteWater.ofx.bundle` alongside its diagnostic probes. The product bundle contains the
 Track/Insert and float-only ST Map descriptors; Phase 1 intentionally renders deterministic
-fallbacks while the host-free flow pipeline begins in Phase 2.
+fallbacks while the host-free flow pipeline is exercised independently in Phase 2.
 
 All five Phase 0 questions were measured in Flame 2026.2 on 2026-08-20, and two came back
 better than budgeted: `clipGetImage` works at arbitrary times *during* render, and a private
@@ -31,9 +31,14 @@ closes **0B** without imposing a product resolution cap. **0C closed** the ST co
 render behavior and process lifetime, and settled v1 on an instance-lifetime RAM cache with no
 persistence. **Phase 1 closed on 2026-08-22:** Flame 2026.2 verified the two descriptors,
 parameter and reference-time contracts, Source/Insert fallbacks, matte propagation, partial
-renders, native ST round-trip and load diagnostics. Phase 2 is the next implementation phase.
-See [docs/host-notes.md](docs/host-notes.md), [docs/context.md](docs/context.md), and *Phasing*
-in [docs/plan.md](docs/plan.md).
+renders, native ST round-trip and load diagnostics. Phase 2 merged through PR #4 with the
+host-free flow algebra, deterministic null estimator,
+`ww-flow` CLI and expanded unit/harness coverage. P25-0 of Phase 2.5 is implemented and under
+review in [PR #6](https://github.com/andrew-m-miller/white-water/pull/6): the versioned protocol,
+corpus/report schemas, dependency-light validator, fixtures and CTest gate are present. No
+shipping model/default or persistent OFX choice order has been selected; later P25 packages and
+production inference remain open. See [docs/host-notes.md](docs/host-notes.md),
+[docs/context.md](docs/context.md), and *Phasing* in [docs/plan.md](docs/plan.md).
 
 ## Documents
 
