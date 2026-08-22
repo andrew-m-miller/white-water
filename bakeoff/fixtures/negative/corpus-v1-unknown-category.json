@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "protocol_id": "whitewater-p25-v1",
+  "corpus_id": "invalid-corpus",
+  "partitions": [
+    {
+      "id": "synthetic",
+      "kind": "synthetic",
+      "generator": "fixture",
+      "shots": [
+        {
+          "id": "syn-invalid",
+          "path_pattern": "generated://invalid",
+          "first_frame": 0,
+          "last_frame": 1,
+          "reference_frame": 0,
+          "pixel_aspect_ratio": 1.0,
+          "encoding": "scene-linear",
+          "categories": ["not-a-protocol-category"]
+        }
+      ]
+    },
+    {
+      "id": "production_external",
+      "kind": "production_external",
+      "shots": [
+        {
+          "id": "prod-invalid",
+          "path_pattern": "shots/invalid.%04d.exr",
+          "first_frame": 0,
+          "last_frame": 1,
+          "reference_frame": 0,
+          "pixel_aspect_ratio": 1.0,
+          "encoding": "scene-linear",
+          "categories": ["motion-blur"]
+        }
+      ]
+    }
+  ]
+}

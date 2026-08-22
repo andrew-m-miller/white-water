@@ -123,8 +123,12 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/check_searaft_manifest.py"
       "${CMAKE_SOURCE_DIR}/models/sea-raft-m.json")
+  add_test(NAME bakeoff::protocol_schema
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/tools/bakeoff/schema_tests.py")
 else()
   message(STATUS "SEA-RAFT manifest gate skipped (Python 3 not found)")
+  message(STATUS "Phase 2.5 protocol schema gate skipped (Python 3 not found)")
 endif()
 
 add_subdirectory(src/core)
