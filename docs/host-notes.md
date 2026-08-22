@@ -768,17 +768,29 @@ diagnostic remain Phase 4.
    decides whether `Precache` has production value: a RAM-only precache is worthless if final
    render happens in another process. Distinguish "background render is another process" from
    "background render does not apply to this node type" — same practical effect, different
-   implications later.
+   implications later. **Instrumented in `hostprobe.cpp`:** every `create`/`destroy instance`
+   and `begin`/`end sequence render` action logs a per-instance token, this process's pid, and
+   interactive/sequential status; `reportInstanceLifetime()` prints the procedure and how to
+   read the log (same pid ⇒ RAM precache viable; different pid ⇒ another process; no second
+   render seen ⇒ ambiguous, and it says which). Run the procedure and read the tokens/pids.
 
 ### Unblocking nothing in particular
 
+All three are now instrumented in `hostprobe.cpp` and reported together by
+`reportRenderObservations()` on **Run Probe** — they need only that a render has happened
+(view the node in the viewer), including one anamorphic-clip render for item 5.
+
 3. **Whether render scale is ever anything but 1.** Every observation so far is `[1, 1]`,
-   at both pixel aspect ratios.
+   at both pixel aspect ratios. The probe now tracks per-axis min/max across every render and
+   flags any non-unit scale.
 4. **Whether `kOfxImagePropRowBytes` can be negative** in Flame, and whether images are ever
    windows into larger allocations. The vendored `HostImage` handles both; nothing has
-   confirmed Flame exercises either.
+   confirmed Flame exercises either. The probe flags a negative stride (and skips its own
+   pass-through copy for that render rather than walking off the allocation) and flags an
+   image whose bounds are a strict sub-window of the render window.
 5. **Re-run the tile check on an anamorphic clip** with the PAR fix in place, to confirm
-   what the corrected arithmetic already shows: that those renders were full frames.
+   what the corrected arithmetic already shows: that those renders were full frames. The probe
+   now tallies PAR≠1 renders and how many were partial, so one anamorphic render closes it.
 
 ### Procedure
 
