@@ -15,6 +15,7 @@ Testing/
 compile_commands.json
 __pycache__/
 *.py[cod]
+/.cache/clangd/
 
 whitewater-hostprobe*.txt
 
