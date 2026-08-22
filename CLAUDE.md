@@ -19,10 +19,12 @@ nothing else. The plugin does not exist.
 
 Read the measured Phase 0 record in `docs/host-notes.md` rather than restating it here.
 **0C closed 2026-08-21:** the ST convention is measured (`(x+0.5)/N`, bottom-left, U→R/V→G,
-per-node out-of-range behaviour), and final render is a separate process (Autodesk Burn), so a
-RAM-only `Precache` is not production-viable — whether to drop the button or build a
-user-managed disk cache is an open **product** decision, not a measurement. Phase 1 is now the
-next work, and per *Branching and review* it lands on reviewed PRs, not `main`.
+per-node out-of-range behaviour), and final render is a separate process (Autodesk Burn).
+**Precache decided 2026-08-22: v1 ships a RAM-only cache, no persistence** — the facility renders
+almost everything in the foreground and uses single-node Burn rarely, never fanned out, so RAM
+covers it; a durable disk cache is a future option gated on Burn renders fanning out across a
+farm (see `docs/context.md`, `docs/plan.md` *Deferred*). Phase 1 is now the next work, and per
+*Branching and review* it lands on reviewed PRs, not `main`.
 
 The plan was amended on 2026-08-20 after an architecture review. Read `docs/plan.md` and
 `docs/context.md` before writing code against anything you remember about it.

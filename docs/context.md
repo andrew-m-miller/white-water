@@ -164,6 +164,35 @@ configuration. It does not cap source formats in the product or say what a futur
 larger configurable budget can run. The Alexa transcript also retains an initial invalid
 configuration session before the corrected valid session because the report file appends.
 
+## Session 7 — 2026-08-21/22 — Phase 0C closed, and the precache decision
+
+**0C item 1 (ST convention)** was measured with a purpose-built harness (`tools/stprobe/`)
+that avoids a self-resampler round trip: a coordinate-encoded float plate warped through
+Flame's *own* consumers — the native ST Map node and Action's UV map — and read back as float
+EXR, so the output decodes exactly to the source pixel Flame fetched. Both consumers are
+identical inside `[0, 1]`: `(x+0.5)/W` half-pixel centres (fit residual 0.000 px), bottom-left
+origin, U→R/V→G, real-pixel normalization, backward-map semantics. They differ only outside the
+range — the ST Map node blacks, Action mirrors. First run mistakenly fed the human-readable
+landmark plate instead of the coordinate plate; that still fixed origin/channel/direction, and
+the re-run against the coordinate plate pinned the rest.
+
+**0C items 2–5** were measured by an extended `hostprobe` built by two Sonnet subagents in
+parallel worktrees (instance/process lifetime; and the render-scale/rowBytes/anamorphic
+observations) and integrated here. Item 2 is the load-bearing result: **background/final render
+runs in a separate process — Autodesk Burn (`com.autodesk.backgroundreactor`, `IsBackground=1`)**
+— which rendered the full range while the foreground Flame process held the interactive
+instances. Duplicating a node makes a new instance in the same process; reopening Flame is a new
+process. Items 3 and 4 closed negative across 122 renders in both hosts (render scale always
+`[1,1]`, no negative rowBytes, no sub-window images), and item 5 — the anamorphic tile re-check
+— closed on a follow-up PAR 2 run (all 51 frames full-frame), retiring the old "PAR-2 looked
+tiled" scare as the coordinate-system bug it always was. With that, **all of Phase 0 is closed.**
+
+The precache decision followed from item 2 plus a workflow fact from the facility — see
+*`Analyze` became `Precache`* under Decisions. Short version: **no persistence in v1.** The
+separate-process final render would have justified a persistent cache, but the facility renders
+almost everything in the foreground (same process, cache already warm) and uses single-node Burn
+rarely and never fanned out, so RAM covers it and a disk cache would be pure staleness risk.
+
 ---
 
 ## Decisions
@@ -273,11 +302,27 @@ frames. It now walks a chosen range — Current-to-Ref, Work Range, or explicit 
 and end parameters — and never the full source range by default.
 
 The name changed because a RAM-only pre-warm is what it honestly is. Whether it can be more
-depends on 0C: if foreground and final render keep the same instance and process, a memory
-precache is genuinely useful; if final render is another process, it has no production value
-and the choice is between dropping the button and an explicitly user-managed disk cache.
-Automatic persistence is the one option ruled out in advance — a cache that cannot detect an
-upstream regrade silently serves stale flow, which is worse than no cache.
+was gated on 0C.
+
+**Decided 2026-08-22: v1 ships the RAM-only precache and no persistence at all.** 0C measured
+that final render *is* a separate process (Autodesk Burn), which is what would have justified a
+persistent cache — but two facts remove the justification for *this facility*. First, the same
+0C run showed a single Burn process rendering a shot **sequentially**, so it reuses its own
+in-memory chain cache (one inference per frame after the prefix); the process boundary costs
+only the one-time chain-prefix rebuild, not a full re-analysis. Second, and decisively, the
+facility **rarely uses Burn at all — almost every render is foreground, in the same process and
+instance the artist scrubbed with — and when Burn is used it is a single node, never fanned out
+across a farm.** The one case a persistent cache clearly wins — many farm nodes each rebuilding
+the prefix from the reference — does not occur here.
+
+So a disk cache would buy, in practice, only *instant reopen after a Flame restart* — which is
+exactly where automatic persistence is most dangerous (overnight the plate may be reconformed
+or regraded, and the cache would silently serve stale flow), and where even a user-managed one
+leans on the artist remembering to `Clear`. Paying a few seconds of re-analysis on reopen to
+stay always-correct is the right trade for a correctness-first plugin. The disk cache is kept
+only as a **future option gated on one fact changing: if final renders ever start fanning out
+across multiple Burn nodes.** Until then, `Precache` and `Clear` operate on the instance-lifetime
+RAM cache, and that is the whole story.
 
 ### CI gates on symbol exports, which warp-drive does not
 

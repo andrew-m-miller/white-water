@@ -28,7 +28,7 @@ which are wrong in both directions.
 | warp-drive reuse | **Vendor a copy** — independent build and release cadence |
 | Inference runtime | **ONNX Runtime** — CUDA EP on Linux, CoreML/CPU on macOS, CPU everywhere as fallback |
 | Model weights | **Bundled in `Contents/Resources/models/`, with env var + param override** |
-| Analysis trigger | **On-demand caching by default, plus an explicit `Precache` button with progress.** Whether it can be made durable is decided by the 0C lifetime probe, not here |
+| Analysis trigger | **On-demand caching by default, plus an explicit `Precache` button with progress.** **v1 is RAM-only, no persistence** (decided 2026-08-22): 0C measured final render as a separate process, but the facility renders almost everything in the foreground and uses single-node Burn rarely, so RAM covers it. A durable disk cache is a future option gated on Burn renders fanning out across a farm |
 | Model | **Selectable behind one `PairwiseFlowEstimator`.** The default is chosen by the Phase 2.5 bake-off — *not named in advance*, because choice index is API. SEA-RAFT is the leading candidate |
 | ST map | **Its own float-only plugin descriptor**, not an output mode of the main effect — see *Two descriptors*. Absolute normalized UV (default) or relative pixel offset; origin toggle |
 | Occlusion handling | **Forward-backward consistency check, parameter-gated, off by default** (2× inference cost) |
@@ -223,9 +223,11 @@ Two questions, both cheap, both answerable with probe extensions:
    a different pid from the Flame foreground session, and it rendered the full range.
    Duplicating the node = new instance, same process; reopening Flame = new process. **So a
    RAM-only `Precache` has no production value for the final render.** See `docs/host-notes.md`,
-   *Measured — Phase 0C items 2-5*. This selects the disk-cache fork in *Deferred* below.
-   (Items 3, 4 and 5 also closed there, at PAR 1 and PAR 2. **All of Phase 0C, and Phase 0, is
-   now closed.**)
+   *Measured — Phase 0C items 2-5*. **Decided 2026-08-22 (see *Deferred*): v1 ships a RAM-only
+   `Precache` and no persistence** — the facility renders almost everything in the foreground and
+   uses single-node Burn rarely, so RAM covers it; a durable disk cache is a future option gated
+   on Burn renders fanning out across a farm. (Items 3, 4 and 5 also closed, at PAR 1 and PAR 2.
+   **All of Phase 0C, and Phase 0, is now closed.**)
 
 *The depth half of question 1 is already answered:* Flame reports
 `SupportsMultipleClipDepths = 0`, so no depth negotiation is possible and the ST descriptor
@@ -384,9 +386,12 @@ Two caches with different lifetimes and different correctness rules. They are no
 process lifetime          instance lifetime
   RuntimeLoader             generation counter
   Ort::Env                  pairwise link LRU + accumulated-field LRU
-  session cache             optional durable namespace (0C decides)
+  session cache             (no durable namespace in v1 — decided 2026-08-22)
   GPU semaphore
 ```
+
+The "optional durable namespace" this diagram once carried is **not built in v1**: 0C decided
+the flow cache stays RAM-only and instance-lifetime (see *Deferred* and `docs/context.md`).
 
 - On `changedClip`, bump the generation and invalidate every flow result. OFX offers no
   trustworthy content hash for an upstream graph, so no amount of extra key material makes a
@@ -436,8 +441,8 @@ action, and in Flame that means a plugin that simply is not there.
 | `precacheRange` | Choice | `Pre Range` | Current-to-Ref (default), Work Range, Custom. **Never the full source range** — "walk the range" was undefined and could mean thousands of frames |
 | `precacheStart` | Int | `Pre Start` | first frame when `precacheRange` is Custom; always visible because `setEnabled()` is forbidden |
 | `precacheEnd` | Int | `Pre End` | last frame when `precacheRange` is Custom; order is normalized before the walk |
-| `precache` | Push | `Precache` | walk `precacheRange` with the progress suite, filling the cache. Named `Precache` rather than `Analyze` because that is honestly what it is unless 0C says the cache can be durable |
-| `clearCache` | Push | `Clear` | drop the cache |
+| `precache` | Push | `Precache` | walk `precacheRange` with the progress suite, filling the **instance-lifetime RAM** cache. Named `Precache` rather than `Analyze` because a RAM-only pre-warm is honestly what it is — confirmed by the 2026-08-22 no-persistence decision, not durable |
+| `clearCache` | Push | `Clear` | drop the (RAM) cache |
 | `modelDir` | String | `Model Dir` | file-path string mode set via `propSetString(..., false)`, never `setStringType()` |
 
 `output` and `insertTime` exist only on the Track/Insert descriptor. The ST Map descriptor
@@ -651,7 +656,7 @@ thresholds tied to the exact model and runtime hashes.
 |---|---|---|
 | **0A** | Extended `hostprobe`, run in Flame | **Closed 2026-08-20.** All five questions answered; the measured report is the authority |
 | **0B** | Pinned SEA-RAFT M export through the private ORT on CPU and CUDA, in Flame | **Closed 2026-08-21.** Export provenance and hashes, direction/identity, exact CUDA payload closure/ownership, 480p–1080p VRAM/timing, cancellation, provider-init fallback, controlled arena-limit/CPU recovery, lifecycle and duplicate-node behavior are recorded. UHD, DCI 4K and Alexa 35 open gate each produced a valid bounded-allocation-stop measurement under the 16 GiB arena ceiling. This does not choose the shipping default or impose a product resolution cap |
-| **0C** | Flame ST round trip, and instance/process lifetime | **Closed 2026-08-21.** ST convention measured (item 1); final render is a separate process — Burn — so a RAM-only `Precache` is not production-viable (item 2); render scale, rowBytes/sub-window and anamorphic tiling closed at PAR 1 and PAR 2 (items 3–5). The disk-cache-or-drop `Precache` decision is now a product call |
+| **0C** | Flame ST round trip, and instance/process lifetime | **Closed 2026-08-21.** ST convention measured (item 1); final render is a separate process — Burn (item 2); render scale, rowBytes/sub-window and anamorphic tiling closed at PAR 1 and PAR 2 (items 3–5). **`Precache` decided 2026-08-22: RAM-only, no persistence** (facility is foreground / single-node Burn); durable disk cache deferred until Burn renders fan out |
 | **1** | Vendor, CMake, **two descriptors**, bundle, harness, `describe`/`describeInContext`, passthrough render | Plugin loads with two inputs; parameters legible; workflow contracts settled — descriptor split, insert time, depth policy, cheap query actions, visible fallbacks |
 | **2** | `src/core/flow` complete, `NullPairwiseEstimator`, `ww-flow`, full unit + harness coverage | Separable lattice transform; typed flow links; confidence propagation; concurrency tests; all host-free tests green |
 | **2.5** | Model and export bake-off in `ww-flow` | One default and one fast alternative selected **by the exact ONNX artifact**, on target performance, quality and a licence audit. Only now do `model` and `inputCurve` get their option order |
@@ -666,14 +671,19 @@ thresholds tied to the exact model and runtime hashes.
 
 - Third matte mode ("matte as flow confidence") — cheap to add on top of `fbCheck`'s
   confidence plumbing, but the user asked for two modes.
-- **Disk-backed flow cache surviving a Flame restart — 0C ANSWERED 2026-08-21: final render is
-  another process (Burn), so a RAM-only `Precache` is not production-viable.** The remaining
-  choice is between **dropping the `Precache` button** and building an explicitly **user-managed**
-  disk cache — never automatic, because persistence that cannot detect an upstream regrade
-  silently serves stale flow, which is worse than no cache at all. That product decision is not
-  yet taken; until it is, the `precache*` parameters and button in *Parameters* are provisional.
-  Whatever ships, per-instance in-RAM caching is still correct for interactive work (duplicate =
-  new instance in the same process, measured).
+- **Disk-backed flow cache surviving a Flame restart — DECIDED 2026-08-22: not in v1.** 0C
+  measured final render as a separate process (Burn), which is what a persistent cache would
+  bridge — but two facts remove the need here. The same run showed a single Burn process
+  rendering **sequentially**, so it reuses its own RAM chain cache (one inference/frame after the
+  prefix); and the facility renders **almost everything in the foreground** — same process and
+  instance as the interactive session — and uses Burn rarely and **never fanned out** across a
+  farm. So RAM (instance-lifetime) covers the real workflows; a disk cache would buy mainly
+  *instant reopen after restart*, which is exactly where automatic persistence silently serves
+  stale flow after an overnight regrade — worse than no cache. **v1 ships RAM-only.** The disk
+  cache is retained as a **future option gated on one fact changing: final renders fanning out
+  across multiple Burn nodes**; if built then, it must be explicitly **user-managed** (explicit
+  `Clear`, a visible cache-state readout, per-setup scoping), never automatic. Per-instance RAM
+  caching is correct for all of this either way (duplicate = new instance, same process, measured).
 - Display-only overlay showing the reference frame and chain state. Flame does deliver pen
   events and the `OfxDrawSuite`, but **never keyboard events**, and `kOfxInteractPropPixelScale`
   reads `[1,1]` at every zoom — so any overlay must be display-only and zoom-independent.

@@ -762,13 +762,16 @@ So the final/background render runs in a **different process** from the foregrou
 is the "different process" branch of the 0C question, observed directly (not "background
 render does not apply") — Burn is a real second process that did the full-range render.
 
-**Consequence, and it is architectural: a RAM-only `Precache` has no production value for the
-final render.** Anything cached in the Flame foreground process is invisible to Burn. This
-resolves the deferred fork in `docs/plan.md`: the choice is now between dropping the `Precache`
-button and building an **explicitly user-managed** disk cache — never an automatic one, because
-a persistent cache that cannot detect an upstream regrade silently serves stale flow. It does
-**not** change the instance-lifetime cache design: within one process, `duplicate` = a new
-instance (new token, same pid), so per-instance caches are correct as planned.
+**Consequence for `Precache`:** a RAM cache in the Flame foreground process is invisible to Burn,
+so anything cached interactively is not reused by a background/final render. But note the single
+Burn process rendered **sequentially**, so it reuses its *own* RAM cache (one inference/frame
+after the chain prefix) — the boundary costs only the prefix rebuild, not a full re-analysis.
+**Product decision (2026-08-22): v1 ships RAM-only, no persistence** — the facility renders
+almost everything in the foreground (same process/instance, cache already warm) and uses
+single-node Burn rarely and never fanned out, so a disk cache would be pure staleness risk for a
+case it barely hits. See `docs/context.md`, *`Analyze` became `Precache`*, and `docs/plan.md`
+*Deferred*. Within one process, `duplicate` = a new instance (new token, same pid), so
+per-instance RAM caches are correct as planned.
 
 Corollary: **the probe loads and runs under Burn too**, a second Autodesk host sharing Flame's
 OFX implementation — same suites, `MultipleClipDepths=0`, GPU-property strings, and the same
@@ -816,10 +819,11 @@ diagnostic remain Phase 4.
 ### 0C — CLOSED 2026-08-21
 
 All five 0C items are measured (details in the *Measured — Phase 0C* sections above). Item 1
-fixed the ST convention; item 2 established that final render is a separate process (Burn), so
-a RAM-only `Precache` is not production-viable — the disk-cache-or-drop decision is now a
-product call, not a measurement; items 3–5 closed the render-time observations at PAR 1 and
-PAR 2. Nothing in Phase 0 remains open.
+fixed the ST convention; item 2 established that final render is a separate process (Burn);
+items 3–5 closed the render-time observations at PAR 1 and PAR 2. The `Precache` product call
+that item 2 fed is now **decided (2026-08-22): v1 ships RAM-only, no persistence** — the facility
+renders almost everything in the foreground and uses single-node Burn rarely, never fanned out
+(see `docs/context.md` and `docs/plan.md` *Deferred*). Nothing in Phase 0 remains open.
 
 1. **The ST convention Flame's own downstream tool expects. — CLOSED 2026-08-21.** Measured
    `(x + 0.5) / W` half-pixel centres, bottom-left origin, U→R/V→G, real-pixel normalization,
