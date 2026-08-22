@@ -800,6 +800,38 @@ summary populated because Run Probe was pressed in the session that rendered.
 
 **Phase 0C, and with it all of Phase 0, is closed.**
 
+## Measured — Phase 1 Linux product smoke test
+
+Flame **2026.2** on Linux, **2026-08-22**. The EL8/glibc-2.28 artifact at commit
+`bf46351` was checksum-verified, installed after older builds were removed, and exercised in
+a General-context Batch node with real Source and animated Insert media. Report:
+[`2026-08-22-phase1-flame-smoke.md`](measurements/2026-08-22-phase1-flame-smoke.md).
+
+Both permanent descriptors load and expose the expected sockets. Labels are legible; the
+Track-only and ST-only controls are correctly separated; deferred bake-off choices are absent;
+and setting Model Dir does not make either descriptor disappear. `Set Ref` replaces one
+non-animating scalar across repeated presses. Flame supplies Batch-relative OFX time, confirming
+the existing convention: a batch beginning at 1001 reports 0 at 1001 and 19 at 1020.
+
+Composite preserves Source; Warped Insert selects moving Current or frozen Reference media;
+and a disconnected Insert produces black on both colour and matte outputs. The default
+absolute-UV, bottom-left ST map reproduces Source through Flame's native ST Map node, including
+a partial render with no seam or normalization error. The log recognises the Flame family,
+contains no recovered describe action, and records the expected Phase 1 fallback renders.
+
+One descriptor defect was exposed: both product nodes appeared inside an **unnamed submenu**,
+while the probes appeared under `White Water`. The product descriptors had omitted
+`kOfxImageEffectPluginPropGrouping`; Phase 1 now sets it to `White Water` and the raw host
+harness asserts the value. This requires one short on-box confirmation with the replacement
+artifact before merge.
+
+The connected Warped Insert RGB appeared full-frame rather than visually cut by its matte.
+That is expected for an unpremultiplied RGB view: this output preserves RGB and carries alpha
+separately rather than multiplying colour by it. The host-free harness compares the complete
+RGBA fallback, including alpha. The only remaining host question is whether a nontrivial Insert
+Matte is reproduced on the node's connected matte output; solid white there would be a defect,
+whereas full-frame RGB with the correct matte output is the intended contract.
+
 ## Open
 
 Phase 0A's five questions and all Phase 0B measurements are closed — see the measured sections

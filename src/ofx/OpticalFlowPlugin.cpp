@@ -180,6 +180,10 @@ bool isConnectedSafely(const OFX::Clip *clip) {
 }
 
 void describeEffect(OFX::ImageEffectDescriptor &descriptor, DescriptorKind kind) {
+  // Flame renders an empty submenu when this property is absent. Match the two diagnostic
+  // probes and keep both permanent product descriptors under the White Water menu.
+  descriptor.getPropertySet().propSetString(kOfxImageEffectPluginPropGrouping, "White Water", 0,
+                                             false);
   if (kind == DescriptorKind::kTrack) {
     descriptor.setLabels("White Water", "White Water", "White Water optical flow tracker");
     descriptor.setPluginDescription(

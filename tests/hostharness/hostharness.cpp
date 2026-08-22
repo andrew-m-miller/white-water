@@ -1477,6 +1477,13 @@ void validateParameterSet(const Effect &context, bool stDescriptor) {
 }
 
 void validateEffectProperties(const Effect &context, bool stDescriptor) {
+  std::string grouping;
+  const bool hasGrouping = readString(
+      reinterpret_cast<OfxPropertySetHandle>(const_cast<PropertySet *>(&context.props)),
+      kOfxImageEffectPluginPropGrouping, &grouping);
+  check(hasGrouping && grouping == "White Water",
+        (stDescriptor ? "ST" : "Track") + std::string(" descriptor uses White Water menu"));
+
   const auto supportedDepths = stringsFrom(
       reinterpret_cast<OfxPropertySetHandle>(const_cast<PropertySet *>(&context.props)),
       kOfxImageEffectPropSupportedPixelDepths);
