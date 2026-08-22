@@ -76,8 +76,9 @@ FlowResult NullPairwiseEstimator::estimate(const OwnedFrame &a, const OwnedFrame
 
     FlowResult result;
     result.status = FlowEstimateStatus::kSuccess;
-    result.link = FlowLink(request.fromTime, request.toTime, request.fromGeometry,
-                           request.toGeometry, std::move(field), parameters_.fingerprint);
+    result.link = FlowLink(FlowEndpoint(request.fromTime, request.fromGeometry),
+                           FlowEndpoint(request.toTime, request.toGeometry), std::move(field),
+                           parameters_.fingerprint);
     if (parameters_.emitConfidence) {
       ScalarField confidence(request.columns, request.rows, request.fromGeometry);
       for (std::size_t index = 0; index < confidence.size(); ++index)

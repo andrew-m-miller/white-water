@@ -12,12 +12,6 @@ namespace whitewater {
 // code should prefer compose(FlowLink, FlowLink), which also checks endpoint times, endpoint
 // geometries and model fingerprints.
 FlowField composeFields(const FlowField &a, const FlowField &b);
-inline FlowField composeField(const FlowField &a, const FlowField &b) {
-  return composeFields(a, b);
-}
-inline FlowField compose(const FlowField &a, const FlowField &b) {
-  return composeFields(a, b);
-}
 
 // If a maps A -> B and b maps B -> C, return the A -> C map:
 //
@@ -38,22 +32,9 @@ ScalarField composeConfidence(const ScalarField &confidenceA,
 ScalarField composeConfidence(const FlowLink &a, const ScalarField &confidenceA,
                               const FlowLink &b, const ScalarField &confidenceB);
 
-// Same operation with the link arguments first, for callers that naturally mirror compose.
-ScalarField composeConfidence(const FlowLink &a, const FlowLink &b,
-                              const ScalarField &confidenceA,
-                              const ScalarField &confidenceB);
-
 // Forward/backward consistency.  For f: A -> B and b: B -> A, the residual at q in A is
 // f(q) + b(q + f(q)).  It is a displacement field, so zero means an exact round trip.
 FlowField forwardBackwardResidual(const FlowLink &forward, const FlowLink &backward);
-// Storage-only form for synthetic callers that have already established the reverse
-// relationship outside this type.  The FlowLink form above is the checked production path.
-inline FlowField forwardBackwardResidual(const FlowField &forward, const FlowField &backward) {
-  return composeFields(forward, backward);
-}
-inline FlowField fbResidual(const FlowLink &forward, const FlowLink &backward) {
-  return forwardBackwardResidual(forward, backward);
-}
 
 // Turn a residual into a confidence in [0, 1].  A residual of zero is confidence 1;
 // residuals at or beyond tolerance are confidence 0, with a linear falloff in between.
@@ -62,10 +43,6 @@ ScalarField confidenceFromResidual(const FlowField &residual, double tolerance);
 
 ScalarField forwardBackwardConfidence(const FlowLink &forward, const FlowLink &backward,
                                       double tolerance = 1.0);
-inline ScalarField forwardBackwardConfidence(const FlowField &forward, const FlowField &backward,
-                                            double tolerance = 1.0) {
-  return confidenceFromResidual(forwardBackwardResidual(forward, backward), tolerance);
-}
 
 // If per-direction confidence fields are available, they are multiplied into the
 // residual-derived confidence along the same path used by the check.
@@ -87,12 +64,6 @@ ForwardBackwardResult forwardBackward(const FlowLink &forward, const FlowLink &b
 // claim about temporal chain drift.
 FlowField smoothGaussian(const FlowField &field, double sigma);
 ScalarField smoothGaussian(const ScalarField &field, double sigma);
-inline FlowField gaussianSmooth(const FlowField &field, double sigma) {
-  return smoothGaussian(field, sigma);
-}
-inline ScalarField gaussianSmooth(const ScalarField &field, double sigma) {
-  return smoothGaussian(field, sigma);
-}
 
 }  // namespace whitewater
 

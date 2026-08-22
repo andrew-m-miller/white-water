@@ -156,28 +156,47 @@ AnalysisGeometry analysisGeometry(const OwnedFrame &frame, const PreprocessConfi
   if (capApplied) {
     const long long capPixels = std::max(
         1LL, static_cast<long long>(std::floor(capPixelsValue)));
-    long long area = static_cast<long long>(geometry.analysisWidth) * geometry.analysisHeight;
-    if (area > capPixels) {
+    const long long roundedArea = static_cast<long long>(geometry.analysisWidth) *
+                                  geometry.analysisHeight;
+    if (roundedArea > capPixels) {
       // Rounding each axis independently can put the product a few pixels above the cap.
-      // Reduce the axis whose rounded scale is relatively larger, then make one final
-      // quotient adjustment.  This is constant time even when a very large source is
-      // reduced to a small cap.
+      // Keep the existing relative-rounded-scale preference, but fall back to the other
+      // axis when the preferred quotient is already at the legal minimum of one pixel.
       const double roundedScaleX = geometry.analysisWidth / geometry.canonicalWidth;
       const double roundedScaleY = geometry.analysisHeight / geometry.canonicalHeight;
+      const auto clampWidth = [&]() {
+        const long long limit = capPixels / std::max(
+            1LL, static_cast<long long>(geometry.analysisHeight));
+        const long long bounded = std::max(
+            1LL, std::min(static_cast<long long>(geometry.analysisWidth), limit));
+        geometry.analysisWidth = static_cast<int>(std::min(
+            bounded, static_cast<long long>(std::numeric_limits<int>::max())));
+      };
+      const auto clampHeight = [&]() {
+        const long long limit = capPixels / std::max(
+            1LL, static_cast<long long>(geometry.analysisWidth));
+        const long long bounded = std::max(
+            1LL, std::min(static_cast<long long>(geometry.analysisHeight), limit));
+        geometry.analysisHeight = static_cast<int>(std::min(
+            bounded, static_cast<long long>(std::numeric_limits<int>::max())));
+      };
+      const auto areaExceedsCap = [&]() {
+        return static_cast<long long>(geometry.analysisWidth) * geometry.analysisHeight >
+               capPixels;
+      };
+
       if (roundedScaleX >= roundedScaleY) {
-        geometry.analysisWidth = std::max(
-            1, std::min(geometry.analysisWidth,
-                        static_cast<int>(capPixels / geometry.analysisHeight)));
+        clampWidth();
+        if (areaExceedsCap()) clampHeight();
       } else {
-        geometry.analysisHeight = std::max(
-            1, std::min(geometry.analysisHeight,
-                        static_cast<int>(capPixels / geometry.analysisWidth)));
+        clampHeight();
+        if (areaExceedsCap()) clampWidth();
       }
-      area = static_cast<long long>(geometry.analysisWidth) * geometry.analysisHeight;
-      if (area > capPixels) {
-        geometry.analysisHeight = std::max(
-            1, std::min(geometry.analysisHeight,
-                        static_cast<int>(capPixels / geometry.analysisWidth)));
+      // Defensive invariant: with a cap of at least one pixel the branch above is enough,
+      // but keep both quotient clamps here so future edits cannot reintroduce an oversize.
+      if (areaExceedsCap()) {
+        clampWidth();
+        clampHeight();
       }
     }
   }

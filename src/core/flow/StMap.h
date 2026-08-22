@@ -33,7 +33,7 @@ struct StMapOptions {
 };
 
 // Writes U/V in R/G, leaves B at zero, and writes alpha one.  The destination image is
-// packed and has the dimensions of options.destinationBounds.  The field values are
+// packed and has the dimensions of the resolved destination bounds.  The field values are
 // backward real-pixel displacements sampled at destination pixel centres.
 Image fieldToStMap(const FlowField &field, const StMapOptions &options = {});
 
@@ -51,19 +51,6 @@ Image fieldToStMap(const FlowField &field, int width, int height,
 Image fieldToStMap(const FlowField &field, const CapturedPixelBounds &sourceBounds,
                   const CapturedPixelBounds &destinationBounds, StMapMode mode,
                   StMapOrigin origin = StMapOrigin::kBottomLeft);
-
-// Descriptive aliases used by the flow and CLI layers.
-inline Image flowToStMap(const FlowField &field, const StMapOptions &options = {}) {
-  return fieldToStMap(field, options);
-}
-
-inline Image makeStMap(const FlowField &field, const StMapOptions &options = {}) {
-  return fieldToStMap(field, options);
-}
-
-inline Image convertFlowToStMap(const FlowField &field, const StMapOptions &options = {}) {
-  return fieldToStMap(field, options);
-}
 
 }  // namespace whitewater
 

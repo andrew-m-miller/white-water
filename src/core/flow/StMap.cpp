@@ -1,26 +1,16 @@
 #include "core/flow/StMap.h"
 
 #include <cmath>
-#include <string>
 #include <stdexcept>
+#include <string>
 
 namespace whitewater {
 namespace {
 
-CapturedPixelBounds resolveBounds(const FlowField &field, CapturedPixelBounds source,
-                                  CapturedPixelBounds destination, bool sourceRequested,
-                                  bool destinationRequested) {
-  if (!sourceRequested && destinationRequested) source = destination;
-  if (!destinationRequested && sourceRequested) destination = source;
-  if (!sourceRequested && !destinationRequested) {
-    const Vec2 origin = field.geometry().origin;
-    const int x = static_cast<int>(std::floor(origin.x - 0.5));
-    const int y = static_cast<int>(std::floor(origin.y - 0.5));
-    destination = {x, y, x + field.columns(), y + field.rows()};
-    source = destination;
-  }
-  return destination;
-}
+struct ResolvedBounds {
+  CapturedPixelBounds source;
+  CapturedPixelBounds destination;
+};
 
 void validateBounds(const CapturedPixelBounds &bounds, const char *name) {
   if (bounds.width() <= 0 || bounds.height() <= 0) {
@@ -28,60 +18,53 @@ void validateBounds(const CapturedPixelBounds &bounds, const char *name) {
   }
 }
 
-}  // namespace
+ResolvedBounds resolveBounds(const FlowField &field, const StMapOptions &options) {
+  ResolvedBounds resolved{options.sourceBounds, options.destinationBounds};
+  const bool sourceRequested = !resolved.source.isEmpty();
+  const bool destinationRequested = !resolved.destination.isEmpty();
 
-Image fieldToStMap(const FlowField &field, const StMapOptions &options) {
-  const bool sourceRequested = !options.sourceBounds.isEmpty();
-  const bool destinationRequested = !options.destinationBounds.isEmpty();
-  CapturedPixelBounds destination =
-      resolveBounds(field, options.sourceBounds, options.destinationBounds, sourceRequested,
-                    destinationRequested);
-  CapturedPixelBounds source = options.sourceBounds;
-  if (!sourceRequested) source = destination;
-  validateBounds(source, "source bounds");
-  validateBounds(destination, "destination bounds");
+  if (!sourceRequested && destinationRequested) resolved.source = resolved.destination;
+  if (!destinationRequested && sourceRequested) resolved.destination = resolved.source;
+  if (!sourceRequested && !destinationRequested) {
+    const Vec2 origin = field.geometry().origin;
+    const int x = static_cast<int>(std::floor(origin.x - 0.5));
+    const int y = static_cast<int>(std::floor(origin.y - 0.5));
+    resolved.destination = {x, y, x + field.columns(), y + field.rows()};
+    resolved.source = resolved.destination;
+  }
 
-  Image output(destination.width(), destination.height());
-  fieldToStMap(field, options, output.view());
-  return output;
+  validateBounds(resolved.source, "source bounds");
+  validateBounds(resolved.destination, "destination bounds");
+  return resolved;
 }
 
-void fieldToStMap(const FlowField &field, const StMapOptions &options,
-                  const ImageView &destination) {
-  const bool sourceRequested = !options.sourceBounds.isEmpty();
-  const bool destinationRequested = !options.destinationBounds.isEmpty();
-  CapturedPixelBounds resolvedDestination =
-      resolveBounds(field, options.sourceBounds, options.destinationBounds, sourceRequested,
-                    destinationRequested);
-  CapturedPixelBounds source = options.sourceBounds;
-  if (!sourceRequested) source = resolvedDestination;
-  validateBounds(source, "source bounds");
-  validateBounds(resolvedDestination, "destination bounds");
-  if (destination.isEmpty() || destination.width() != resolvedDestination.width() ||
-      destination.height() != resolvedDestination.height()) {
+void writeStMap(const FlowField &field, StMapMode mode, StMapOrigin origin,
+                const ResolvedBounds &bounds, const ImageView &destination) {
+  if (destination.isEmpty() || destination.width() != bounds.destination.width() ||
+      destination.height() != bounds.destination.height()) {
     throw std::invalid_argument("ST destination dimensions do not match destination bounds");
   }
 
-  const double sourceWidth = static_cast<double>(source.width());
-  const double sourceHeight = static_cast<double>(source.height());
+  const double sourceWidth = static_cast<double>(bounds.source.width());
+  const double sourceHeight = static_cast<double>(bounds.source.height());
   for (int y = 0; y < destination.height(); ++y) {
-    const double destinationY = static_cast<double>(resolvedDestination.y1 + y) + 0.5;
+    const double destinationY = static_cast<double>(bounds.destination.y1 + y) + 0.5;
     float *out = destination.row(y);
     for (int x = 0; x < destination.width(); ++x) {
-      const double destinationX = static_cast<double>(resolvedDestination.x1 + x) + 0.5;
+      const double destinationX = static_cast<double>(bounds.destination.x1 + x) + 0.5;
       const Vec2 displacement = sampleFlow(field, Vec2(destinationX, destinationY));
       double u = 0.0;
       double v = 0.0;
-      if (options.mode == StMapMode::kRelativePixels) {
+      if (mode == StMapMode::kRelativePixels) {
         u = displacement.x;
-        v = options.origin == StMapOrigin::kTopLeft ? -displacement.y : displacement.y;
+        v = origin == StMapOrigin::kTopLeft ? -displacement.y : displacement.y;
       } else {
         const Vec2 sourcePoint = Vec2(destinationX + displacement.x,
                                       destinationY + displacement.y);
-        u = (sourcePoint.x - static_cast<double>(source.x1)) / sourceWidth;
+        u = (sourcePoint.x - static_cast<double>(bounds.source.x1)) / sourceWidth;
         const double bottomLeftV =
-            (sourcePoint.y - static_cast<double>(source.y1)) / sourceHeight;
-        v = options.origin == StMapOrigin::kTopLeft ? 1.0 - bottomLeftV : bottomLeftV;
+            (sourcePoint.y - static_cast<double>(bounds.source.y1)) / sourceHeight;
+        v = origin == StMapOrigin::kTopLeft ? 1.0 - bottomLeftV : bottomLeftV;
       }
 
       out[0] = static_cast<float>(u);
@@ -91,6 +74,21 @@ void fieldToStMap(const FlowField &field, const StMapOptions &options,
       out += kImageChannels;
     }
   }
+}
+
+}  // namespace
+
+Image fieldToStMap(const FlowField &field, const StMapOptions &options) {
+  const ResolvedBounds bounds = resolveBounds(field, options);
+  Image output(bounds.destination.width(), bounds.destination.height());
+  writeStMap(field, options.mode, options.origin, bounds, output.view());
+  return output;
+}
+
+void fieldToStMap(const FlowField &field, const StMapOptions &options,
+                  const ImageView &destination) {
+  const ResolvedBounds bounds = resolveBounds(field, options);
+  writeStMap(field, options.mode, options.origin, bounds, destination);
 }
 
 Image fieldToStMap(const FlowField &field, int width, int height, StMapMode mode,

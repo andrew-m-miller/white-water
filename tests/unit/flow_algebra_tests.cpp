@@ -98,9 +98,9 @@ void testTypedCompositionAndDirections() {
   const int columns = 5;
   const int rows = 3;
 
-  const FlowLink a(12, 11, aGeometry, bGeometry,
+  const FlowLink a(FlowEndpoint(12, aGeometry), FlowEndpoint(11, bGeometry),
                    constantField(columns, rows, aGeometry, Vec2(2.0, -1.0)), "model-a");
-  const FlowLink b(11, 10, bGeometry, cGeometry,
+  const FlowLink b(FlowEndpoint(11, bGeometry), FlowEndpoint(10, cGeometry),
                    constantField(columns, rows, bGeometry, Vec2(-3.0, 4.0)), "model-a");
   const FlowLink composed = compose(a, b);
   require(composed.fromTime() == 12, "composition preserves the first from-time");
@@ -117,15 +117,15 @@ void testTypedCompositionAndDirections() {
     }
   }
 
-  const FlowLink wrongIntermediate(11, 10, aGeometry, cGeometry,
+  const FlowLink wrongIntermediate(FlowEndpoint(11, aGeometry), FlowEndpoint(10, cGeometry),
                                    constantField(columns, rows, aGeometry, Vec2()), "model-a");
   expectThrows([&] { compose(a, wrongIntermediate); });
-  const FlowLink wrongFingerprint(11, 10, bGeometry, cGeometry,
+  const FlowLink wrongFingerprint(FlowEndpoint(11, bGeometry), FlowEndpoint(10, cGeometry),
                                   constantField(columns, rows, bGeometry, Vec2()), "model-b");
   expectThrows([&] { compose(a, wrongFingerprint); });
 
   // Both temporal directions are valid; only a reversed request is invalid.
-  const FlowLink reverse(11, 12, bGeometry, aGeometry,
+  const FlowLink reverse(FlowEndpoint(11, bGeometry), FlowEndpoint(12, aGeometry),
                          constantField(columns, rows, bGeometry, Vec2(-2.0, 1.0)), "model-a");
   const FlowField roundTrip = forwardBackwardResidual(a, reverse);
   for (int row = 0; row < rows; ++row) {
@@ -185,10 +185,10 @@ void testConfidenceAndSmoothing() {
   const FieldGeometry bGeometry = FieldGeometry::forPixels(2, 4, 0.75, 1.25);
   const int columns = 5;
   const int rows = 3;
-  const FlowLink a(2, 1, aGeometry, bGeometry,
+  const FlowLink a(FlowEndpoint(2, aGeometry), FlowEndpoint(1, bGeometry),
                    constantField(columns, rows, aGeometry, Vec2(100.0, 100.0)), "model");
-  const FlowLink b(1, 0, bGeometry, bGeometry,
-                   constantField(columns, rows, bGeometry, Vec2()), "model");
+  const FlowLink b = FlowLink::withSharedGeometry(
+      1, 0, constantField(columns, rows, bGeometry, Vec2()), "model");
   ScalarField confidenceA = scalarField(columns, rows, aGeometry, 0.5f);
   ScalarField confidenceB = scalarField(columns, rows, bGeometry, 0.8f);
   // The 100-pixel path is clamped to the edge of confidenceB, rather than extrapolated.
@@ -226,8 +226,9 @@ void testChainPlanningAndIdentity() {
   std::vector<FlowLink> links;
   links.reserve(chain.requests().size());
   for (const FlowLinkRequest &request : chain.requests()) {
-    links.emplace_back(request.fromTime, request.toTime, geometry, geometry,
-                       constantField(columns, rows, geometry, Vec2()), "identity");
+    links.push_back(FlowLink::withSharedGeometry(
+        request.fromTime, request.toTime,
+        constantField(columns, rows, geometry, Vec2()), "identity"));
   }
   const FlowLink accumulated = chain.accumulate(links);
   require(accumulated.isIdentity(), "hundreds of identity links remain identity");
@@ -244,8 +245,8 @@ void testChainPlanningAndIdentity() {
   }
 
   std::vector<FlowLink> reversed = links;
-  reversed[1] = FlowLink(298, 299, geometry, geometry,
-                         constantField(columns, rows, geometry, Vec2()), "identity");
+  reversed[1] = FlowLink::withSharedGeometry(
+      298, 299, constantField(columns, rows, geometry, Vec2()), "identity");
   expectThrows([&] { chain.accumulate(reversed); });
 }
 

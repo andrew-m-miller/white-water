@@ -1,6 +1,7 @@
 #include "core/flow/FlowLink.h"
 
 #include <stdexcept>
+#include <utility>
 
 namespace whitewater {
 
@@ -19,6 +20,14 @@ FlowLink::FlowLink(FlowEndpoint from, FlowEndpoint to, FlowField backwardDisplac
     throw std::invalid_argument("FlowLink field geometry does not match its from endpoint");
   }
   valid_ = true;
+}
+
+FlowLink FlowLink::withSharedGeometry(int fromTime, int toTime,
+                                      FlowField backwardDisplacement,
+                                      std::string modelFingerprint) {
+  const FieldGeometry geometry = backwardDisplacement.geometry();
+  return FlowLink(FlowEndpoint(fromTime, geometry), FlowEndpoint(toTime, geometry),
+                  std::move(backwardDisplacement), std::move(modelFingerprint));
 }
 
 FlowLink FlowLink::identity(int time, int columns, int rows, const FieldGeometry &geometry,

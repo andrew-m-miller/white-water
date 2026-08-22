@@ -57,8 +57,8 @@ std::shared_ptr<const ScalarField> confidenceOf(int columns, int rows,
 std::shared_ptr<const FlowLink> linkOf(int from, int to, int columns, int rows,
                                        const FieldGeometry &geometry,
                                        const std::string &fingerprint, float value = 0.0f) {
-  return std::make_shared<FlowLink>(from, to, geometry, geometry,
-                                    fieldOf(columns, rows, geometry, value), fingerprint);
+  return std::make_shared<FlowLink>(FlowLink::withSharedGeometry(
+      from, to, fieldOf(columns, rows, geometry, value), fingerprint));
 }
 
 FlowCacheKey keyOf(FlowCache::Generation generation, int from, int to, int columns, int rows,

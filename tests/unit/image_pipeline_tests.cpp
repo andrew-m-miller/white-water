@@ -213,6 +213,37 @@ void testStMaps() {
                 "relative ST flips Y only for top-left origin");
   }
 
+  // Exercise the caller-owned view with distinct endpoint extents.  Both public forms must use
+  // the same resolved source/destination pair, so the view writer must match the allocating form.
+  StMapOptions distinctBounds;
+  distinctBounds.sourceBounds = {-11, -4, -3, 5};
+  distinctBounds.destinationBounds = bounds;
+  distinctBounds.mode = StMapMode::kAbsoluteUV;
+  const Image allocated = fieldToStMap(field, distinctBounds);
+  // At destination centre (-2.5, 5.5), the constant (2, -1.5) flow lands at (-0.5, 4.0).
+  // Normalize that source point against the intentionally different source extent.
+  requireNear(allocated.pixel(0, 0)[0], 10.5 / 8.0,
+              "absolute ST U uses the distinct source bounds at the lower-left pixel");
+  requireNear(allocated.pixel(0, 0)[1], 8.0 / 9.0,
+              "absolute ST V uses the distinct source bounds at the lower-left pixel");
+  // The opposite destination centre (4.5, 11.5) lands at (6.5, 10.0), covering the other
+  // side of both normalized axes and catching a destination/source bounds mix-up.
+  requireNear(allocated.pixel(7, 6)[0], 17.5 / 8.0,
+              "absolute ST U uses the distinct source bounds at the upper-right pixel");
+  requireNear(allocated.pixel(7, 6)[1], 14.0 / 9.0,
+              "absolute ST V uses the distinct source bounds at the upper-right pixel");
+  Image supplied(allocated.width(), allocated.height());
+  fieldToStMap(field, distinctBounds, supplied.view());
+  bool same = true;
+  for (int y = 0; y < allocated.height(); ++y) {
+    same = std::memcmp(allocated.view().row(y), supplied.view().row(y),
+                       static_cast<std::size_t>(allocated.width()) * kImageChannels *
+                           sizeof(float)) == 0;
+    if (!same) break;
+  }
+  require(same,
+          "caller-owned ST view matches the allocating writer for distinct bounds");
+
   FlowField identity(8, 7, FieldGeometry::forPixels(bounds.x1, bounds.y1));
   fillFlow(&identity, Vec2());
   StMapOptions identityOptions;

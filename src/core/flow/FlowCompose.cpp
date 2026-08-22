@@ -3,8 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <limits>
+#include <string>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace whitewater {
@@ -88,6 +89,12 @@ Field<kChannels> smoothGaussianImpl(const Field<kChannels> &field, double sigma)
   const int columns = field.columns();
   const int rows = field.rows();
 
+  struct GaussianKernel {
+    int radius;
+    std::vector<double> weights;
+    double totalWeight;
+  };
+
   auto makeKernel = [sigma](double spacing, int extent) {
     // The support is three standard deviations.  Clamp the radius before converting to an
     // int so a very large but finite sigma cannot overflow a loop bound.
@@ -99,23 +106,25 @@ Field<kChannels> smoothGaussianImpl(const Field<kChannels> &field, double sigma)
     }
 
     std::vector<double> weights(static_cast<std::size_t>(radius) * 2 + 1, 0.0);
+    double totalWeight = 0.0;
     for (int offset = -radius; offset <= radius; ++offset) {
       // Divide before squaring so a perfectly valid subnormal sigma cannot underflow the
       // denominator to zero.  An overlarge ratio simply produces exp(-infinity) = 0,
       // which is the correct negligible tail.
       const double scaled = (offset * spacing) / sigma;
-      weights[static_cast<std::size_t>(offset + radius)] =
-          std::exp(-0.5 * scaled * scaled);
+      const double weight = std::exp(-0.5 * scaled * scaled);
+      weights[static_cast<std::size_t>(offset + radius)] = weight;
+      totalWeight += weight;
     }
-    return std::make_pair(radius, std::move(weights));
+    return GaussianKernel{radius, std::move(weights), totalWeight};
   };
 
   const auto horizontalKernel = makeKernel(field.geometry().spacingX, columns);
   const auto verticalKernel = makeKernel(field.geometry().spacingY, rows);
-  const int horizontalRadius = horizontalKernel.first;
-  const int verticalRadius = verticalKernel.first;
-  const std::vector<double> &horizontalWeights = horizontalKernel.second;
-  const std::vector<double> &verticalWeights = verticalKernel.second;
+  const int horizontalRadius = horizontalKernel.radius;
+  const int verticalRadius = verticalKernel.radius;
+  const std::vector<double> &horizontalWeights = horizontalKernel.weights;
+  const std::vector<double> &verticalWeights = verticalKernel.weights;
 
   // The intermediate has the same interleaved layout as the field.  All accumulation is in
   // double so the result is independent of whether a particular axis has an even or odd
@@ -127,7 +136,6 @@ Field<kChannels> smoothGaussianImpl(const Field<kChannels> &field, double sigma)
                    (static_cast<std::size_t>(row) * columns + column) * kChannels;
       for (int channel = 0; channel < kChannels; ++channel) {
         double sum = 0.0;
-        double weightSum = 0.0;
         for (int offset = -horizontalRadius; offset <= horizontalRadius; ++offset) {
           const int sampleColumn =
               std::max(0, std::min(columns - 1, column + offset));
@@ -135,9 +143,8 @@ Field<kChannels> smoothGaussianImpl(const Field<kChannels> &field, double sigma)
                                                                             horizontalRadius)];
           const float value = field.node(sampleColumn, row)[channel];
           sum += weight * static_cast<double>(value);
-          weightSum += weight;
         }
-        out[channel] = static_cast<float>(sum / weightSum);
+        out[channel] = static_cast<float>(sum / horizontalKernel.totalWeight);
       }
     }
   }
@@ -148,7 +155,6 @@ Field<kChannels> smoothGaussianImpl(const Field<kChannels> &field, double sigma)
       float *out = smoothed.node(column, row);
       for (int channel = 0; channel < kChannels; ++channel) {
         double sum = 0.0;
-        double weightSum = 0.0;
         for (int offset = -verticalRadius; offset <= verticalRadius; ++offset) {
           const int sampleRow = std::max(0, std::min(rows - 1, row + offset));
           const double weight = verticalWeights[static_cast<std::size_t>(offset +
@@ -157,9 +163,8 @@ Field<kChannels> smoothGaussianImpl(const Field<kChannels> &field, double sigma)
                                (static_cast<std::size_t>(sampleRow) * columns + column) *
                                    kChannels;
           sum += weight * static_cast<double>(value[channel]);
-          weightSum += weight;
         }
-        out[channel] = static_cast<float>(sum / weightSum);
+        out[channel] = static_cast<float>(sum / verticalKernel.totalWeight);
       }
     }
   }
@@ -256,12 +261,6 @@ ScalarField composeConfidence(const FlowLink &a, const ScalarField &confidenceA,
     throw std::invalid_argument("confidence shape does not match its FlowLink");
   }
   return composeConfidence(confidenceA, confidenceB, a.field());
-}
-
-ScalarField composeConfidence(const FlowLink &a, const FlowLink &b,
-                              const ScalarField &confidenceA,
-                              const ScalarField &confidenceB) {
-  return composeConfidence(a, confidenceA, b, confidenceB);
 }
 
 FlowField forwardBackwardResidual(const FlowLink &forward, const FlowLink &backward) {

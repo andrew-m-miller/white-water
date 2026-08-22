@@ -44,31 +44,11 @@ class FlowLink {
   FlowLink(FlowEndpoint from, FlowEndpoint to, FlowField backwardDisplacement,
            std::string modelFingerprint);
 
-  FlowLink(int fromTime, int toTime, const FieldGeometry &fromGeometry,
-           const FieldGeometry &toGeometry, FlowField backwardDisplacement,
-           std::string modelFingerprint)
-      : FlowLink(FlowEndpoint(fromTime, fromGeometry), FlowEndpoint(toTime, toGeometry),
-                 std::move(backwardDisplacement), std::move(modelFingerprint)) {}
-
-  // Convenience for the common case where the field already carries the source lattice
-  // geometry.  The explicit-endpoint constructor remains the validation boundary.
-  FlowLink(int fromTime, int toTime, FlowField backwardDisplacement,
-           const FieldGeometry &toGeometry, std::string modelFingerprint)
-      : FlowLink(FlowEndpoint(fromTime, backwardDisplacement.geometry()),
-                 FlowEndpoint(toTime, toGeometry), std::move(backwardDisplacement),
-                 std::move(modelFingerprint)) {}
-
-  FlowLink(int fromTime, int toTime, FlowField backwardDisplacement,
-           std::string modelFingerprint, const FieldGeometry &toGeometry)
-      : FlowLink(fromTime, toTime, std::move(backwardDisplacement), toGeometry,
-                 std::move(modelFingerprint)) {}
-
-  // If both endpoint lattices are the same, the destination geometry can be inferred too.
-  FlowLink(int fromTime, int toTime, FlowField backwardDisplacement,
-           std::string modelFingerprint)
-      : FlowLink(FlowEndpoint(fromTime, backwardDisplacement.geometry()),
-                 FlowEndpoint(toTime, backwardDisplacement.geometry()),
-                 std::move(backwardDisplacement), std::move(modelFingerprint)) {}
+  // Common case: both endpoints share the field's lattice geometry.  Links with distinct
+  // endpoint geometries use the explicit FlowEndpoint constructor above.
+  static FlowLink withSharedGeometry(int fromTime, int toTime,
+                                     FlowField backwardDisplacement,
+                                     std::string modelFingerprint);
 
   // A zero displacement link is useful when a caller needs a concrete value for an exact
   // identity chain.  FlowChain also represents identity as an empty request list, so this
@@ -85,13 +65,9 @@ class FlowLink {
   int toTime() const { return to_.time; }
   const FieldGeometry &fromGeometry() const { return from_.geometry; }
   const FieldGeometry &toGeometry() const { return to_.geometry; }
-  const FieldGeometry &geometry() const { return from_.geometry; }
   const std::string &modelFingerprint() const { return modelFingerprint_; }
-  const std::string &fingerprint() const { return modelFingerprint_; }
 
   const FlowField &field() const { return backwardDisplacement_; }
-  const FlowField &backwardField() const { return backwardDisplacement_; }
-  const FlowField &backwardDisplacement() const { return backwardDisplacement_; }
 
  private:
   FlowEndpoint from_;
