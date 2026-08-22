@@ -61,11 +61,14 @@
 // not the schedule.
 // ===========================================================================
 
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <map>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -143,6 +146,19 @@ long gPartialWindowRenders = 0;
 
 // Item 5: is getFramesNeeded even called, and does declaring only {N} hold?
 long gFramesNeededCalls = 0;
+
+// --- 0C item 2: instance and process lifetime -------------------------------------
+//
+// Does a Batch node's FINAL/BACKGROUND render happen in the SAME process and SAME OFX
+// instance as the foreground interactive session? That decides whether a RAM-only
+// "Precache" has any production value at all. Two OFX instances may render concurrently
+// (the plugin declares kOfxImageEffectRenderFullySafe), so this state is guarded by a
+// mutex rather than assumed single-threaded across create/destroy/render actions.
+std::mutex gInstanceLifetimeMutex;
+std::atomic<long> gNextInstanceToken{1};
+std::map<OfxImageEffectHandle, long> gInstanceTokens;
+long gLiveInstanceCount = 0;
+long gTotalInstancesSeen = 0;
 
 // Parameter names.
 const char *kParamRunProbe = "runProbe";
@@ -1047,6 +1063,135 @@ void verifyBigString(OfxParamSetHandle paramSet) {
     emit("  RESULT: payload was altered or truncated -- document must be stored in a side file.");
 }
 
+// 0C item 2: instance and process lifetime.
+//
+// Assigns a monotonic token to every OFX instance so the report can tell "the same
+// instance rendered again" from "a different instance (or process) appeared" -- exactly
+// the distinction a duplicated Batch node, or a background render running in a second
+// process, raises. Kept deliberately trivial: map operations here do not throw, but the
+// lock is still scoped tightly and nothing here can itself fail an action.
+OfxStatus onCreateInstance(OfxImageEffectHandle instance) {
+  long token = 0;
+  long live = 0;
+  {
+    std::lock_guard<std::mutex> lock(gInstanceLifetimeMutex);
+    token = gNextInstanceToken.fetch_add(1);
+    gInstanceTokens[instance] = token;
+    ++gLiveInstanceCount;
+    ++gTotalInstancesSeen;
+    live = gLiveInstanceCount;
+  }
+  emitf("0C item 2: Action: create instance  token=%ld pid=%d live=%ld", token, (int)getpid(),
+        live);
+  return kOfxStatOK;
+}
+
+OfxStatus onDestroyInstance(OfxImageEffectHandle instance) {
+  long token = -1;
+  long live = 0;
+  {
+    std::lock_guard<std::mutex> lock(gInstanceLifetimeMutex);
+    auto it = gInstanceTokens.find(instance);
+    if (it != gInstanceTokens.end()) {
+      token = it->second;
+      gInstanceTokens.erase(it);
+    }
+    if (gLiveInstanceCount > 0)
+      --gLiveInstanceCount;
+    live = gLiveInstanceCount;
+  }
+  emitf("0C item 2: Action: destroy instance  token=%ld pid=%d live=%ld", token, (int)getpid(),
+        live);
+  return kOfxStatOK;
+}
+
+// 0C item 2, the key line. A Batch node's FOREGROUND (interactive) render and its
+// FINAL/BACKGROUND render both reach this handler if the latter happens at all for this
+// node type -- what decides the architecture is whether the pid and instance token agree
+// between the two. kOfxImageEffectPropInteractiveRenderStatus=1 marks the foreground
+// session; =0 together with kOfxImageEffectPropSequentialRenderStatus=1 is the shape of a
+// final/background render. If that combination shows up under a different pid, that is
+// the decisive finding: a RAM-only Precache in the foreground process would not be visible
+// to it.
+OfxStatus onBeginSequenceRender(OfxImageEffectHandle instance, OfxPropertySetHandle inArgs) {
+  long token = -1;
+  {
+    std::lock_guard<std::mutex> lock(gInstanceLifetimeMutex);
+    auto it = gInstanceTokens.find(instance);
+    if (it != gInstanceTokens.end())
+      token = it->second;
+  }
+
+  double range[2] = {0.0, 0.0};
+  gProp->propGetDouble(inArgs, kOfxImageEffectPropFrameRange, 0, &range[0]);
+  gProp->propGetDouble(inArgs, kOfxImageEffectPropFrameRange, 1, &range[1]);
+  const int interactive = propInt(inArgs, kOfxImageEffectPropInteractiveRenderStatus, -1);
+  const int sequential = propInt(inArgs, kOfxImageEffectPropSequentialRenderStatus, -1);
+
+  emitf("0C item 2: Action: begin sequence render  token=%ld pid=%d frameRange=[%.3f %.3f]"
+        " interactive=%d sequential=%d",
+        token, (int)getpid(), range[0], range[1], interactive, sequential);
+  return kOfxStatOK;
+}
+
+OfxStatus onEndSequenceRender(OfxImageEffectHandle instance) {
+  long token = -1;
+  {
+    std::lock_guard<std::mutex> lock(gInstanceLifetimeMutex);
+    auto it = gInstanceTokens.find(instance);
+    if (it != gInstanceTokens.end())
+      token = it->second;
+  }
+  emitf("0C item 2: Action: end sequence render  token=%ld pid=%d", token, (int)getpid());
+  return kOfxStatOK;
+}
+
+// 0C item 2 report, called from the Run Probe button. States what has been observed so
+// far in THIS process and gives the reader the exact procedure to run in Flame, plus how
+// to read the resulting log, to answer whether a RAM-only Precache has production value.
+void reportInstanceLifetime() {
+  section("0C item 2: instance and process lifetime");
+  emitf("  Current pid: %d", (int)getpid());
+
+  long totalSeen = 0, live = 0;
+  {
+    std::lock_guard<std::mutex> lock(gInstanceLifetimeMutex);
+    totalSeen = gTotalInstancesSeen;
+    live = gLiveInstanceCount;
+  }
+  emitf("  Instances seen in this process so far: %ld total, %ld currently live", totalSeen,
+        live);
+
+  emit("");
+  emit("  Procedure to run in Flame (this is 0C item 2 -- ST convention is item 1, tracked");
+  emit("  separately):");
+  emit("    1. Put this probe on a Batch node. Save the setup, then reload it.");
+  emit("    2. Switch the Batch schematic away from the node and back to it.");
+  emit("    3. DUPLICATE the node.");
+  emit("    4. Render the node in the FOREGROUND / interactive path (e.g. step the viewer).");
+  emit("    5. Render the node with a BACKGROUND or FINAL render.");
+  emit("    6. Quit Flame, reopen it, and repeat steps 4-5.");
+  emit("");
+  emit("  How to read it: every 'create instance' / 'destroy instance' line carries a");
+  emit("  token and this process's pid. Every 'begin sequence render' line carries the");
+  emit("  same token, this pid, the frame range, and interactive/sequential status.");
+  emit("");
+  emit("  SAME pid on the foreground render and on the final/background render: a");
+  emit("  RAM-only Precache survives into the final render, so it is production-viable.");
+  emit("");
+  emit("  DIFFERENT pid on the final/background render: it runs in a separate process,");
+  emit("  so a RAM-only Precache built in the foreground process is invisible to it and");
+  emit("  has no production value.");
+  emit("");
+  emit("  NO second 'begin sequence render' observed at all for a background render:");
+  emit("  this has the same practical effect as 'different process' -- no precache");
+  emit("  benefit -- but a DIFFERENT meaning, and the two must not be conflated in");
+  emit("  docs/host-notes.md. Read it as EITHER 'background/final render does not apply");
+  emit("  to this node type or context' OR 'it was never actually exercised in this");
+  emit("  session' -- and say in the report which of the two actually happened (i.e.");
+  emit("  whether a background render was attempted at all).");
+}
+
 void showMessage(OfxImageEffectHandle instance, const char *text) {
   if (gMessage)
     gMessage->message(instance, kOfxMessageMessage, nullptr, "%s", text);
@@ -1403,6 +1548,7 @@ OfxStatus onInstanceChanged(OfxImageEffectHandle instance, OfxPropertySetHandle 
     reportLoadedObjects();
     reportOverlayStatus();
     reportPhaseZeroSummary();
+    reportInstanceLifetime();
     emit("");
     emit("Probe complete.");
     showMessage(instance, ("White Water probe written to:\n" + reportPath()).c_str());
@@ -1438,14 +1584,14 @@ OfxStatus pluginMain(const char *action, const void *handle, OfxPropertySetHandl
       return onDescribe(effect);
     if (std::strcmp(action, kOfxImageEffectActionDescribeInContext) == 0)
       return onDescribeInContext(effect, inArgs);
-    if (std::strcmp(action, kOfxActionCreateInstance) == 0) {
-      emit("Action: create instance");
-      return kOfxStatOK;
-    }
-    if (std::strcmp(action, kOfxActionDestroyInstance) == 0) {
-      emit("Action: destroy instance");
-      return kOfxStatOK;
-    }
+    if (std::strcmp(action, kOfxActionCreateInstance) == 0)
+      return onCreateInstance(effect);
+    if (std::strcmp(action, kOfxActionDestroyInstance) == 0)
+      return onDestroyInstance(effect);
+    if (std::strcmp(action, kOfxImageEffectActionBeginSequenceRender) == 0)
+      return onBeginSequenceRender(effect, inArgs);
+    if (std::strcmp(action, kOfxImageEffectActionEndSequenceRender) == 0)
+      return onEndSequenceRender(effect);
     if (std::strcmp(action, kOfxImageEffectActionRender) == 0)
       return onRender(effect, inArgs);
     if (std::strcmp(action, kOfxImageEffectActionGetFramesNeeded) == 0)
