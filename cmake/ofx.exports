@@ -1,0 +1,5 @@
+# Mach-O export list. Unlike ELF's version script, ld64 expects the leading object-file
+# underscore. Keep this list in lockstep with cmake/ofx.map and the automated export gate.
+_OfxGetNumberOfPlugins
+_OfxGetPlugin
+_OfxSetHost

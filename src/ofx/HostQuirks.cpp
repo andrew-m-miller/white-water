@@ -1,4 +1,4 @@
-// Vendored from warp-drive 887a123, src/ofx/HostQuirks.cpp. MTI Film internal.
+// Vendored from warp-drive 887a123, src/ofx/HostQuirks.cpp.
 //
 // Copied rather than shared: the two plugins ship on independent cadences and a
 // submodule would couple them. A fix on either side is ported by hand, deliberately.

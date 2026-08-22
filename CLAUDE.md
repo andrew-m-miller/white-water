@@ -1,7 +1,7 @@
 # White Water
 
 An OpenFX plugin bringing learned optical flow tracking into Autodesk Flame.
-Rocky Linux 9.5+ and arm64 macOS. MTI Film internal.
+Rocky Linux 9.5+ and arm64 macOS.
 Linux artifacts build on EL8 for a glibc 2.28 floor; see the build rule below.
 
 ## Read first

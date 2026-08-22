@@ -130,6 +130,18 @@ endif()
 add_subdirectory(src/core)
 add_subdirectory(src/ofx)
 
+# Hand the host harness the concrete module, not the bundle directory. TARGET_FILE keeps
+# the test portable across the OFX architecture directories on macOS and Linux.
+if(TARGET WhiteWater AND NOT WHITEWATER_HOST_BINARY)
+  set(WHITEWATER_HOST_BINARY "$<TARGET_FILE:WhiteWater>")
+endif()
+
+# The Phase 1 host harness is part of the gate, not an optional discovery. If its files are
+# missing, configure should fail instead of presenting an incomplete green test suite.
+if(WHITEWATER_BUILD_TESTS)
+  add_subdirectory(tests)
+endif()
+
 if(WHITEWATER_BUILD_HOSTPROBE)
   add_subdirectory(tools/hostprobe)
 endif()
@@ -152,13 +164,38 @@ add_test(NAME core::dependency_boundary
     "-DCORE_DIR=${CMAKE_SOURCE_DIR}/src/core"
     "-DCORE_CMAKE=${CMAKE_SOURCE_DIR}/src/core/CMakeLists.txt"
     -P "${CMAKE_SOURCE_DIR}/scripts/check-core-dependencies.cmake")
+add_test(NAME core::dependency_boundary_rejects_onnxruntime
+  COMMAND "${CMAKE_COMMAND}"
+    "-DBOUNDARY_POLICY=core"
+    "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}/scripts/dependency-boundary-fixtures/core-forbidden"
+    "-DEXPECTED_FRAGMENT=core dependency boundary violation"
+    "-DCHECK_SCRIPT=${CMAKE_SOURCE_DIR}/scripts/check-core-dependencies.cmake"
+    -P "${CMAKE_SOURCE_DIR}/scripts/expect-dependency-boundary-failure.cmake")
 
-# Not yet configured, in dependency order. Each arrives with the phase that needs it --
-# see docs/plan.md.
+# src/infer is deliberately not created as an empty production directory before Phase 3.
+# This small fixture exercises the second policy now: ONNX Runtime and file I/O are allowed,
+# while the separate negative test proves an OFX include is rejected.
+set(whitewater_boundary_script
+    "${CMAKE_SOURCE_DIR}/scripts/check-core-dependencies.cmake")
+set(whitewater_infer_fixture
+    "${CMAKE_SOURCE_DIR}/scripts/dependency-boundary-fixtures/infer")
+add_test(NAME infer::dependency_boundary
+  COMMAND "${CMAKE_COMMAND}"
+    "-DINFER_DIR=${whitewater_infer_fixture}"
+    "-DINFER_CMAKE=${whitewater_infer_fixture}/CMakeLists.txt"
+    -P "${whitewater_boundary_script}")
+add_test(NAME infer::dependency_boundary_rejects_ofx
+  COMMAND "${CMAKE_COMMAND}"
+    "-DBOUNDARY_POLICY=infer"
+    "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}/scripts/dependency-boundary-fixtures/infer-forbidden"
+    "-DEXPECTED_FRAGMENT=infer dependency boundary violation"
+    "-DCHECK_SCRIPT=${whitewater_boundary_script}"
+    -P "${CMAKE_SOURCE_DIR}/scripts/expect-dependency-boundary-failure.cmake")
+
+# Remaining production layers arrive with their phases -- see docs/plan.md:
 #
 #   src/infer      Phase 3   ONNX Runtime, model registry, selected pairwise estimators
 #   tools/ww-flow  Phase 2   offline flow CLI and the golden-test driver
-#   tests/         Phase 1   Catch2 suites and the two-clip host harness
 
 message(STATUS "")
 message(STATUS "White Water ${PROJECT_VERSION}")

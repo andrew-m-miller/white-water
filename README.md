@@ -6,7 +6,7 @@ Takes a source plate, solves motion with learned optical flow, and either carrie
 along on those vectors from a reference frame or hands the compositor an ST map to do the
 warp downstream. It is Flame's motion vector tracking with a modern solver behind it.
 
-Targets **Rocky Linux 9.5+** and **arm64 macOS**. MTI Film internal.
+Targets **Rocky Linux 9.5+** and **arm64 macOS**.
 
 ## Status
 
