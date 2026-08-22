@@ -783,13 +783,19 @@ larger allocation (bounds always equalled the full render window). The probe emi
 line the first time it sees any of these — none appear in the transcript. Render scale is now
 confirmed unit in a background/final render, not just the interactive viewer.
 
-### Item 5 — anamorphic tile re-check: NOT yet exercised
+### Item 5 — anamorphic tile re-check: closed
 
-All renders were PAR 1.0, so the anamorphic re-check did not run — the report's own summary
-says so. This needs one more pass: a **PAR≠1** clip, rendered, with **Run Probe pressed in that
-same session** (the render-observation tallies are per-process, so pressing Run Probe in a
-fresh un-rendered session — as happened here — prints "NO RENDERS YET" even though earlier
-sessions rendered plenty). Cheap; just needs an anamorphic source on the next box visit.
+A follow-up run the same day on a **PAR 2** clip (4608×3164 real, 9216×3164 canonical/project,
+pid 346396) rendered all 51 frames with `renderScale [1, 1]`, no negative rowBytes and no
+sub-window images, and every render window `[0 0 4608 3164]` matched the RoD reduced to pixels
+(`9216/2 = 4608`). The probe's own summary: *"PAR 2.000 seen across 51 render(s), all full
+frame — confirms the earlier tiled-looking result was the coordinate-system mismatch, not a
+host tiling behavior."* Raw:
+[`2026-08-21-hostprobe-0c-anamorphic-flame.txt`](measurements/2026-08-21-hostprobe-0c-anamorphic-flame.txt).
+Items 3 and 4 are re-confirmed at PAR 2 by the same run, and this time the render-observation
+summary populated because Run Probe was pressed in the session that rendered.
+
+**Phase 0C, and with it all of Phase 0, is closed.**
 
 ## Open
 
@@ -807,7 +813,13 @@ There is no outstanding 0B item. Keep its operational checks in regression cover
 process/restart lifetime remains 0C; automatic production fallback and its artist-visible
 diagnostic remain Phase 4.
 
-### 0C — blocks ST map and cache integration
+### 0C — CLOSED 2026-08-21
+
+All five 0C items are measured (details in the *Measured — Phase 0C* sections above). Item 1
+fixed the ST convention; item 2 established that final render is a separate process (Burn), so
+a RAM-only `Precache` is not production-viable — the disk-cache-or-drop decision is now a
+product call, not a measurement; items 3–5 closed the render-time observations at PAR 1 and
+PAR 2. Nothing in Phase 0 remains open.
 
 1. **The ST convention Flame's own downstream tool expects. — CLOSED 2026-08-21.** Measured
    `(x + 0.5) / W` half-pixel centres, bottom-left origin, U→R/V→G, real-pixel normalization,
@@ -835,9 +847,10 @@ carried the answer for items 3 and 4).
 4. **Whether `kOfxImagePropRowBytes` can be negative, or images are sub-windows. — CLOSED
    2026-08-21 (negative).** Neither seen in any of the 122 renders across the two hosts; the
    vendored `HostImage` still handles both defensively.
-5. **Re-run the tile check on an anamorphic clip. — STILL OPEN.** The 2026-08-21 run was all
-   PAR 1.0, so the anamorphic re-check did not execute. Needs one PAR≠1 render with Run Probe
-   pressed in that same session. Cheap; carry an anamorphic source next visit.
+5. **Re-run the tile check on an anamorphic clip. — CLOSED 2026-08-21.** A PAR 2 clip
+   (4608×3164 real / 9216×3164 canonical) rendered all 51 frames full-frame; the corrected
+   arithmetic confirms the old "PAR-2 looked tiled" result was a coordinate-system bug, not host
+   tiling. See *Measured — Phase 0C items 2-5*.
 
 ### Procedure
 

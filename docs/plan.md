@@ -224,8 +224,8 @@ Two questions, both cheap, both answerable with probe extensions:
    Duplicating the node = new instance, same process; reopening Flame = new process. **So a
    RAM-only `Precache` has no production value for the final render.** See `docs/host-notes.md`,
    *Measured — Phase 0C items 2-5*. This selects the disk-cache fork in *Deferred* below.
-   (Items 3 and 4 also closed there; item 5, the anamorphic tile re-check, still needs one
-   PAR≠1 render.)
+   (Items 3, 4 and 5 also closed there, at PAR 1 and PAR 2. **All of Phase 0C, and Phase 0, is
+   now closed.**)
 
 *The depth half of question 1 is already answered:* Flame reports
 `SupportsMultipleClipDepths = 0`, so no depth negotiation is possible and the ST descriptor
@@ -651,7 +651,7 @@ thresholds tied to the exact model and runtime hashes.
 |---|---|---|
 | **0A** | Extended `hostprobe`, run in Flame | **Closed 2026-08-20.** All five questions answered; the measured report is the authority |
 | **0B** | Pinned SEA-RAFT M export through the private ORT on CPU and CUDA, in Flame | **Closed 2026-08-21.** Export provenance and hashes, direction/identity, exact CUDA payload closure/ownership, 480p–1080p VRAM/timing, cancellation, provider-init fallback, controlled arena-limit/CPU recovery, lifecycle and duplicate-node behavior are recorded. UHD, DCI 4K and Alexa 35 open gate each produced a valid bounded-allocation-stop measurement under the 16 GiB arena ceiling. This does not choose the shipping default or impose a product resolution cap |
-| **0C** | Flame ST round trip, and instance/process lifetime | Exact ST convention recorded; `Precache` persistence decided |
+| **0C** | Flame ST round trip, and instance/process lifetime | **Closed 2026-08-21.** ST convention measured (item 1); final render is a separate process — Burn — so a RAM-only `Precache` is not production-viable (item 2); render scale, rowBytes/sub-window and anamorphic tiling closed at PAR 1 and PAR 2 (items 3–5). The disk-cache-or-drop `Precache` decision is now a product call |
 | **1** | Vendor, CMake, **two descriptors**, bundle, harness, `describe`/`describeInContext`, passthrough render | Plugin loads with two inputs; parameters legible; workflow contracts settled — descriptor split, insert time, depth policy, cheap query actions, visible fallbacks |
 | **2** | `src/core/flow` complete, `NullPairwiseEstimator`, `ww-flow`, full unit + harness coverage | Separable lattice transform; typed flow links; confidence propagation; concurrency tests; all host-free tests green |
 | **2.5** | Model and export bake-off in `ww-flow` | One default and one fast alternative selected **by the exact ONNX artifact**, on target performance, quality and a licence audit. Only now do `model` and `inputCurve` get their option order |

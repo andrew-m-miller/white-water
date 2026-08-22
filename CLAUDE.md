@@ -14,12 +14,15 @@ Documents own facts; this file owns process. Do not restate a measured fact here
 
 ## Where the project is
 
-**Scaffolding, Phases 0A and 0B closed.** The build produces the two probes and nothing else.
-The plugin does not exist.
+**Scaffolding, all of Phase 0 closed (0A, 0B, 0C).** The build produces the two probes and
+nothing else. The plugin does not exist.
 
 Read the measured Phase 0 record in `docs/host-notes.md` rather than restating it here.
-**0C remains before ST/cache integration:** Flame's ST convention and instance/process
-lifetime. Phase 1, inference implementation, and the host-free parts of Phase 2 are unblocked.
+**0C closed 2026-08-21:** the ST convention is measured (`(x+0.5)/N`, bottom-left, U→R/V→G,
+per-node out-of-range behaviour), and final render is a separate process (Autodesk Burn), so a
+RAM-only `Precache` is not production-viable — whether to drop the button or build a
+user-managed disk cache is an open **product** decision, not a measurement. Phase 1 is now the
+next work, and per *Branching and review* it lands on reviewed PRs, not `main`.
 
 The plan was amended on 2026-08-20 after an architecture review. Read `docs/plan.md` and
 `docs/context.md` before writing code against anything you remember about it.
