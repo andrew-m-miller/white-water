@@ -160,6 +160,28 @@ std::map<OfxImageEffectHandle, long> gInstanceTokens;
 long gLiveInstanceCount = 0;
 long gTotalInstancesSeen = 0;
 
+// 0C item 3: every observation so far has renderScale == [1,1]; confirm whether Flame ever
+// hands anything else (draft mode, proxy playback), at any PAR. Tracked across every render
+// rather than sampled once, for the same reason item 4 is.
+bool gRenderScaleSeen = false;
+bool gRenderScaleEverNonUnit = false;
+double gRenderScaleMinX = 1.0, gRenderScaleMaxX = 1.0;
+double gRenderScaleMinY = 1.0, gRenderScaleMaxY = 1.0;
+
+// 0C item 4: does Flame ever hand a negative kOfxImagePropRowBytes, or an image whose
+// Bounds are a strict sub-region of the render window (a window into a larger allocation)?
+// The vendored pass-through copy assumes neither; nothing has confirmed either happens here.
+bool gNegativeRowBytesSeen = false;
+bool gSubWindowImageSeen = false;
+
+// 0C item 5: anamorphic tile re-check. Reuses gPartialWindowRenders/gRenderCalls above --
+// this just records whether any PAR != 1 render occurred, and whether such renders were
+// among the partial ones, to close out the coordinate-system scare noted in the tile check.
+bool gAnamorphicRenderSeen = false;
+double gAnamorphicParSeen = 0.0;
+long gAnamorphicRenderCalls = 0;
+long gAnamorphicPartialRenders = 0;
+
 // Parameter names.
 const char *kParamRunProbe = "runProbe";
 const char *kParamWriteBigString = "writeBigString";
@@ -976,6 +998,49 @@ void reportPhaseZeroSummary() {
   emit("  host build and the date. Items 2 and 3 decide the architecture.");
 }
 
+// 0C items 3, 4, 5: render-time observations, gathered incidentally by every onRender()
+// call above rather than by a dedicated probe step. Reported together in one section
+// because none of the three has its own "run this" action -- they only need a render to
+// have happened at least once, from the viewer or a real comp.
+void reportRenderObservations() {
+  section("0C render observations (items 3, 4, 5)");
+
+  if (!gRenderScaleSeen) {
+    emit("  3. Render scale             : NO RENDERS YET");
+  } else if (!gRenderScaleEverNonUnit) {
+    emitf("  3. Render scale             : always [1 1] across %ld render(s). No draft or"
+          " proxy scale observed.",
+          gRenderCalls);
+  } else {
+    emitf("  3. Render scale             : NON-UNIT seen -- x in [%.4f %.4f], y in [%.4f"
+          " %.4f] across %ld render(s). See the per-render log above for which ones.",
+          gRenderScaleMinX, gRenderScaleMaxX, gRenderScaleMinY, gRenderScaleMaxY,
+          gRenderCalls);
+  }
+
+  emitf("  4. Negative rowBytes seen   : %s",
+        gNegativeRowBytesSeen ? "YES -- see render log above" : "no");
+  emitf("     Sub-window images seen   : %s",
+        gSubWindowImageSeen ? "YES -- see render log above" : "no");
+
+  if (!gAnamorphicRenderSeen) {
+    emit("  5. Anamorphic tile re-check : no PAR != 1 render observed on this clip; the PAR");
+    emit("       fix in the tile check above is unexercised here.");
+  } else if (gAnamorphicPartialRenders == 0) {
+    emitf("  5. Anamorphic tile re-check : PAR %.3f seen across %ld render(s), all full"
+          " frame -- confirms the earlier tiled-looking result was the coordinate-system"
+          " mismatch, not a host tiling behavior.",
+          gAnamorphicParSeen, gAnamorphicRenderCalls);
+  } else {
+    emitf("  5. Anamorphic tile re-check : PAR %.3f seen across %ld render(s), %ld of them"
+          " PARTIAL -- host tiled an anamorphic clip despite SupportsTiles=0.",
+          gAnamorphicParSeen, gAnamorphicRenderCalls, gAnamorphicPartialRenders);
+  }
+
+  emit("");
+  emit("  Paste this section into docs/host-notes.md alongside the Phase 0 summary above.");
+}
+
 void reportOverlayStatus() {
   section("Overlay interact");
   emitf("  Host reports %s = %d", kOfxImageEffectPropSupportsOverlays, gHostSupportsOverlays ? 1 : 0);
@@ -1393,14 +1458,38 @@ OfxStatus onRender(OfxImageEffectHandle instance, OfxPropertySetHandle inArgs) {
   // trusting the first one -- a single full-frame render proves nothing if the next twenty
   // are strips, which is exactly what a progressive viewer refresh looks like.
   ++gRenderCalls;
+  // Hoisted out of the block below (rather than left local to it, as it was before the 0C
+  // additions) so 0C item 4's sub-window check can compare against it further down in this
+  // function, after the block that fills it has closed.
+  int window[4] = {0, 0, 0, 0};
   {
-    int window[4] = {0, 0, 0, 0};
     for (int i = 0; i < 4; ++i)
       gProp->propGetInt(inArgs, kOfxImageEffectPropRenderWindow, i, &window[i]);
 
     double renderScale[2] = {1.0, 1.0};
     gProp->propGetDouble(inArgs, kOfxImageEffectPropRenderScale, 0, &renderScale[0]);
     gProp->propGetDouble(inArgs, kOfxImageEffectPropRenderScale, 1, &renderScale[1]);
+
+    // 0C item 3: render scale. Track min/max per axis and whether it was ever non-unit,
+    // across every render -- one [1,1] render proves nothing about draft mode or proxy
+    // playback if the next one is scaled.
+    {
+      const double kEps = 1e-9;
+      if (!gRenderScaleSeen) {
+        gRenderScaleSeen = true;
+        gRenderScaleMinX = gRenderScaleMaxX = renderScale[0];
+        gRenderScaleMinY = gRenderScaleMaxY = renderScale[1];
+      } else {
+        if (renderScale[0] < gRenderScaleMinX) gRenderScaleMinX = renderScale[0];
+        if (renderScale[0] > gRenderScaleMaxX) gRenderScaleMaxX = renderScale[0];
+        if (renderScale[1] < gRenderScaleMinY) gRenderScaleMinY = renderScale[1];
+        if (renderScale[1] > gRenderScaleMaxY) gRenderScaleMaxY = renderScale[1];
+      }
+      const double dx = renderScale[0] < 1.0 ? 1.0 - renderScale[0] : renderScale[0] - 1.0;
+      const double dy = renderScale[1] < 1.0 ? 1.0 - renderScale[1] : renderScale[1] - 1.0;
+      if (dx > kEps || dy > kEps)
+        gRenderScaleEverNonUnit = true;
+    }
 
     OfxImageClipHandle out = nullptr;
     OfxRectD rod = {0, 0, 0, 0};
@@ -1435,6 +1524,23 @@ OfxStatus onRender(OfxImageEffectHandle instance, OfxPropertySetHandle inArgs) {
                            window[2] < rodPixelX2 - kSlack || window[3] < rodPixelY2 - kSlack;
       if (partial)
         ++gPartialWindowRenders;
+
+      // 0C item 5: anamorphic tile re-check. The PAR fix above already makes the comparison
+      // correct; this just tallies, for reportRenderObservations(), whether any PAR != 1
+      // render happened at all, and whether such renders were among the partial ones -- the
+      // thing that closes out the old "PAR-2 looked tiled" scare as a coordinate-system bug,
+      // not a host behavior.
+      {
+        const double dPar = par < 1.0 ? 1.0 - par : par - 1.0;
+        if (dPar > 1e-6) {
+          gAnamorphicRenderSeen = true;
+          gAnamorphicParSeen = par;
+          ++gAnamorphicRenderCalls;
+          if (partial)
+            ++gAnamorphicPartialRenders;
+        }
+      }
+
       if (gRenderCalls <= 8 || partial) {
         emitf("  render %ld: window [%d %d %d %d] rod(canonical) [%.0f %.0f %.0f %.0f]"
               " par %.3f -> rod(pixels) [%.0f %.0f %.0f %.0f] %s",
@@ -1502,20 +1608,54 @@ OfxStatus onRender(OfxImageEffectHandle instance, OfxPropertySetHandle inArgs) {
         gProp->propGetInt(sourceImage, kOfxImagePropBounds, i, &srcBounds[i]);
     }
 
-    for (int y = outBounds[1]; y < outBounds[3]; ++y) {
-      char *dstRow = (char *)outData + (size_t)(y - outBounds[1]) * outRowBytes;
-      const bool srcHasRow = srcData && y >= srcBounds[1] && y < srcBounds[3];
-      if (!srcHasRow) {
-        std::memset(dstRow, 0, (size_t)outWidth * pixelBytes);
-        continue;
+    // 0C item 4: negative rowBytes and sub-window images. Detection and reporting only --
+    // the copy loop below is otherwise untouched. It assumes a non-negative stride and was
+    // never written to handle anything else, so a negative stride is logged and the loop is
+    // skipped for this render rather than let it walk off the allocation.
+    const bool negativeRowBytes = outRowBytes < 0 || srcRowBytes < 0;
+    if (negativeRowBytes && !gNegativeRowBytesSeen) {
+      emitf("  0C item 4: NEGATIVE ROWBYTES -- out %d, src %d. Skipping the pass-through"
+            " copy for this render; the loop was never written to handle a negative stride.",
+            outRowBytes, srcRowBytes);
+    }
+    if (negativeRowBytes)
+      gNegativeRowBytesSeen = true;
+
+    if (!gSubWindowImageSeen) {
+      // A sub-window image is one whose Bounds are a strict subset of the render window we
+      // were asked to fill -- i.e. a pointer into a larger allocation, where Bounds/RowBytes
+      // (not window) is what actually describes the accessible region.
+      const bool outIsSubWindow = outBounds[0] > window[0] || outBounds[1] > window[1] ||
+                                  outBounds[2] < window[2] || outBounds[3] < window[3];
+      const bool srcIsSubWindow =
+          sourceImage && (srcBounds[0] > window[0] || srcBounds[1] > window[1] ||
+                          srcBounds[2] < window[2] || srcBounds[3] < window[3]);
+      if (outIsSubWindow || srcIsSubWindow) {
+        gSubWindowImageSeen = true;
+        emitf("  0C item 4: SUB-WINDOW IMAGE -- out bounds [%d %d %d %d], src bounds"
+              " [%d %d %d %d], render window [%d %d %d %d].",
+              outBounds[0], outBounds[1], outBounds[2], outBounds[3], srcBounds[0],
+              srcBounds[1], srcBounds[2], srcBounds[3], window[0], window[1], window[2],
+              window[3]);
       }
-      const char *srcRow = (const char *)srcData + (size_t)(y - srcBounds[1]) * srcRowBytes;
-      for (int x = outBounds[0]; x < outBounds[2]; ++x) {
-        char *dstPixel = dstRow + (size_t)(x - outBounds[0]) * pixelBytes;
-        if (x >= srcBounds[0] && x < srcBounds[2])
-          std::memcpy(dstPixel, srcRow + (size_t)(x - srcBounds[0]) * pixelBytes, pixelBytes);
-        else
-          std::memset(dstPixel, 0, pixelBytes);
+    }
+
+    if (!negativeRowBytes) {
+      for (int y = outBounds[1]; y < outBounds[3]; ++y) {
+        char *dstRow = (char *)outData + (size_t)(y - outBounds[1]) * outRowBytes;
+        const bool srcHasRow = srcData && y >= srcBounds[1] && y < srcBounds[3];
+        if (!srcHasRow) {
+          std::memset(dstRow, 0, (size_t)outWidth * pixelBytes);
+          continue;
+        }
+        const char *srcRow = (const char *)srcData + (size_t)(y - srcBounds[1]) * srcRowBytes;
+        for (int x = outBounds[0]; x < outBounds[2]; ++x) {
+          char *dstPixel = dstRow + (size_t)(x - outBounds[0]) * pixelBytes;
+          if (x >= srcBounds[0] && x < srcBounds[2])
+            std::memcpy(dstPixel, srcRow + (size_t)(x - srcBounds[0]) * pixelBytes, pixelBytes);
+          else
+            std::memset(dstPixel, 0, pixelBytes);
+        }
       }
     }
   }
@@ -1548,6 +1688,7 @@ OfxStatus onInstanceChanged(OfxImageEffectHandle instance, OfxPropertySetHandle 
     reportLoadedObjects();
     reportOverlayStatus();
     reportPhaseZeroSummary();
+    reportRenderObservations();
     reportInstanceLifetime();
     emit("");
     emit("Probe complete.");
