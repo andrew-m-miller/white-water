@@ -827,10 +827,10 @@ artifact before merge.
 
 The connected Warped Insert RGB appeared full-frame rather than visually cut by its matte.
 That is expected for an unpremultiplied RGB view: this output preserves RGB and carries alpha
-separately rather than multiplying colour by it. The host-free harness compares the complete
-RGBA fallback, including alpha. The only remaining host question is whether a nontrivial Insert
-Matte is reproduced on the node's connected matte output; solid white there would be a defect,
-whereas full-frame RGB with the correct matte output is the intended contract.
+separately rather than multiplying colour by it. A follow-up with a nontrivial Insert Matte
+confirmed that the node's connected matte output reproduces the Insert matte. The full-frame
+RGB plus separate correct matte is therefore the intended contract, not a defect; it also agrees
+with the host-free harness's complete RGBA comparison.
 
 ## Open
 

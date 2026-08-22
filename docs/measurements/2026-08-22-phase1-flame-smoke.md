@@ -30,9 +30,9 @@ exists.
 - Warped Insert / Reference held the selected reference frame.
 - A disconnected Insert produced black on both colour and matte outputs.
 - The connected Warped Insert RGB appeared full-frame rather than visually cut by its alpha.
-  Because the contract preserves unpremultiplied RGB and carries alpha separately, this is not
-  by itself a failure. A follow-up should inspect a deliberately nontrivial connected Insert
-  Matte at the node's matte output; solid white there would be a defect.
+  This is correct: the contract preserves unpremultiplied RGB and carries alpha separately.
+  A follow-up with a nontrivial Insert Matte confirmed that the connected matte output reproduces
+  the Insert matte.
 
 ## ST map and logs
 
