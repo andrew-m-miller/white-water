@@ -1,0 +1,335 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "whitewater://schema/phase2.5/protocol-v1",
+  "title": "White Water Phase 2.5 protocol v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "protocol_id",
+    "frozen_date",
+    "schema_ids",
+    "candidate_ids",
+    "eligibility",
+    "providers",
+    "analysis_caps",
+    "cap_accounting",
+    "conditioning",
+    "quantile",
+    "padding_comparison_policy",
+    "synthetic_categories",
+    "required_synthetic_cases",
+    "primary_production_categories",
+    "chain_lengths",
+    "metrics",
+    "review_dimensions",
+    "profiles",
+    "aggregation",
+    "hard_gates",
+    "ranking"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "protocol_id": {"const": "whitewater-p25-v1"},
+    "frozen_date": {"const": "2026-08-22"},
+    "schema_ids": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "corpus", "report"],
+      "properties": {
+        "protocol": {"const": "whitewater-p25-protocol-v1"},
+        "corpus": {"const": "whitewater-p25-corpus-v1"},
+        "report": {"const": "whitewater-p25-report-v1"}
+      }
+    },
+    "candidate_ids": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/candidate"}
+    },
+    "eligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_identity",
+        "license_surfaces",
+        "required_license_verdicts",
+        "redistribution_terms_review_required",
+        "required_tensor_contract"
+      ],
+      "properties": {
+        "required_identity": {
+          "const": ["source_commit", "checkpoint_sha256", "artifact_sha256", "export_environment_sha256"]
+        },
+        "license_surfaces": {
+          "const": ["code", "checkpoint", "backbone"]
+        },
+        "required_license_verdicts": {
+          "const": ["commercial_use_permitted", "redistribution_permitted"]
+        },
+        "redistribution_terms_review_required": {"const": true},
+        "required_tensor_contract": {"$ref": "#/$defs/tensor_contract"}
+      }
+    },
+    "providers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/provider"}
+    },
+    "analysis_caps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/analysis_cap"}
+    },
+    "cap_accounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit_pixels",
+        "applies_to",
+        "rounding",
+        "record_padded_dimensions",
+        "minimum_target_cap_token",
+        "source_targets"
+      ],
+      "properties": {
+        "unit_pixels": {"const": 1000000},
+        "applies_to": {"const": "unpadded_square_pixel_analysis_area"},
+        "rounding": {"const": "phase2-analysisGeometry-v1"},
+        "record_padded_dimensions": {"const": true},
+        "minimum_target_cap_token": {"const": "mp2"},
+        "source_targets": {
+          "const": ["fhd-1920x1080-par1", "uhd-3840x2160-par1"]
+        }
+      }
+    },
+    "conditioning": {
+      "type": "array",
+      "minItems": 4,
+      "items": {"$ref": "#/$defs/conditioning"}
+    },
+    "quantile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordering", "index", "interpolation", "scope", "empty_pair_result"],
+      "properties": {
+        "ordering": {"const": "ascending IEEE-754 numeric order after discarding nonfinite samples"},
+        "index": {"const": "h=(n-1)*p"},
+        "interpolation": {"const": "x[floor(h)]+(h-floor(h))*(x[ceil(h)]-x[floor(h)])"},
+        "scope": {"const": "all RGB channel samples from the two-frame pair"},
+        "empty_pair_result": {"const": "typed conditioning failure"}
+      }
+    },
+    "padding_comparison_policy": {"const": "artifact-declared caller padding, held identical across artifacts in a comparison cell"},
+    "synthetic_categories": {
+      "const": ["identity", "translation-x", "translation-y", "affine-spatial", "border", "occlusion-reveal", "blur", "noise", "hdr-log", "odd-padding", "par", "chain"]
+    },
+    "required_synthetic_cases": {
+      "const": ["identity", "translation-x-positive", "translation-x-negative", "translation-y-positive", "translation-y-negative", "affine", "spatial", "border", "occlusion-reveal", "blur", "noise", "hdr-scene-linear", "log-input", "odd-size", "asymmetric-padding", "par-0_5", "par-2", "chain-1", "chain-2", "chain-4", "chain-8", "fhd-1920x1080-par1", "uhd-3840x2160-par1"]
+    },
+    "primary_production_categories": {
+      "const": ["motion-blur", "defocus", "low-contrast", "grain", "occlusion-reveal", "rolling-shutter", "fine-detail", "reflections-screens", "anamorphic"]
+    },
+    "chain_lengths": {
+      "const": [1, 2, 4, 8]
+    },
+    "metrics": {
+      "const": ["endpoint_error_px", "fraction_le_1px", "fraction_le_3px", "landmark_median_error_px", "landmark_p95_error_px", "visible_warp_residual", "forward_backward_residual_px", "chain_drift_px", "nonfinite_fraction", "repeated_run_p99_delta_px"]
+    },
+    "review_dimensions": {
+      "const": ["edge_adherence", "occlusion_reveal", "blur", "jitter", "drift"]
+    },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["smoke", "screen", "final"],
+      "properties": {
+        "smoke": {"$ref": "#/$defs/profile"},
+        "screen": {"$ref": "#/$defs/profile"},
+        "final": {"$ref": "#/$defs/profile"}
+      }
+    },
+    "aggregation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "order",
+        "sample_statistic",
+        "shot_weighting",
+        "category_weighting",
+        "dense_score",
+        "review_score",
+        "final_quality_score"
+      ],
+      "properties": {
+        "order": {"const": ["samples_to_shot", "shots_to_category", "categories_to_partition"]},
+        "sample_statistic": {"const": "median; p95 also reported"},
+        "shot_weighting": {"const": "equal_within_category"},
+        "category_weighting": {"const": "equal"},
+        "dense_score": {"const": "100*(0.50*fraction_le_1px+0.30*fraction_le_3px+0.20*max(0,1-endpoint_error_px/3))"},
+        "review_score": {"const": "100*mean(five_review_dimensions)/4"},
+        "final_quality_score": {"const": "0.30*synthetic_macro_score+0.70*production_macro_score"}
+      }
+    },
+    "hard_gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "missing_required_results_max",
+        "nonfinite_fraction_max",
+        "repeated_run_p99_delta_px_max",
+        "peak_incremental_device_memory_gib_max",
+        "synthetic_macro_score_min",
+        "synthetic_primary_category_score_min",
+        "production_macro_score_min",
+        "production_primary_category_score_min",
+        "mandatory_source_cap_cells"
+      ],
+      "properties": {
+        "missing_required_results_max": {"const": 0},
+        "nonfinite_fraction_max": {"const": 0.0},
+        "repeated_run_p99_delta_px_max": {"const": 0.05},
+        "peak_incremental_device_memory_gib_max": {"const": 15.0},
+        "synthetic_macro_score_min": {"const": 75.0},
+        "synthetic_primary_category_score_min": {"const": 60.0},
+        "production_macro_score_min": {"const": 70.0},
+        "production_primary_category_score_min": {"const": 60.0},
+        "mandatory_source_cap_cells": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/mandatory_cell"}
+        }
+      }
+    },
+    "ranking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "material_quality_points",
+        "default_order",
+        "fast_quality_score_min",
+        "fast_max_quality_loss_points",
+        "fast_max_primary_category_loss_points",
+        "fast_min_latency_reduction_each_target",
+        "fast_min_latency_reduction_geomean",
+        "no_qualifier_result"
+      ],
+      "properties": {
+        "material_quality_points": {"const": 3.0},
+        "default_order": {
+          "const": [
+            "quality_score_desc",
+            "geomean_steady_latency_asc",
+            "peak_memory_asc",
+            "artifact_size_asc",
+            "candidate_id_asc"
+          ]
+        },
+        "fast_quality_score_min": {"const": 75.0},
+        "fast_max_quality_loss_points": {"const": 8.0},
+        "fast_max_primary_category_loss_points": {"const": 10.0},
+        "fast_min_latency_reduction_each_target": {"const": 0.30},
+        "fast_min_latency_reduction_geomean": {"const": 0.35},
+        "no_qualifier_result": {"const": "no-fast-selection"}
+      }
+    }
+  },
+  "$defs": {
+    "token": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role"],
+      "properties": {
+        "id": {"$ref": "#/$defs/token"},
+        "role": {"enum": ["shipping-candidate", "validation-baseline"]}
+      }
+    },
+    "tensor_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "batch",
+        "input_dtype",
+        "input_layout",
+        "input_channels",
+        "input_pair",
+        "output_dtype",
+        "output_layout",
+        "output_channels",
+        "output_direction",
+        "output_units"
+      ],
+      "properties": {
+        "batch": {"const": 1},
+        "input_dtype": {"const": "float32"},
+        "input_layout": {"const": "NCHW"},
+        "input_channels": {"const": "RGB"},
+        "input_pair": {"const": ["image1", "image2"]},
+        "output_dtype": {"const": "float32"},
+        "output_layout": {"const": "NCHW"},
+        "output_channels": {"const": ["dx", "dy"]},
+        "output_direction": {"const": "image1_to_image2"},
+        "output_units": {"const": "unpadded_analysis_pixels"}
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["token", "environment", "purpose", "cap_tokens"],
+      "properties": {
+        "token": {"enum": ["cpu", "cuda", "coreml"]},
+        "environment": {"enum": ["el8-x86_64", "macos-arm64"]},
+        "purpose": {"enum": ["correctness", "selection", "supporting"]},
+        "cap_tokens": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/token"}
+        }
+      }
+    },
+    "analysis_cap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["token", "decimal_megapixels"],
+      "properties": {
+        "token": {"$ref": "#/$defs/token"},
+        "decimal_megapixels": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "conditioning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["token", "accepted_encoding", "formula"],
+      "properties": {
+        "token": {"$ref": "#/$defs/token"},
+        "accepted_encoding": {"enum": ["scene-linear", "scene-linear-or-log", "log"]},
+        "formula": {"type": "string", "minLength": 1}
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fresh_sessions", "warmups_per_session", "steady_samples_per_session"],
+      "properties": {
+        "fresh_sessions": {"type": "integer", "minimum": 1},
+        "warmups_per_session": {"type": "integer", "minimum": 0},
+        "steady_samples_per_session": {"type": "integer", "minimum": 1}
+      }
+    },
+    "mandatory_cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_target", "cap_token", "provider"],
+      "properties": {
+        "source_target": {"type": "string", "minLength": 1},
+        "cap_token": {"$ref": "#/$defs/token"},
+        "provider": {"enum": ["cpu", "cuda", "coreml"]}
+      }
+    }
+  }
+}

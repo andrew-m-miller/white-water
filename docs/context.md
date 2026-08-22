@@ -229,9 +229,23 @@ submenu because they lacked `kOfxImageEffectPluginPropGrouping`, while both prob
 second airgapped artifact cycle because it is the same standard property already proven by both
 probes and is easy to correct later if Flame still presents it differently.
 
-PR #1 merged Phase 1 to `main` at `5fa267f`; its topic branch was deleted. Phase 2 — host-free
-flow algebra, `NullPairwiseEstimator`, the offline CLI and their expanded tests — is now the next
-implementation phase.
+PR #1 merged Phase 1 to `main` at `5fa267f`; its topic branch was deleted. At that point Phase 2
+— host-free flow algebra, `NullPairwiseEstimator`, the offline CLI and their expanded tests — was
+the next implementation phase; it subsequently merged through PR #4.
+
+## Session 9 — 2026-08-22 — Phase 2.5 P25-0 protocol package under review
+
+P25-0 is implemented on the topic branch for PR #6 and remains unmerged pending human review.
+The package freezes the Phase 2.5 decision record in `docs/phase2.5-protocol-v1.md`, the
+executable protocol in `bakeoff/protocol-v1.json`, versioned corpus/report schemas, and the
+standard-library-only validator/CLI in `tools/bakeoff/`. Positive and negative fixtures cover
+schema and semantic failures, and the `bakeoff::protocol_schema` CTest registration keeps the
+package in the ordinary repository gate.
+
+This is a measurement contract, not a candidate result: no model/default or fast alternative,
+artifact manifest/export, airgapped target measurement, ranking decision, or persistent OFX choice
+order is selected. P25-1 and the later bake-off packages remain open, and production inference is
+still not wired into the OFX product.
 
 ---
 

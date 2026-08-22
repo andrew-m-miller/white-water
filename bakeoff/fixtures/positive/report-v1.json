@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "protocol_id": "whitewater-p25-v1",
+  "report_id": "p25-fixture-report",
+  "corpus_id": "p25-fixture-corpus",
+  "corpus_sha256": "9a81252ac3f392f115d95af06029f9fb8997027ff0c11c134e0ce676466985e2",
+  "profile": "screen",
+  "environment": "el8-x86_64",
+  "started_utc": "2026-08-22T10:00:00.5Z",
+  "completed_utc": "2026-08-22T10:01:00.123456789+00:00",
+  "runner": {
+    "name": "ww-bakeoff",
+    "version": "0.1.0-fixture",
+    "source_commit": "9137517ba24e628442aec097d3afe71d03503b75",
+    "evaluator_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+    "runtime": "python-stdlib",
+    "runtime_sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "hardware": {
+    "platform": "linux",
+    "architecture": "x86_64",
+    "os_release": "fixture-el8",
+    "cpu": "fixture-cpu",
+    "gpu": "fixture-gpu",
+    "driver": "fixture-driver"
+  },
+  "matrix": {
+    "candidate_ids": ["sea-raft-m"],
+    "shot_ids": ["syn-identity"],
+    "conditioning_tokens": ["native-clamp01-v1"],
+    "cap_tokens": ["mp0_5"],
+    "providers": [
+      {"token": "cpu", "host_loads": ["not_applicable"]}
+    ],
+    "matrix_sha256": "46b6d65e51381504b3e156e20d5f102e44e65cbd2ccdd8a0e6de3a331ee1711e"
+  },
+  "candidates": [
+    {
+      "candidate_id": "sea-raft-m",
+      "status": "eligible",
+      "source_commit": "9137517ba24e628442aec097d3afe71d03503b75",
+      "checkpoint_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "backbone_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "artifact_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "export_environment_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "manifest_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "artifact_size_bytes": 1000000,
+      "license_verdicts": {
+        "code": "commercial_use_permitted",
+        "checkpoint": "commercial_use_permitted",
+        "backbone": "commercial_use_permitted"
+      },
+      "redistribution_terms_reviewed": {
+        "code": true,
+        "checkpoint": true,
+        "backbone": true
+      },
+      "redistribution_permitted": {
+        "code": "permitted",
+        "checkpoint": "permitted",
+        "backbone": "permitted"
+      }
+    }
+  ],
+  "results": [
+    {
+      "candidate_id": "sea-raft-m",
+      "shot_id": "syn-identity",
+      "category": "identity",
+      "source_target": "fixture-64x48-par1",
+      "conditioning_token": "native-clamp01-v1",
+      "cap_token": "mp0_5",
+      "provider": "cpu",
+      "status": "pass",
+      "host_load": "not_applicable",
+      "input_frames": [
+        {"frame": 3, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        {"frame": 4, "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+      ],
+      "geometry": {
+        "source_width": 64,
+        "source_height": 48,
+        "source_pixel_aspect_ratio": 1.0,
+        "canonical_width": 64,
+        "canonical_height": 48,
+        "analysis_width": 64,
+        "analysis_height": 48,
+        "padded_width": 64,
+        "padded_height": 48,
+        "effective_padded_megapixels": 0.003072,
+        "spacing_x_source_pixels": 1.0,
+        "spacing_y_source_pixels": 1.0
+      },
+      "timing": {
+        "preprocessing_ms": 0.1,
+        "session_creation_ms": 0.2,
+        "first_inference_ms": 1.2,
+        "steady_inference_ms": 1.0,
+        "postprocessing_ms": 0.1,
+        "total_pair_ms": 1.2,
+        "steady_samples_ms": [1.0, 1.0, 1.1, 1.0, 1.0],
+        "sessions": [
+          {
+            "session_index": 0,
+            "warmup_recorded": false,
+            "session_creation_ms": 0.2,
+            "first_inference_ms": 1.2,
+            "steady_samples_ms": [1.0, 1.0, 1.1, 1.0, 1.0]
+          }
+        ]
+      },
+      "metrics": {
+        "endpoint_error_px": 0.01,
+        "fraction_le_1px": 1.0,
+        "fraction_le_3px": 1.0,
+        "visible_warp_residual": 0.0,
+        "nonfinite_fraction": 0.0,
+        "repeated_run_p99_delta_px": 0.01,
+        "not_applicable": [
+          "landmark_median_error_px",
+          "landmark_p95_error_px",
+          "forward_backward_residual_px",
+          "chain_drift_px"
+        ]
+      },
+      "resource": {
+        "peak_incremental_device_memory_gib": 0.1,
+        "baseline_device_memory_mib": 10.0,
+        "peak_device_memory_mib": 110.0,
+        "cleanup_device_memory_mib": 10.0
+      },
+      "environment": {
+        "runtime_version": "fixture-runtime-1",
+        "provider_version": "cpu-fixture-1",
+        "model_manifest_sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    }
+  ],
+  "summary": {
+    "required_cells": 1,
+    "passed_cells": 1,
+    "failed_cells": 0,
+    "skipped_cells": 0
+  }
+}
