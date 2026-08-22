@@ -6,8 +6,8 @@
   "corpus_sha256": "9a81252ac3f392f115d95af06029f9fb8997027ff0c11c134e0ce676466985e2",
   "profile": "screen",
   "environment": "el8-x86_64",
-  "started_utc": "2026-08-22T10:00:00Z",
-  "completed_utc": "2026-08-22T10:01:00Z",
+  "started_utc": "2026-08-22T10:00:00.5Z",
+  "completed_utc": "2026-08-22T10:01:00.123456789+00:00",
   "runner": {
     "name": "ww-bakeoff",
     "version": "0.1.0-fixture",
@@ -115,7 +115,13 @@
         "fraction_le_3px": 1.0,
         "visible_warp_residual": 0.0,
         "nonfinite_fraction": 0.0,
-        "repeated_run_p99_delta_px": 0.01
+        "repeated_run_p99_delta_px": 0.01,
+        "not_applicable": [
+          "landmark_median_error_px",
+          "landmark_p95_error_px",
+          "forward_backward_residual_px",
+          "chain_drift_px"
+        ]
       },
       "resource": {
         "peak_incremental_device_memory_gib": 0.1,

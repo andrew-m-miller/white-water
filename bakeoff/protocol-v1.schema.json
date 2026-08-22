@@ -134,7 +134,7 @@
       "const": [1, 2, 4, 8]
     },
     "metrics": {
-      "const": ["endpoint_error", "fraction_le_1px", "fraction_le_3px", "landmark_median_error", "landmark_p95_error", "visible_warp_residual", "forward_backward_residual", "chain_drift", "nonfinite_fraction", "repeated_run_p99_delta"]
+      "const": ["endpoint_error_px", "fraction_le_1px", "fraction_le_3px", "landmark_median_error_px", "landmark_p95_error_px", "visible_warp_residual", "forward_backward_residual_px", "chain_drift_px", "nonfinite_fraction", "repeated_run_p99_delta_px"]
     },
     "review_dimensions": {
       "const": ["edge_adherence", "occlusion_reveal", "blur", "jitter", "drift"]
@@ -166,7 +166,7 @@
         "sample_statistic": {"const": "median; p95 also reported"},
         "shot_weighting": {"const": "equal_within_category"},
         "category_weighting": {"const": "equal"},
-        "dense_score": {"const": "100*(0.50*fraction_le_1px+0.30*fraction_le_3px+0.20*max(0,1-endpoint_error/3))"},
+        "dense_score": {"const": "100*(0.50*fraction_le_1px+0.30*fraction_le_3px+0.20*max(0,1-endpoint_error_px/3))"},
         "review_score": {"const": "100*mean(five_review_dimensions)/4"},
         "final_quality_score": {"const": "0.30*synthetic_macro_score+0.70*production_macro_score"}
       }

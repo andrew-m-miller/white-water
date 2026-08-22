@@ -31,6 +31,16 @@ def expect_failure(label: str, callback) -> None:
     raise AssertionError(f"{label}: invalid fixture was accepted")
 
 
+def expect_error_path(label: str, callback, expected_path: str) -> None:
+    try:
+        callback()
+    except ValidationError as exc:
+        if exc.path != expected_path:
+            raise AssertionError(f"{label}: expected path {expected_path}, got {exc.path}") from exc
+        return
+    raise AssertionError(f"{label}: invalid fixture was accepted")
+
+
 def set_matrix(report, *, candidate_ids, shot_ids, conditioning_tokens, cap_tokens, providers) -> None:
     """Replace a report selector and bind its canonical hash for mutation tests."""
 
@@ -51,28 +61,207 @@ def main() -> int:
     corpus_schema = load_json(ROOT / "bakeoff/corpus-v1.schema.json")
     report_schema = load_json(ROOT / "bakeoff/report-v1.schema.json")
     validate_protocol_and_schemas(protocol, protocol_schema, corpus_schema, report_schema)
-    validate_protocol_consistency(protocol, protocol_schema)
+    validate_protocol_consistency(protocol, protocol_schema, report_schema)
 
     positive_corpus = load_json(ROOT / "bakeoff/fixtures/positive/corpus-v1.json")
     validate_corpus_consistency(positive_corpus, protocol, corpus_schema)
     positive_report = load_json(ROOT / "bakeoff/fixtures/positive/report-v1.json")
-    validate_report_consistency(positive_report, protocol, report_schema, positive_corpus)
+    validate_report_consistency(positive_report, protocol, report_schema, positive_corpus, corpus_schema)
+
+    failed_with_metrics = copy.deepcopy(positive_report)
+    failed_with_metrics["results"][0]["status"] = "fail"
+    failed_with_metrics["results"][0]["failure"] = {
+        "type": "runtime_error",
+        "message": "fixture failure after metric collection",
+    }
+    failed_with_metrics["summary"] = {
+        "required_cells": 1,
+        "passed_cells": 0,
+        "failed_cells": 1,
+        "skipped_cells": 0,
+    }
+    validate_report_consistency(
+        failed_with_metrics, protocol, report_schema, positive_corpus, corpus_schema,
+    )
+    failed_incomplete_metrics = copy.deepcopy(failed_with_metrics)
+    failed_incomplete_metrics["results"][0]["metrics"]["not_applicable"].remove("chain_drift_px")
+    expect_failure(
+        "failed result incomplete metric disposition",
+        lambda: validate_report_consistency(
+            failed_incomplete_metrics, protocol, report_schema, positive_corpus, corpus_schema,
+        ),
+    )
+
+    skipped_with_metrics = copy.deepcopy(positive_report)
+    skipped_with_metrics["results"][0]["status"] = "skip"
+    skipped_with_metrics["results"][0]["failure"] = {
+        "type": "not_attempted",
+        "message": "fixture skip after metric collection",
+    }
+    skipped_with_metrics["summary"] = {
+        "required_cells": 1,
+        "passed_cells": 0,
+        "failed_cells": 0,
+        "skipped_cells": 1,
+    }
+    validate_report_consistency(
+        skipped_with_metrics, protocol, report_schema, positive_corpus, corpus_schema,
+    )
+    skipped_incomplete_metrics = copy.deepcopy(skipped_with_metrics)
+    skipped_incomplete_metrics["results"][0]["metrics"]["not_applicable"].remove("chain_drift_px")
+    expect_failure(
+        "skipped result incomplete metric disposition",
+        lambda: validate_report_consistency(
+            skipped_incomplete_metrics, protocol, report_schema, positive_corpus, corpus_schema,
+        ),
+    )
+
+    divergent_report_schema = copy.deepcopy(report_schema)
+    divergent_report_schema["$defs"]["metrics"]["properties"]["endpoint_error"] = (
+        divergent_report_schema["$defs"]["metrics"]["properties"].pop("endpoint_error_px")
+    )
+    expect_failure(
+        "report metric schema divergence",
+        lambda: validate_protocol_and_schemas(
+            protocol, protocol_schema, corpus_schema, divergent_report_schema,
+        ),
+    )
+    protocol_bad_metric = copy.deepcopy(protocol)
+    protocol_bad_metric["metrics"][0] = "endpoint_error"
+    expect_failure(
+        "frozen report metric token",
+        lambda: validate_protocol_consistency(protocol_bad_metric, protocol_schema, report_schema),
+    )
+    missing_dense_metric = copy.deepcopy(positive_report)
+    missing_dense_metric["results"][0]["metrics"].pop("endpoint_error_px")
+    expect_failure(
+        "analytic dense metric requirement",
+        lambda: validate_report_consistency(
+            missing_dense_metric, protocol, report_schema, positive_corpus, corpus_schema,
+        ),
+    )
+
+    for label, timestamp in (
+        ("year zero date-time", "0000-01-01T00:00:00.123456789Z"),
+        ("UTC leap second", "1990-12-31T23:59:60Z"),
+        ("offset leap second", "1990-12-31T15:59:60.123456789-08:00"),
+    ):
+        valid_timestamp = copy.deepcopy(positive_report)
+        valid_timestamp["started_utc"] = timestamp
+        validate_report_consistency(
+            valid_timestamp, protocol, report_schema, positive_corpus, corpus_schema,
+        )
+
+    for label, timestamp in (
+        ("timezone-less date-time", "2026-08-22T10:00:00.5"),
+        ("invalid calendar date", "2026-02-30T10:00:00Z"),
+        ("invalid timezone offset", "2026-08-22T10:00:00+24:00"),
+        ("misplaced leap second", "2026-07-01T00:00:60Z"),
+    ):
+        bad_timestamp = copy.deepcopy(positive_report)
+        bad_timestamp["started_utc"] = timestamp
+        expect_failure(
+            label,
+            lambda bad_timestamp=bad_timestamp: validate_report_consistency(
+                bad_timestamp, protocol, report_schema, positive_corpus, corpus_schema,
+            ),
+        )
+
+    unknown_metric_disposition = copy.deepcopy(positive_report)
+    unknown_metric_disposition["results"][0]["metrics"]["not_applicable"].append("bogus_metric")
+    expect_failure(
+        "unknown metric disposition",
+        lambda: validate_report_consistency(
+            unknown_metric_disposition, protocol, report_schema, positive_corpus, corpus_schema,
+        ),
+    )
+    overlapping_metric_disposition = copy.deepcopy(positive_report)
+    overlapping_metric_disposition["results"][0]["metrics"]["not_applicable"].append("visible_warp_residual")
+    expect_failure(
+        "overlapping metric disposition",
+        lambda: validate_report_consistency(
+            overlapping_metric_disposition, protocol, report_schema, positive_corpus, corpus_schema,
+        ),
+    )
+    undisposed_metric = copy.deepcopy(positive_report)
+    undisposed_metric["results"][0]["metrics"]["not_applicable"].remove("chain_drift_px")
+    expect_failure(
+        "undisposed metric",
+        lambda: validate_report_consistency(
+            undisposed_metric, protocol, report_schema, positive_corpus, corpus_schema,
+        ),
+    )
+    duplicate_metric_disposition = copy.deepcopy(positive_report)
+    duplicate_metric_disposition["results"][0]["metrics"]["not_applicable"].append("chain_drift_px")
+    expect_failure(
+        "duplicate metric disposition",
+        lambda: validate_report_consistency(
+            duplicate_metric_disposition, protocol, report_schema, positive_corpus, corpus_schema,
+        ),
+    )
+
+    chain_applicability_corpus = copy.deepcopy(positive_corpus)
+    identity_chain_shot = chain_applicability_corpus["partitions"][0]["shots"][0]
+    identity_chain_shot["chain_length"] = 1
+    chain_applicability_report = copy.deepcopy(positive_report)
+    chain_applicability_report["corpus_sha256"] = canonical_sha256(chain_applicability_corpus)
+    expect_failure(
+        "omitted chain metric",
+        lambda: validate_report_consistency(
+            chain_applicability_report, protocol, report_schema,
+            chain_applicability_corpus, corpus_schema,
+        ),
+    )
+
+    landmark_corpus = copy.deepcopy(positive_corpus)
+    landmark_shot = copy.deepcopy(landmark_corpus["partitions"][0]["shots"][0])
+    landmark_shot["id"] = "public-landmark"
+    landmark_shot["path_pattern"] = "public://landmark"
+    landmark_shot["truth"] = {"kind": "landmarks", "definition": "fixture landmark truth"}
+    landmark_corpus["partitions"].append({
+        "id": "public",
+        "kind": "public",
+        "terms": {
+            "source": "fixture-public-dataset",
+            "usage": "evaluation-only",
+            "training_overlap": "none_found",
+            "record": "fixture-terms-v1",
+        },
+        "shots": [landmark_shot],
+    })
+    landmark_report = copy.deepcopy(positive_report)
+    landmark_report["corpus_sha256"] = canonical_sha256(landmark_corpus)
+    set_matrix(
+        landmark_report,
+        candidate_ids=["sea-raft-m"],
+        shot_ids=["public-landmark"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp0_5"],
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
+    )
+    landmark_report["results"][0]["shot_id"] = "public-landmark"
+    expect_failure(
+        "omitted landmark metrics",
+        lambda: validate_report_consistency(
+            landmark_report, protocol, report_schema, landmark_corpus, corpus_schema,
+        ),
+    )
 
     corpus_id_mismatch = copy.deepcopy(positive_report)
     corpus_id_mismatch["corpus_id"] = "other-corpus"
     expect_failure(
         "report corpus id binding",
-        lambda: validate_report_consistency(corpus_id_mismatch, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(corpus_id_mismatch, protocol, report_schema, positive_corpus, corpus_schema),
     )
     corpus_hash_mismatch = copy.deepcopy(positive_report)
     corpus_hash_mismatch["corpus_sha256"] = "0" * 64
     expect_failure(
         "report corpus hash binding",
-        lambda: validate_report_consistency(corpus_hash_mismatch, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(corpus_hash_mismatch, protocol, report_schema, positive_corpus, corpus_schema),
     )
     expect_failure(
         "report requires corpus document",
-        lambda: validate_report_consistency(positive_report, protocol, report_schema),
+        lambda: validate_report_consistency(positive_report, protocol, report_schema, None, corpus_schema),
     )
 
     negative_corpus = load_json(ROOT / "bakeoff/fixtures/negative/corpus-v1-unknown-category.json")
@@ -113,6 +302,12 @@ def main() -> int:
     expect_failure(
         "corpus shot metadata",
         lambda: validate_corpus_consistency(corpus_missing_metadata, protocol, corpus_schema),
+    )
+    malformed_corpus = copy.deepcopy(positive_corpus)
+    malformed_corpus.pop("partitions")
+    expect_failure(
+        "malformed corpus missing partitions",
+        lambda: validate_corpus_consistency(malformed_corpus, protocol, corpus_schema),
     )
     corpus_nonanalytic = copy.deepcopy(positive_corpus)
     corpus_nonanalytic["partitions"][0]["shots"][0]["truth"]["kind"] = "none"
@@ -227,48 +422,48 @@ def main() -> int:
             "message": "fixture exclusion: redistribution terms are not permitted",
         },
     })
-    validate_report_consistency(excluded_candidate, protocol, report_schema, positive_corpus)
+    validate_report_consistency(excluded_candidate, protocol, report_schema, positive_corpus, corpus_schema)
     negative_missing_failure = load_json(ROOT / "bakeoff/fixtures/negative/report-v1-missing-failure.json")
     expect_failure(
         "non-pass result without failure",
-        lambda: validate_report_consistency(negative_missing_failure, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(negative_missing_failure, protocol, report_schema, positive_corpus, corpus_schema),
     )
     negative_unknown_token = load_json(ROOT / "bakeoff/fixtures/negative/report-v1-unknown-token.json")
     expect_failure(
         "unknown conditioning token",
-        lambda: validate_report_consistency(negative_unknown_token, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(negative_unknown_token, protocol, report_schema, positive_corpus, corpus_schema),
     )
     negative_duplicate = load_json(ROOT / "bakeoff/fixtures/negative/report-v1-duplicate-cell.json")
     expect_failure(
         "duplicate result cell",
-        lambda: validate_report_consistency(negative_duplicate, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(negative_duplicate, protocol, report_schema, positive_corpus, corpus_schema),
     )
     negative_runtime_hash = load_json(ROOT / "bakeoff/fixtures/negative/report-v1-missing-runtime-hash.json")
     expect_failure(
         "missing evaluator runtime hash",
-        lambda: validate_report_consistency(negative_runtime_hash, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(negative_runtime_hash, protocol, report_schema, positive_corpus, corpus_schema),
     )
     negative_duplicate_candidates = load_json(ROOT / "bakeoff/fixtures/negative/report-v1-duplicate-candidates.json")
     expect_failure(
         "duplicate candidate fixture",
-        lambda: validate_report_consistency(negative_duplicate_candidates, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(negative_duplicate_candidates, protocol, report_schema, positive_corpus, corpus_schema),
     )
     negative_missing_result = load_json(ROOT / "bakeoff/fixtures/negative/report-v1-missing-result.json")
     expect_failure(
         "missing result fixture",
-        lambda: validate_report_consistency(negative_missing_result, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(negative_missing_result, protocol, report_schema, positive_corpus, corpus_schema),
     )
     missing_artifact_size = copy.deepcopy(positive_report)
     missing_artifact_size["candidates"][0].pop("artifact_size_bytes")
     expect_failure(
         "eligible candidate artifact size",
-        lambda: validate_report_consistency(missing_artifact_size, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(missing_artifact_size, protocol, report_schema, positive_corpus, corpus_schema),
     )
     bad_redistribution = copy.deepcopy(positive_report)
     bad_redistribution["candidates"][0]["redistribution_permitted"]["backbone"] = "unknown"
     expect_failure(
         "eligible redistribution verdict",
-        lambda: validate_report_consistency(bad_redistribution, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(bad_redistribution, protocol, report_schema, positive_corpus, corpus_schema),
     )
     mixed_environment = copy.deepcopy(positive_report)
     set_matrix(
@@ -284,13 +479,30 @@ def main() -> int:
     )
     expect_failure(
         "mixed provider environments",
-        lambda: validate_report_consistency(mixed_environment, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(mixed_environment, protocol, report_schema, positive_corpus, corpus_schema),
     )
     bad_platform = copy.deepcopy(positive_report)
     bad_platform["hardware"]["platform"] = "macOS"
     expect_failure(
         "environment platform binding",
-        lambda: validate_report_consistency(bad_platform, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(bad_platform, protocol, report_schema, positive_corpus, corpus_schema),
+    )
+
+    unsupported_cap = copy.deepcopy(positive_report)
+    set_matrix(
+        unsupported_cap,
+        candidate_ids=["sea-raft-m"],
+        shot_ids=["syn-identity"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp1"],
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
+    )
+    expect_error_path(
+        "unsupported cap diagnostic path",
+        lambda: validate_report_consistency(
+            unsupported_cap, protocol, report_schema, positive_corpus, corpus_schema,
+        ),
+        "$.matrix.cap_tokens[0]",
     )
 
     # Focused report-identity checks.  These are kept as mutations of the complete positive
@@ -300,21 +512,21 @@ def main() -> int:
     duplicate_candidates["candidates"].append(copy.deepcopy(duplicate_candidates["candidates"][0]))
     expect_failure(
         "duplicate candidate ids",
-        lambda: validate_report_consistency(duplicate_candidates, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(duplicate_candidates, protocol, report_schema, positive_corpus, corpus_schema),
     )
 
     summary_mismatch = copy.deepcopy(positive_report)
     summary_mismatch["summary"]["required_cells"] = 2
     expect_failure(
         "summary/result row mismatch",
-        lambda: validate_report_consistency(summary_mismatch, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(summary_mismatch, protocol, report_schema, positive_corpus, corpus_schema),
     )
 
     mislabeled_cap = copy.deepcopy(positive_report)
     mislabeled_cap["results"][0]["geometry"]["analysis_width"] = 63
     expect_failure(
         "mislabeled analysis cap geometry",
-        lambda: validate_report_consistency(mislabeled_cap, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(mislabeled_cap, protocol, report_schema, positive_corpus, corpus_schema),
     )
 
     incompatible_conditioning = copy.deepcopy(positive_report)
@@ -329,7 +541,7 @@ def main() -> int:
     )
     expect_failure(
         "conditioning and shot encoding compatibility",
-        lambda: validate_report_consistency(incompatible_conditioning, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(incompatible_conditioning, protocol, report_schema, positive_corpus, corpus_schema),
     )
 
     percentile_report = copy.deepcopy(positive_report)
@@ -345,12 +557,12 @@ def main() -> int:
         cap_tokens=["mp0_5"],
         providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
     )
-    validate_report_consistency(percentile_report, protocol, report_schema, positive_corpus)
+    validate_report_consistency(percentile_report, protocol, report_schema, positive_corpus, corpus_schema)
     bad_percentile = copy.deepcopy(percentile_report)
     bad_percentile["results"][0]["conditioning_parameters"]["high"] = 0.1
     expect_failure(
         "invalid percentile conditioning parameters",
-        lambda: validate_report_consistency(bad_percentile, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(bad_percentile, protocol, report_schema, positive_corpus, corpus_schema),
     )
 
     cuda_hardware_missing = copy.deepcopy(positive_report)
@@ -366,7 +578,7 @@ def main() -> int:
     )
     expect_failure(
         "CUDA hardware identity",
-        lambda: validate_report_consistency(cuda_hardware_missing, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(cuda_hardware_missing, protocol, report_schema, positive_corpus, corpus_schema),
     )
 
     excluded_in_matrix = copy.deepcopy(positive_report)
@@ -382,33 +594,33 @@ def main() -> int:
     excluded_in_matrix["results"][0]["candidate_id"] = "waft-twins"
     expect_failure(
         "excluded candidate matrix selection",
-        lambda: validate_report_consistency(excluded_in_matrix, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(excluded_in_matrix, protocol, report_schema, positive_corpus, corpus_schema),
     )
 
     bad_timing = copy.deepcopy(positive_report)
     bad_timing["results"][0]["timing"]["session_creation_ms"] = 0.3
     expect_failure(
         "timing median binding",
-        lambda: validate_report_consistency(bad_timing, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(bad_timing, protocol, report_schema, positive_corpus, corpus_schema),
     )
 
     bad_spacing = copy.deepcopy(positive_report)
     bad_spacing["results"][0]["geometry"]["spacing_x_source_pixels"] = 2.0
     expect_failure(
         "spacing geometry binding",
-        lambda: validate_report_consistency(bad_spacing, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(bad_spacing, protocol, report_schema, positive_corpus, corpus_schema),
     )
     duplicate_input_frames = copy.deepcopy(positive_report)
     duplicate_input_frames["results"][0]["input_frames"][1]["frame"] = 3
     expect_failure(
         "distinct input frames",
-        lambda: validate_report_consistency(duplicate_input_frames, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(duplicate_input_frames, protocol, report_schema, positive_corpus, corpus_schema),
     )
     out_of_range_input_frame = copy.deepcopy(positive_report)
     out_of_range_input_frame["results"][0]["input_frames"][0]["frame"] = 99
     expect_failure(
         "input frame range",
-        lambda: validate_report_consistency(out_of_range_input_frame, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(out_of_range_input_frame, protocol, report_schema, positive_corpus, corpus_schema),
     )
     corpus_with_frame_hashes = copy.deepcopy(positive_corpus)
     identity_shot = corpus_with_frame_hashes["partitions"][0]["shots"][0]
@@ -418,12 +630,12 @@ def main() -> int:
     ]
     report_with_frame_hashes = copy.deepcopy(positive_report)
     report_with_frame_hashes["corpus_sha256"] = canonical_sha256(corpus_with_frame_hashes)
-    validate_report_consistency(report_with_frame_hashes, protocol, report_schema, corpus_with_frame_hashes)
+    validate_report_consistency(report_with_frame_hashes, protocol, report_schema, corpus_with_frame_hashes, corpus_schema)
     bad_frame_hash = copy.deepcopy(report_with_frame_hashes)
     bad_frame_hash["results"][0]["input_frames"][0]["sha256"] = "c" * 64
     expect_failure(
         "input frame hash binding",
-        lambda: validate_report_consistency(bad_frame_hash, protocol, report_schema, corpus_with_frame_hashes),
+        lambda: validate_report_consistency(bad_frame_hash, protocol, report_schema, corpus_with_frame_hashes, corpus_schema),
     )
 
     missing_result = copy.deepcopy(positive_report)
@@ -437,7 +649,7 @@ def main() -> int:
     )
     expect_failure(
         "missing declared matrix result",
-        lambda: validate_report_consistency(missing_result, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(missing_result, protocol, report_schema, positive_corpus, corpus_schema),
     )
 
     final_cuda_unpaired = copy.deepcopy(positive_report)
@@ -512,7 +724,7 @@ def main() -> int:
     }
     expect_failure(
         "final CUDA idle/live pairing",
-        lambda: validate_report_consistency(final_cuda_unpaired, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(final_cuda_unpaired, protocol, report_schema, positive_corpus, corpus_schema),
     )
 
     final_cuda_mixed_status = copy.deepcopy(final_cuda_unpaired)
@@ -528,7 +740,7 @@ def main() -> int:
         "failed_cells": 2,
         "skipped_cells": 0,
     }
-    validate_report_consistency(final_cuda_mixed_status, protocol, report_schema, positive_corpus)
+    validate_report_consistency(final_cuda_mixed_status, protocol, report_schema, positive_corpus, corpus_schema)
 
     final_cuda_missing_nvml = copy.deepcopy(final_cuda_mixed_status)
     final_cuda_missing_nvml["results"][2]["resource"]["nvml_samples"] = [
@@ -538,14 +750,14 @@ def main() -> int:
     ]
     expect_failure(
         "final CUDA pass NVML stages",
-        lambda: validate_report_consistency(final_cuda_missing_nvml, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(final_cuda_missing_nvml, protocol, report_schema, positive_corpus, corpus_schema),
     )
 
     report_with_selection = copy.deepcopy(positive_report)
     report_with_selection["selection"] = {"default": {"candidate_id": "sea-raft-m"}}
     expect_failure(
         "selection is a separate P25-7 record",
-        lambda: validate_report_consistency(report_with_selection, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(report_with_selection, protocol, report_schema, positive_corpus, corpus_schema),
     )
 
     # Exercise the schema-level unknown-property gate and the no-OFX-index rule without
@@ -560,7 +772,15 @@ def main() -> int:
     report_with_payload["results"][0]["source_pixels"] = [0.0]
     expect_failure(
         "embedded source pixels",
-        lambda: validate_report_consistency(report_with_payload, protocol, report_schema, positive_corpus),
+        lambda: validate_report_consistency(report_with_payload, protocol, report_schema, positive_corpus, corpus_schema),
+    )
+    malformed_report = copy.deepcopy(positive_report)
+    malformed_report.pop("matrix")
+    expect_failure(
+        "malformed report missing matrix",
+        lambda: validate_report_consistency(
+            malformed_report, protocol, report_schema, positive_corpus, corpus_schema,
+        ),
     )
 
     print("Phase 2.5 protocol/schema fixtures passed")

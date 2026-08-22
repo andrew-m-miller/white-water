@@ -400,7 +400,7 @@
     "metrics": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["nonfinite_fraction", "repeated_run_p99_delta_px"],
+      "required": ["nonfinite_fraction", "repeated_run_p99_delta_px", "not_applicable"],
       "properties": {
         "endpoint_error_px": {"$ref": "#/$defs/nonnegative_number"},
         "fraction_le_1px": {"$ref": "#/$defs/fraction"},
@@ -411,7 +411,12 @@
         "forward_backward_residual_px": {"$ref": "#/$defs/nonnegative_number"},
         "chain_drift_px": {"$ref": "#/$defs/nonnegative_number"},
         "nonfinite_fraction": {"$ref": "#/$defs/fraction"},
-        "repeated_run_p99_delta_px": {"$ref": "#/$defs/nonnegative_number"}
+        "repeated_run_p99_delta_px": {"$ref": "#/$defs/nonnegative_number"},
+        "not_applicable": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        }
       }
     },
     "resource": {

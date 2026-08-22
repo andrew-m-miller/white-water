@@ -10,7 +10,6 @@ Schema cannot express (token matrices, repetition counts, and coverage).
 
 from __future__ import annotations
 
-import datetime as _datetime
 import hashlib
 import json
 import math
@@ -132,9 +131,9 @@ _EXPECTED_PRODUCTION_CATEGORIES = [
     "rolling-shutter", "fine-detail", "reflections-screens", "anamorphic",
 ]
 _EXPECTED_METRICS = [
-    "endpoint_error", "fraction_le_1px", "fraction_le_3px", "landmark_median_error",
-    "landmark_p95_error", "visible_warp_residual", "forward_backward_residual",
-    "chain_drift", "nonfinite_fraction", "repeated_run_p99_delta",
+    "endpoint_error_px", "fraction_le_1px", "fraction_le_3px", "landmark_median_error_px",
+    "landmark_p95_error_px", "visible_warp_residual", "forward_backward_residual_px",
+    "chain_drift_px", "nonfinite_fraction", "repeated_run_p99_delta_px",
 ]
 _EXPECTED_REVIEW_DIMENSIONS = ["edge_adherence", "occlusion_reveal", "blur", "jitter", "drift"]
 _EXPECTED_AGGREGATION = {
@@ -142,7 +141,7 @@ _EXPECTED_AGGREGATION = {
     "sample_statistic": "median; p95 also reported",
     "shot_weighting": "equal_within_category",
     "category_weighting": "equal",
-    "dense_score": "100*(0.50*fraction_le_1px+0.30*fraction_le_3px+0.20*max(0,1-endpoint_error/3))",
+    "dense_score": "100*(0.50*fraction_le_1px+0.30*fraction_le_3px+0.20*max(0,1-endpoint_error_px/3))",
     "review_score": "100*mean(five_review_dimensions)/4",
     "final_quality_score": "0.30*synthetic_macro_score+0.70*production_macro_score",
 }
@@ -262,6 +261,99 @@ def _unique_json_values(values: Sequence[Any]) -> bool:
     return True
 
 
+_RFC3339_DATE_TIME = re.compile(
+    r"^(?P<year>[0-9]{4})-(?P<month>[0-9]{2})-(?P<day>[0-9]{2})"
+    r"[Tt](?P<hour>[0-9]{2}):(?P<minute>[0-9]{2}):(?P<second>[0-9]{2})"
+    r"(?:\.(?P<fraction>[0-9]+))?(?P<zone>[Zz]|[+-][0-9]{2}:[0-9]{2})$"
+)
+
+
+def _is_leap_year(year: int) -> bool:
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+
+def _days_in_month(year: int, month: int) -> int:
+    if month == 2:
+        return 29 if _is_leap_year(year) else 28
+    return 30 if month in {4, 6, 9, 11} else 31
+
+
+def _days_before_year(year: int) -> int:
+    """Days before *year* in the proleptic Gregorian calendar (year zero included)."""
+
+    return 365 * year + (year + 3) // 4 - (year + 99) // 100 + (year + 399) // 400
+
+
+def _ordinal_from_date(year: int, month: int, day: int) -> int:
+    month_days = (0, 31, 29 if _is_leap_year(year) else 28, 31, 30, 31,
+                  30, 31, 31, 30, 31, 30, 31)
+    return _days_before_year(year) + sum(month_days[1:month]) + day - 1
+
+
+def _date_from_ordinal(ordinal: int) -> tuple[int, int, int]:
+    """Invert _ordinal_from_date without datetime, including negative years."""
+
+    cycles, remainder = divmod(ordinal, 146097)  # exactly 400 Gregorian years
+    year = cycles * 400
+    while True:
+        year_days = 366 if _is_leap_year(year) else 365
+        if remainder < year_days:
+            break
+        remainder -= year_days
+        year += 1
+    month = 1
+    while remainder >= _days_in_month(year, month):
+        remainder -= _days_in_month(year, month)
+        month += 1
+    return year, month, remainder + 1
+
+
+def _offset_minutes(zone: str) -> int:
+    if zone in {"Z", "z"}:
+        return 0
+    hours = int(zone[1:3])
+    minutes = int(zone[4:6])
+    return (1 if zone[0] == "+" else -1) * (hours * 60 + minutes)
+
+
+def _validate_rfc3339(value: str, path: str) -> None:
+    """Validate structural RFC 3339, including year zero and structural leap seconds."""
+
+    match = _RFC3339_DATE_TIME.fullmatch(value)
+    if match is None:
+        raise ValidationError(path, "must be an RFC 3339 date-time with Z or numeric timezone")
+    parts = {key: int(match.group(key)) for key in ("year", "month", "day", "hour", "minute", "second")}
+    _require(1 <= parts["month"] <= 12, path, "contains an invalid month")
+    _require(1 <= parts["day"] <= _days_in_month(parts["year"], parts["month"]),
+             path, "contains an invalid calendar date")
+    _require(parts["hour"] <= 23, path, "contains an invalid hour")
+    _require(parts["minute"] <= 59, path, "contains an invalid minute")
+    _require(parts["second"] <= 60, path, "contains an invalid second")
+    zone = match.group("zone")
+    if zone not in {"Z", "z"}:
+        offset_hour = int(zone[1:3])
+        offset_minute = int(zone[4:6])
+        _require(offset_hour <= 23, path, "contains an invalid timezone offset hour")
+        _require(offset_minute <= 59, path, "contains an invalid timezone offset minute")
+
+    if parts["second"] == 60:
+        utc_total_minutes = (
+            _ordinal_from_date(parts["year"], parts["month"], parts["day"]) * 1440
+            + parts["hour"] * 60
+            + parts["minute"]
+            - _offset_minutes(zone)
+        )
+        utc_day, utc_minute = divmod(utc_total_minutes, 1440)
+        utc_year, utc_month, utc_day_of_month = _date_from_ordinal(utc_day)
+        _require(
+            utc_month in {6, 12}
+            and utc_day_of_month == _days_in_month(utc_year, utc_month)
+            and utc_minute == 23 * 60 + 59,
+            path,
+            "leap second must map to UTC 23:59 at June or December month end",
+        )
+
+
 def validate(instance: Any, schema: Mapping[str, Any] | bool, *, path: str = "$", root: Mapping[str, Any] | None = None) -> None:
     """Validate *instance* against the v1 schema subset.
 
@@ -372,11 +464,7 @@ def validate(instance: Any, schema: Mapping[str, Any] | bool, *, path: str = "$"
         if "pattern" in schema and re.search(str(schema["pattern"]), instance) is None:
             raise ValidationError(path, f"does not match pattern {schema['pattern']!r}")
         if schema.get("format") == "date-time":
-            try:
-                parsed = instance[:-1] + "+00:00" if instance.endswith("Z") else instance
-                _datetime.datetime.fromisoformat(parsed)
-            except ValueError as exc:
-                raise ValidationError(path, "must be an ISO-8601 date-time") from exc
+            _validate_rfc3339(instance, path)
 
     if isinstance(instance, (int, float)) and not isinstance(instance, bool):
         value = float(instance)
@@ -484,7 +572,11 @@ def _expected_analysis_dimensions(source_width: int, source_height: int, pixel_a
     return analysis_width, analysis_height
 
 
-def validate_protocol_consistency(protocol: Mapping[str, Any], protocol_schema: Mapping[str, Any] | None = None) -> None:
+def validate_protocol_consistency(
+    protocol: Mapping[str, Any],
+    protocol_schema: Mapping[str, Any] | None = None,
+    report_schema: Mapping[str, Any] | None = None,
+) -> None:
     """Validate the executable protocol and the invariants behind its matrix."""
 
     if protocol_schema is not None:
@@ -548,6 +640,26 @@ def validate_protocol_consistency(protocol: Mapping[str, Any], protocol_schema: 
     _require(protocol["primary_production_categories"] == _EXPECTED_PRODUCTION_CATEGORIES,
              "$.primary_production_categories", "production category contract changed")
     _require(protocol["metrics"] == _EXPECTED_METRICS, "$.metrics", "metric contract changed")
+    if report_schema is not None:
+        report_defs = _mapping(report_schema.get("$defs"), "$.report_schema.$defs")
+        report_metrics = _mapping(report_defs.get("metrics"), "$.report_schema.$defs.metrics")
+        report_metric_properties = _mapping(
+            report_metrics.get("properties"), "$.report_schema.$defs.metrics.properties",
+        )
+        report_metric_tokens = [
+            token for token in report_metric_properties if token != "not_applicable"
+        ]
+        _require(
+            report_metric_tokens == _EXPECTED_METRICS,
+            "$.report_schema.$defs.metrics.properties",
+            "report metric properties diverge from frozen protocol metric tokens",
+        )
+        _require("not_applicable" in report_metric_properties,
+                 "$.report_schema.$defs.metrics.properties.not_applicable",
+                 "report metric disposition is required")
+        _require("not_applicable" in report_metrics.get("required", []),
+                 "$.report_schema.$defs.metrics.required",
+                 "report metric disposition must be required")
     _require(protocol["review_dimensions"] == _EXPECTED_REVIEW_DIMENSIONS,
              "$.review_dimensions", "review dimensions changed")
     required_cases = protocol["required_synthetic_cases"]
@@ -585,12 +697,11 @@ def validate_protocol_consistency(protocol: Mapping[str, Any], protocol_schema: 
 def validate_corpus_consistency(
     corpus: Mapping[str, Any],
     protocol: Mapping[str, Any],
-    corpus_schema: Mapping[str, Any] | None = None,
+    corpus_schema: Mapping[str, Any],
 ) -> None:
     """Validate corpus coverage and shot metadata against protocol tokens."""
 
-    if corpus_schema is not None:
-        validate(corpus, corpus_schema)
+    validate(corpus, corpus_schema)
     _require(corpus.get("schema_version") == 1, "$.schema_version", "must be 1")
     _require(corpus.get("protocol_id") == protocol["protocol_id"], "$.protocol_id", "does not match protocol")
     partitions = corpus["partitions"]
@@ -624,7 +735,6 @@ def validate_corpus_consistency(
             all_shot_ids.add(shot_id)
             _require(shot["first_frame"] <= shot["reference_frame"] <= shot["last_frame"],
                      shot_path, "reference frame must be inside the frame range")
-            _require(shot["last_frame"] >= shot["first_frame"], shot_path, "frame range is reversed")
             frame_hashes = shot.get("frame_sha256", [])
             _unique(
                 (frame_hash["frame"] for frame_hash in frame_hashes),
@@ -713,9 +823,9 @@ def validate_corpus_consistency(
 def validate_report_consistency(
     report: Mapping[str, Any],
     protocol: Mapping[str, Any],
-    report_schema: Mapping[str, Any] | None = None,
-    corpus: Mapping[str, Any] | None = None,
-    corpus_schema: Mapping[str, Any] | None = None,
+    report_schema: Mapping[str, Any],
+    corpus: Mapping[str, Any] | None,
+    corpus_schema: Mapping[str, Any],
 ) -> None:
     """Validate result cells, repetition profiles and report-side hard gates."""
 
@@ -724,8 +834,7 @@ def validate_report_consistency(
     # a report from binding to a malformed or incomplete metadata document merely because
     # its selected shot ids happen to be present.
     validate_corpus_consistency(corpus, protocol, corpus_schema)
-    if report_schema is not None:
-        validate(report, report_schema)
+    validate(report, report_schema)
     _require(report.get("schema_version") == 1, "$.schema_version", "must be 1")
     _require(report.get("protocol_id") == protocol["protocol_id"], "$.protocol_id", "does not match protocol")
     runner = report.get("runner")
@@ -841,7 +950,7 @@ def validate_report_consistency(
                      "final CUDA selectors must include idle and live_flame")
         for cap_index, cap_token in enumerate(matrix_cap_tokens):
             _require(cap_token in provider["cap_tokens"],
-                     f"{provider_path}.host_loads[{cap_index}]",
+                     f"$.matrix.cap_tokens[{cap_index}]",
                      f"provider does not support selected cap {cap_token!r}")
         matrix_provider_loads.extend((provider_token, host_load) for host_load in host_loads)
 
@@ -959,9 +1068,8 @@ def validate_report_consistency(
                 result["provider"],
             )
             final_cuda_cells.setdefault(pair_key, set()).add(result["host_load"])
-        if profile == "final" and result["provider"] != "cuda":
-            _require(result["host_load"] == "not_applicable", f"{path}.host_load",
-                     "final CPU/support cells must use not_applicable host load")
+        if "metrics" in result:
+            _validate_metric_disposition(result["metrics"], protocol, path)
         if status == "pass":
             _require("failure" not in result, path, "passing result must not carry a failure")
             for field in ("input_frames", "geometry", "timing", "metrics", "resource", "environment"):
@@ -1121,6 +1229,9 @@ def _validate_result_measurement(
              f"{path}.timing.total_pair_ms",
              "must equal preprocessing plus steady inference plus postprocessing")
     metrics = result["metrics"]
+    not_applicable = metrics["not_applicable"]
+    _validate_metric_applicability(metrics, not_applicable, shot, path)
+
     _require(metrics["nonfinite_fraction"] <= protocol["hard_gates"]["nonfinite_fraction_max"],
              f"{path}.metrics.nonfinite_fraction", "pass result exceeds nonfinite gate")
     _require(metrics["repeated_run_p99_delta_px"] <= protocol["hard_gates"]["repeated_run_p99_delta_px_max"],
@@ -1149,6 +1260,62 @@ def _validate_result_measurement(
                  "final CUDA pass needs baseline/session_create/steady/cleanup/process_exit NVML stages")
 
 
+def _validate_metric_disposition(
+    metrics: Mapping[str, Any],
+    protocol: Mapping[str, Any],
+    path: str,
+) -> None:
+    """Require every frozen metric to be numeric or explicitly not applicable."""
+
+    metric_tokens = set(protocol["metrics"])
+    not_applicable = metrics["not_applicable"]
+    _unique(not_applicable, f"{path}.metrics.not_applicable", "metric dispositions")
+    unknown_dispositions = set(not_applicable) - metric_tokens
+    _require(not unknown_dispositions, f"{path}.metrics.not_applicable",
+             f"unknown metric dispositions: {sorted(unknown_dispositions)!r}")
+    present_metrics = {
+        metric_name for metric_name in metrics
+        if metric_name != "not_applicable" and metric_name in metric_tokens
+    }
+    overlap = present_metrics & set(not_applicable)
+    _require(not overlap, f"{path}.metrics.not_applicable",
+             f"metrics cannot be both numeric and not_applicable: {sorted(overlap)!r}")
+    _require(present_metrics | set(not_applicable) == metric_tokens,
+             f"{path}.metrics", "every protocol metric must be numeric or explicitly not_applicable")
+    for metric_name in present_metrics:
+        value = metrics[metric_name]
+        _require(
+            isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)),
+            f"{path}.metrics.{metric_name}", "numeric metric must be finite",
+        )
+
+
+def _validate_metric_applicability(
+    metrics: Mapping[str, Any],
+    not_applicable: Sequence[str],
+    shot: Mapping[str, Any],
+    path: str,
+) -> None:
+    """Apply truth/reliability applicability rules to a measured pass row."""
+
+    def require_numeric_metric(metric_name: str, reason: str) -> None:
+        _require(metric_name in metrics and metric_name not in not_applicable,
+                 f"{path}.metrics.{metric_name}", reason)
+
+    require_numeric_metric("nonfinite_fraction", "this reliability metric is always applicable")
+    require_numeric_metric("repeated_run_p99_delta_px", "this reliability metric is always applicable")
+    truth = shot.get("truth")
+    truth_kind = truth.get("kind") if isinstance(truth, Mapping) else None
+    if truth_kind == "analytic":
+        for metric_name in ("endpoint_error_px", "fraction_le_1px", "fraction_le_3px"):
+            require_numeric_metric(metric_name, "analytic dense-truth pass requires this metric")
+    if truth_kind == "landmarks":
+        for metric_name in ("landmark_median_error_px", "landmark_p95_error_px"):
+            require_numeric_metric(metric_name, "landmark truth requires this metric")
+    if "chain_length" in shot:
+        require_numeric_metric("chain_drift_px", "chain shots require chain drift")
+
+
 def validate_protocol_and_schemas(
     protocol: Mapping[str, Any],
     protocol_schema: Mapping[str, Any],
@@ -1157,7 +1324,7 @@ def validate_protocol_and_schemas(
 ) -> None:
     """Check schema IDs and the protocol's references before validating fixtures."""
 
-    validate_protocol_consistency(protocol, protocol_schema)
+    validate_protocol_consistency(protocol, protocol_schema, report_schema)
     expected_ids = {
         "protocol": "whitewater://schema/phase2.5/protocol-v1",
         "corpus": "whitewater://schema/phase2.5/corpus-v1",

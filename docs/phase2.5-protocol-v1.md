@@ -23,7 +23,11 @@ complete final CUDA pass rows additionally require all five NVML stages. CPU/Cor
 `not_applicable`. The summary's `required_cells` equals the result-row count, so a declared cell
 cannot silently disappear.
 `tools/bakeoff/schema_tests.py` runs positive and negative fixtures and checks that these schemas
-remain aligned with the frozen protocol. No file in this package assigns an OFX Choice index.
+remain aligned with the frozen protocol. Date-time fields use structural RFC 3339 validation with
+`Z` or a numeric timezone and permit arbitrary fractional-second precision, including proleptic
+Gregorian year 0000. A `:60` second is accepted only when the offset maps it to a June or December
+month-end UTC 23:59 leap-second position; this is structural validation, not a stale announcement-
+table check. No file in this package assigns an OFX Choice index.
 
 ## Admission and matrix
 
@@ -101,7 +105,14 @@ score must be at least 75 with every primary synthetic category at least 60. Fin
 must be at least 70 with every primary production category at least 60.
 
 Dense shot score is
-`100 * (0.50*fraction_le_1px + 0.30*fraction_le_3px + 0.20*max(0, 1-EPE/3))`.
+`100 * (0.50*fraction_le_1px + 0.30*fraction_le_3px + 0.20*max(0, 1-endpoint_error_px/3))`.
+The frozen metric tokens use the report field names (pixel quantities carry the `_px` suffix);
+landmark, residual and chain metrics remain optional when a shot has no applicable measurement.
+Analytic dense-truth pass rows must include `endpoint_error_px`, `fraction_le_1px` and
+`fraction_le_3px`. Every result that carries metrics lists each other absent metric exactly once in the metrics
+`not_applicable` disposition; no metric may be both numeric and not applicable. Reliability metrics
+`nonfinite_fraction` and `repeated_run_p99_delta_px` are always numeric, landmark truth requires
+both landmark errors, and chain shots require `chain_drift_px`.
 Five anonymous human-review dimensions are each 0..4 and scale linearly to 0..100. Scores average
 within shot, then macro-average shots within category, then macro-average categories. The final
 quality score is 30% synthetic and 70% production; a final selection is invalid without both.
