@@ -9,6 +9,7 @@ add_library(whitewater_core STATIC
   geom/Vec2.h
   image/Image.h
   image/Image.cpp
+  image/OwnedFrame.h
   warp/WarpMap.h
   warp/Resampler.h
   warp/Resampler.cpp

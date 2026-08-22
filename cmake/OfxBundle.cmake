@@ -32,6 +32,7 @@ function(whitewater_add_ofx_bundle)
   # The architecture directory name is part of the OFX spec, not a CMake convention.
   if(APPLE)
     set(ofx_arch_dir "MacOS")
+    set(ofx_export_platform "APPLE")
   elseif(UNIX)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
       set(ofx_arch_dir "Linux-x86-64")
@@ -40,6 +41,7 @@ function(whitewater_add_ofx_bundle)
     else()
       message(FATAL_ERROR "Unsupported Linux architecture: ${CMAKE_SYSTEM_PROCESSOR}")
     endif()
+    set(ofx_export_platform "UNIX")
   else()
     message(FATAL_ERROR "Unsupported platform for OFX bundles")
   endif()
@@ -78,6 +80,11 @@ function(whitewater_add_ofx_bundle)
     set_target_properties(${ARG_NAME} PROPERTIES
       INSTALL_RPATH "@loader_path/../Libraries"
       BUILD_WITH_INSTALL_RPATH ON)
+    # ld64 does not consume the ELF version script. The support archive is intentionally
+    # built with normal visibility so its three OFX entry points remain available; this
+    # export list hides every other support/runtime symbol from the host process.
+    target_link_options(${ARG_NAME} PRIVATE
+      "-Wl,-exported_symbols_list,${CMAKE_SOURCE_DIR}/cmake/ofx.exports")
   elseif(UNIX)
     set_target_properties(${ARG_NAME} PROPERTIES
       INSTALL_RPATH "$ORIGIN/../Libraries"
@@ -112,6 +119,18 @@ function(whitewater_add_ofx_bundle)
   endif()
 
   install(DIRECTORY "${bundle_root}" DESTINATION "${WHITEWATER_OFX_INSTALL_DIR}")
+
+  # CI and local ctest both inspect the concrete module rather than trusting that the
+  # version-script/visibility settings were passed to the linker. Keep this in the helper
+  # so the production bundle and the dependency-free host probe receive the same gate.
+  if(WHITEWATER_BUILD_TESTS)
+    add_test(
+      NAME "ofx::exports::${ARG_NAME}"
+      COMMAND "${CMAKE_COMMAND}"
+        "-DBINARY=${binary_dir}/${ARG_NAME}.ofx"
+        "-DPLATFORM=${ofx_export_platform}"
+        -P "${CMAKE_SOURCE_DIR}/scripts/check-ofx-exports.cmake")
+  endif()
 
   set_property(GLOBAL APPEND PROPERTY WHITEWATER_BUNDLES "${bundle_root}")
 endfunction()

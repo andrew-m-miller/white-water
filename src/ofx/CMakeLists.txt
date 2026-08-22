@@ -6,10 +6,6 @@
 # untestable if it lived in the module. The module will contain exactly one translation
 # unit, Plugin.cpp, whose reference to the factory is what pulls this library in.
 #
-# Only the vendored boundary is here so far. The plugin itself (OpticalFlowPlugin,
-# FlowParameters, FlowPreparation) is Phase 1, after the Phase 0 probe has answered
-# whether the design's two load-bearing host assumptions hold. See docs/plan.md.
-
 add_library(whitewater_ofx STATIC
   HostQuirks.h
   HostQuirks.cpp
@@ -18,7 +14,11 @@ add_library(whitewater_ofx STATIC
   HostImage.h
   HostImage.cpp
   FrameCapture.h
-  FrameCapture.cpp)
+  FrameCapture.cpp
+  FlowParameters.h
+  FlowParameters.cpp
+  OpticalFlowPlugin.h
+  OpticalFlowPlugin.cpp)
 
 add_library(whitewater::ofx ALIAS whitewater_ofx)
 
@@ -36,3 +36,11 @@ set_target_properties(whitewater_ofx PROPERTIES
   C_VISIBILITY_PRESET hidden
   CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON)
+
+# Keep exactly one translation unit in the module.  The implementation above remains in the
+# static library so its pixel adapters and query actions can be linked by host-free tests;
+# Plugin.cpp only enumerates the two factories and pulls this library into the bundle.
+whitewater_add_ofx_bundle(
+  NAME WhiteWater
+  SOURCES Plugin.cpp
+  LIBRARIES whitewater::ofx)
