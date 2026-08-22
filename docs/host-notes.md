@@ -695,6 +695,49 @@ future GPU or a larger configurable arena budget. Raw reports:
 [`DCI 4K`](measurements/2026-08-21-ortprobe-highres-dci4k-flame.txt), and
 [`Alexa 35 open gate`](measurements/2026-08-21-ortprobe-highres-alexa35-flame.txt).
 
+## Measured — Phase 0C item 1: Flame ST-map convention
+
+Flame **2026.2** on `flame6`, **2026-08-21** (confirm the exact build string against the
+capture session; all concurrent 0C-era runs are 2026.2). Method and assets in
+[`tools/stprobe/`](../tools/stprobe/README.md); raw float-EXR renders archived in
+[`docs/measurements/2026-08-21-stmap/`](measurements/2026-08-21-stmap/). Re-run
+`python3 tools/stprobe/analyze_st_results.py docs/measurements/2026-08-21-stmap/` to reproduce.
+
+Measured against **Flame's own consumers — the native ST Map node and Action's UV map** — not
+a round trip through our resampler. A coordinate-encoded float plate (each pixel stores its own
+normalized position) was warped by exactly-known UV maps and read back; the output values decode
+directly to the source pixel Flame fetched. Nearest primary, Linear identity cross-check, at
+PAR 1 and PAR 2.
+
+**The convention (Action and the native ST Map node are identical on all of this):**
+
+| Property | Measured value |
+|---|---|
+| Normalization | `U = (x + 0.5) / W`, `V = (y + 0.5) / H` — pixel centres at half-integer. Identity fit residual **0.000 px**, offset **−0.500**, slope **512.000/384.000**, both PARs |
+| Origin | **Bottom-left** — V increases upward (identity un-flipped; `ST_SHIFTY` sampling `y+8` moves content down). Matches Flame's native origin from 0A |
+| Channel layout | **U in R (horizontal), V in G (vertical)**, no swap (cross-channel fit residual ~148 px) |
+| Semantics | The map value at an output pixel is the **source location to sample from** (backward map). `HALF` (U=V=0.5) fetches x≈255.5 = `0.5·W − 0.5`, confirming `(i+0.5)/N` and ruling out `x/W` and `x/(W−1)` |
+| Basis magnitude | **Real-pixel**, PAR-invariant: the 8-px integer shift is 8 px at PAR 1 **and** PAR 2 |
+| Out-of-range | **Differs by node.** Native ST Map node → **black**. Action → **mirror/reflect** at the boundary (−0.1→0.1, 1.1→0.9) |
+
+**What this settles for the ST descriptor.** `stOrigin` default *Bottom Left* is correct and
+native. Absolute-UV output must encode `(i+0.5)/N` against the source's **own real-pixel**
+dimensions — this is the exact half-pixel convention `docs/plan.md` flagged as the ST risk, now
+pinned to 0.000 px. `StMap.{h,cpp}` writes U→R, V→G. The two consumers disagree only outside
+`[0, 1]`, so emitting in-range absolute UV is the safe target; both OOR behaviours are recorded
+above for when a frame-edge motion pushes past the boundary. The depth half was already closed
+(`MultipleClipDepths = 0` → float-only descriptor).
+
+**One deliberately-open edge.** At PAR 2 with a full-frame source, image-bounds, RoD and
+project-extent normalization coincide exactly 2:1, so this battery cannot separate them — it
+only proves *real-pixel, image-own-dimension* normalization is correct and consistent. Telling
+RoD from project extent apart would need an undersized or offset source; it matters only for a
+source that does not fill the project, and is out of v1 scope. (The `ST_SHIFTX` global fit reads
+a noisy slope for **Action** only — 511.3 rather than 512.0 — because Action's mirror-pad bends
+the sub-zero edge columns into the least-squares; the OOR-free identity map is authoritative and
+exact. The native node's shift fit is clean because its OOR→black pixels are excluded from the
+fit.)
+
 ## Open
 
 Phase 0A's five questions and all Phase 0B measurements are closed — see the measured sections
@@ -713,14 +756,13 @@ diagnostic remain Phase 4.
 
 ### 0C — blocks ST map and cache integration
 
-1. **The ST convention Flame's own downstream tool expects.** An asymmetric image and a known
-   translation, at PAR 1 and PAR 2. Record whether pixel centres map as `x / width`,
-   `(x + 0.5) / width` or `x / (width - 1)`; whether normalization is against image bounds,
-   RoD or project extent; channel layout; origin behaviour; and values outside `[0, 1]`.
-   Round-tripping through *our own* resampler proves nothing — the same half-pixel error on
-   both sides still closes.
-   *The depth half of this is already answered:* `MultipleClipDepths = 0` is measured in four
-   transcripts, so no depth negotiation is possible and the ST descriptor declares float only.
+1. **The ST convention Flame's own downstream tool expects. — CLOSED 2026-08-21.** Measured
+   `(x + 0.5) / W` half-pixel centres, bottom-left origin, U→R/V→G, real-pixel normalization,
+   backward-map semantics; ST Map node blacks out-of-range while Action mirrors. Action and the
+   native ST Map node are identical inside `[0, 1]`. See *Measured — Phase 0C item 1* above. The
+   RoD-vs-project-extent normalization edge is deliberately left open (needs an undersized/offset
+   source; out of v1 scope). The depth half was already answered: `MultipleClipDepths = 0`, so
+   the ST descriptor declares float only.
 2. **Instance and process lifetime.** Save and reload a Batch setup; switch away from the node
    and back; duplicate it; render foreground versus background/final; reopen Flame. This
    decides whether `Precache` has production value: a RAM-only precache is worthless if final

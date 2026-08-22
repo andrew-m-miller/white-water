@@ -211,12 +211,13 @@ larger source formats at the plugin boundary.
 
 Two questions, both cheap, both answerable with probe extensions:
 
-1. **The ST convention Flame's own downstream tool expects.** An asymmetric image and a known
-   translation, at PAR 1 and PAR 2. Record whether pixel centres map as `x / width`,
-   `(x + 0.5) / width` or `x / (width - 1)`; whether normalization is against image bounds,
-   RoD or project extent; channel layout; origin; and behaviour outside `[0, 1]`. A round
-   trip through *our own* resampler proves nothing — it can carry the same half-pixel error
-   on both sides and still close.
+1. **The ST convention Flame's own downstream tool expects. — MEASURED 2026-08-21.** Both
+   Flame's native ST Map node and Action's UV map, via `tools/stprobe/`, are identical: pixel
+   centres map as `(x + 0.5) / width` (fit residual 0.000 px), bottom-left origin, U→R/V→G,
+   real-pixel normalization, backward-map semantics. Out-of-range differs — the ST Map node
+   blacks, Action mirrors. RoD-vs-project-extent normalization is left open (needs an
+   undersized/offset source; out of v1 scope). See `docs/host-notes.md`, *Measured — Phase 0C
+   item 1*. This settles the `stOrigin` default and the `StMap.{h,cpp}` encoding.
 2. **Instance and process lifetime.** Save/reload a setup, switch away and back, duplicate
    the node, foreground versus background/final render, reopen Flame. This decides whether
    `Precache` has production value at all: if final render happens in another process, a
