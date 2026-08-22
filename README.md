@@ -10,8 +10,10 @@ Targets **Rocky Linux 9.5+** and **arm64 macOS**.
 
 ## Status
 
-**Scaffolding, with Phases 0A and 0B closed.** The build produces the host probe and the
-ONNX Runtime isolation probe; the plugin itself does not exist yet.
+**Phases 0 and 1 are closed.** The repository now builds the permanent
+`WhiteWater.ofx.bundle` alongside its diagnostic probes. The product bundle contains the
+Track/Insert and float-only ST Map descriptors; Phase 1 intentionally renders deterministic
+fallbacks while the host-free flow pipeline begins in Phase 2.
 
 All five Phase 0 questions were measured in Flame 2026.2 on 2026-08-20, and two came back
 better than budgeted: `clipGetImage` works at arbitrary times *during* render, and a private
@@ -25,10 +27,13 @@ gate are also measured. The actual Flame loader-path report closes CUDA payload 
 size accounting with no unresolved dependencies. The GPU-only qualification then measured
 UHD, DCI 4K and Alexa 35 open gate under a 16 GiB ORT arena ceiling: all three produced
 controlled bounded-allocation stops before completing a warm inference. That negative result
-closes **0B** without imposing a product resolution cap. **0C** settles Flame's ST map
-convention and how long a plugin instance actually lives before ST/cache integration. Phase 1
-and the host-free part of Phase 2 can proceed independently. See the Open section of
-[docs/host-notes.md](docs/host-notes.md) and *Phase 0* in [docs/plan.md](docs/plan.md).
+closes **0B** without imposing a product resolution cap. **0C closed** the ST convention,
+render behavior and process lifetime, and settled v1 on an instance-lifetime RAM cache with no
+persistence. **Phase 1 closed on 2026-08-22:** Flame 2026.2 verified the two descriptors,
+parameter and reference-time contracts, Source/Insert fallbacks, matte propagation, partial
+renders, native ST round-trip and load diagnostics. Phase 2 is the next implementation phase.
+See [docs/host-notes.md](docs/host-notes.md), [docs/context.md](docs/context.md), and *Phasing*
+in [docs/plan.md](docs/plan.md).
 
 ## Documents
 
@@ -109,9 +114,10 @@ cmake/        bundle layout, rpath, version script
 scripts/      the layering and glibc gates, run as tests
 ```
 
-The `src/core` boundary is enforced by `ctest`, not by convention: a core source that
-includes an OFX or ONNX Runtime header fails the build. That is what keeps the whole flow
-pipeline testable on a laptop with no GPU and no model weights.
+The `src/core` and `src/infer` boundaries are enforced by `ctest`, not by convention: core
+rejects OFX, ONNX Runtime and I/O headers; infer rejects OFX while allowing inference
+dependencies. Both policies have negative fixtures that prove the forbidden include is rejected.
+That is what keeps the flow pipeline testable on a laptop with no GPU and no model weights.
 
 Much of `src/core` and `src/ofx` is vendored from the sibling **warp-drive** repository,
 which is the version Flame has actually loaded. Each such file names its provenance in its

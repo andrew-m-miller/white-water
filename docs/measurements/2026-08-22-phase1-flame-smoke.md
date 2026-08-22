@@ -47,4 +47,6 @@ exists.
 The empty submenu is a product defect: `kOfxImageEffectPluginPropGrouping` was absent from both
 permanent descriptors even though both probes set it to `White Water`. The fix sets the grouping
 through a non-throwing property write and adds a raw-host assertion. Reconfirm the submenu label
-with the replacement Linux artifact before merging Phase 1.
+with a replacement Linux artifact when convenient. The human reviewer accepted the low-risk fix
+without another airgapped install cycle before merging Phase 1 because both probes already prove
+the same property path and any remaining presentation issue is easy to correct later.
