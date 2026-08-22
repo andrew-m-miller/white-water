@@ -373,6 +373,8 @@ struct Parameter {
   int intValue = 0;
   double doubleValue = 0.0;
   std::vector<double> doubleValues;
+  unsigned int valueSetCount = 0;
+  unsigned int valueSetAtTimeCount = 0;
 };
 
 struct ParamSet {
@@ -512,6 +514,7 @@ OfxStatus getParameterValueAtTime(OfxParamHandle param, OfxTime time, ...) {
 OfxStatus setParameterValue(OfxParamHandle param, ...) {
   if (param == nullptr) return kOfxStatErrBadHandle;
   Parameter *parameter = asParameter(param);
+  ++parameter->valueSetCount;
   va_list args;
   va_start(args, param);
   OfxStatus status = kOfxStatOK;
@@ -540,6 +543,7 @@ OfxStatus setParameterValue(OfxParamHandle param, ...) {
 OfxStatus setParameterValueAtTime(OfxParamHandle param, OfxTime time, ...) {
   if (param == nullptr) return kOfxStatErrBadHandle;
   Parameter *parameter = asParameter(param);
+  ++parameter->valueSetAtTimeCount;
   va_list args;
   va_start(args, time);
   OfxStatus status = kOfxStatOK;
@@ -1195,18 +1199,18 @@ void configureClip(Clip *clip, const RenderState &state, bool connected) {
   hostSetInt(&clip->props, kOfxImageClipPropOptional,
              clip->role == ClipRole::kInsert ? 1 : 0);
   hostSetString(&clip->props, kOfxImageEffectPropPixelDepth,
-                connected ? state.depth : state.depth);
+                state.depth);
   hostSetString(&clip->props, kOfxImageEffectPropComponents,
-                connected ? state.components : state.components);
+                state.components);
   hostSetString(&clip->props, kOfxImageEffectPropPreMultiplication,
                 kOfxImageUnPreMultiplied);
   hostSetDouble(&clip->props, kOfxImagePropPixelAspectRatio, state.pixelAspectRatio);
   hostSetDoubles(&clip->props, kOfxImageEffectPropFrameRange, {0.0, 3.0});
   hostSetDoubles(&clip->props, kOfxImageEffectPropUnmappedFrameRange, {0.0, 3.0});
   hostSetString(&clip->props, kOfxImageClipPropUnmappedPixelDepth,
-                connected ? state.depth : state.depth);
+                state.depth);
   hostSetString(&clip->props, kOfxImageClipPropUnmappedComponents,
-                connected ? state.components : state.components);
+                state.components);
 }
 
 void configureInstance(Effect *instance, const RenderState &state, bool insertConnected) {
@@ -1423,6 +1427,13 @@ void validateParameterSet(const Effect &context, bool stDescriptor) {
     }
     if (parameter.type == kOfxParamTypeCustom || parameter.type == kOfxParamTypeParametric)
       fail("unsupported custom/parametric parameter was defined: " + parameter.name);
+    if (parameter.name == "refFrame") {
+      int animates = 1;
+      const bool hasAnimates = readInt(
+          reinterpret_cast<OfxPropertySetHandle>(const_cast<PropertySet *>(&parameter.props)),
+          kOfxParamPropAnimates, &animates);
+      check(hasAnimates && animates == 0, "refFrame is a non-animating scalar");
+    }
     if (parameter.type == kOfxParamTypeChoice) {
       const std::vector<std::string> options = stringsFrom(
           reinterpret_cast<OfxPropertySetHandle>(const_cast<PropertySet *>(&parameter.props)),
@@ -1886,18 +1897,27 @@ void testTrackRenderContract(OfxPlugin *plugin, const Effect &descriptor) {
   // refFrame directly in the harness.
   PropertySet changedArgs;
   hostSetString(&changedArgs, kOfxPropChangeReason, kOfxChangeUserEdited);
-  hostSetDouble(&changedArgs, kOfxPropTime, 7.0);
+  hostSetDouble(&changedArgs, kOfxPropTime, 5.0);
   hostSetDoubles(&changedArgs, kOfxImageEffectPropRenderScale, {1.0, 1.0});
   hostSetString(&changedArgs, kOfxPropType, kOfxTypeParameter);
   hostSetString(&changedArgs, kOfxPropName, "setRef");
-  expectStatus("Set Ref changedParam", plugin->mainEntry(
+  expectStatus("Set Ref changedParam (first press)", plugin->mainEntry(
+                                           kOfxActionInstanceChanged,
+                                           reinterpret_cast<OfxImageEffectHandle>(&instance),
+                                           reinterpret_cast<OfxPropertySetHandle>(&changedArgs),
+                                           nullptr));
+  hostSetDouble(&changedArgs, kOfxPropTime, 7.0);
+  expectStatus("Set Ref changedParam (second press)", plugin->mainEntry(
                                            kOfxActionInstanceChanged,
                                            reinterpret_cast<OfxImageEffectHandle>(&instance),
                                            reinterpret_cast<OfxPropertySetHandle>(&changedArgs),
                                            nullptr));
   Parameter *referenceFrame = instance.params.find("refFrame");
   check(referenceFrame != nullptr && referenceFrame->intValue == 7,
-        "Set Ref writes the current 0-based OFX time into refFrame");
+        "Set Ref replaces the scalar with the current 0-based OFX time");
+  check(referenceFrame != nullptr && referenceFrame->valueSetCount == 2 &&
+            referenceFrame->valueSetAtTimeCount == 0,
+        "Set Ref never creates timeline keys");
 
   // Each format uses the same host instance with a fresh clip configuration.  This is
   // intentionally a fallback case: the disconnected Insert must make Composite an exact
@@ -2030,8 +2050,9 @@ void testStRenderContract(OfxPlugin *plugin, const Effect &descriptor) {
       bool exact = true;
       for (int y = result.output.bounds.y1; y < result.output.bounds.y2; ++y) {
         for (int x = result.output.bounds.x1; x < result.output.bounds.x2; ++x) {
-          const float expectedU = (static_cast<float>(x - result.output.bounds.x1) + 0.5f) /
-                                  static_cast<float>(result.output.width());
+          const float expectedU = static_cast<float>(
+              (static_cast<double>(x - result.output.bounds.x1) + 0.5) /
+              static_cast<double>(result.output.width()));
           const double bottomV =
               (static_cast<double>(y - result.output.bounds.y1) + 0.5) /
               static_cast<double>(result.output.height());

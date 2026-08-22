@@ -32,80 +32,14 @@ class IdentityMap final : public WarpMap {
   Vec2 mapToSource(Vec2 destination) const override { return destination; }
 };
 
-// Writes either an identity copy or transparent black in row ranges.  The source and map
-// are immutable before the host thread suite starts, so each worker only touches its own
-// destination rows.  The explicit 16-row abort cadence is part of the Phase 1 host contract.
-class FallbackRenderer final : public OFX::MultiThread::Processor {
+// Owns the common worker partition, abort cadence, and destination write-back contract for
+// every row renderer. Subclasses only implement the contents of one disjoint row block.
+class RowRenderer : public OFX::MultiThread::Processor {
  public:
-  FallbackRenderer(OFX::ImageEffect &effect, const HostDestinationImage &destination,
-                   const HostSourceImage *source, AlphaMode alphaMode)
-      : effect_(effect),
-        destination_(destination),
-        source_(source),
-        options_(alphaMode),
-        geometry_(),
-        copy_(source != nullptr && !source->view().isEmpty()) {
-    if (copy_) {
-      geometry_.destinationOrigin = destination_.origin();
-      geometry_.sourceOrigin = source_->origin();
-    }
-  }
+  RowRenderer(OFX::ImageEffect &effect, const HostDestinationImage &destination)
+      : effect_(effect), destination_(destination) {}
 
-  void multiThreadFunction(unsigned int threadId, unsigned int threadCount) override {
-    const int height = destination_.view().height();
-    const int workers = std::max(1u, threadCount);
-    const int rowsPerWorker = (height + static_cast<int>(workers) - 1) /
-                              static_cast<int>(workers);
-    const int first = static_cast<int>(threadId) * rowsPerWorker;
-    const int last = std::min(height, first + rowsPerWorker);
-
-    for (int row = first; row < last; row += kRowsPerAbortCheck) {
-      if (effect_.abort()) return;
-      const int count = std::min(kRowsPerAbortCheck, last - row);
-      if (copy_) {
-        resampleRows(source_->view(), identityMap_, options_, geometry_, destination_.view(), row,
-                     count);
-      } else {
-        fillRows(destination_.view(), row, count);
-      }
-      destination_.writeBackRows(row, count);
-    }
-  }
-
- private:
-  static void fillRows(const ImageView &view, int firstRow, int rowCount) {
-    const int begin = std::max(0, firstRow);
-    const int end = std::min(view.height(), firstRow + rowCount);
-    for (int y = begin; y < end; ++y) {
-      float *row = view.row(y);
-      std::fill(row, row + static_cast<std::ptrdiff_t>(view.width()) * kImageChannels, 0.0f);
-    }
-  }
-
-  OFX::ImageEffect &effect_;
-  const HostDestinationImage &destination_;
-  const HostSourceImage *source_;
-  ResampleOptions options_;
-  ResampleGeometry geometry_;
-  bool copy_;
-  IdentityMap identityMap_;
-};
-
-class StIdentityRenderer final : public OFX::MultiThread::Processor {
- public:
-  StIdentityRenderer(OFX::ImageEffect &effect, const HostDestinationImage &destination,
-                     int sourceX, int sourceY, int sourceWidth, int sourceHeight, int mode,
-                     int origin)
-      : effect_(effect),
-        destination_(destination),
-        sourceX_(sourceX),
-        sourceY_(sourceY),
-        sourceWidth_(sourceWidth),
-        sourceHeight_(sourceHeight),
-        relative_(mode == 1),
-        topLeft_(origin == 1) {}
-
-  void multiThreadFunction(unsigned int threadId, unsigned int threadCount) override {
+  void multiThreadFunction(unsigned int threadId, unsigned int threadCount) final {
     const ImageView view = destination_.view();
     const int height = view.height();
     const int workers = std::max(1u, threadCount);
@@ -122,15 +56,79 @@ class StIdentityRenderer final : public OFX::MultiThread::Processor {
     }
   }
 
+ protected:
+  virtual void writeRows(const ImageView &view, int firstRow, int rowCount) = 0;
+  const HostDestinationImage &destination() const { return destination_; }
+
  private:
-  void writeRows(const ImageView &view, int firstRow, int rowCount) const {
+  OFX::ImageEffect &effect_;
+  const HostDestinationImage &destination_;
+};
+
+// Writes either an identity copy or transparent black in row ranges. The source and map are
+// immutable before the host thread suite starts, so each worker only touches its own rows.
+class FallbackRenderer final : public RowRenderer {
+ public:
+  FallbackRenderer(OFX::ImageEffect &effect, const HostDestinationImage &destination,
+                   const HostSourceImage *source, AlphaMode alphaMode)
+      : RowRenderer(effect, destination),
+        source_(source),
+        options_(alphaMode),
+        geometry_(),
+        copy_(source != nullptr && !source->view().isEmpty()) {
+    if (copy_) {
+      geometry_.destinationOrigin = destination.origin();
+      geometry_.sourceOrigin = source_->origin();
+    }
+  }
+
+ private:
+  void writeRows(const ImageView &view, int firstRow, int rowCount) override {
+    if (copy_) {
+      resampleRows(source_->view(), identityMap_, options_, geometry_, view, firstRow, rowCount);
+    } else {
+      fillRows(view, firstRow, rowCount);
+    }
+  }
+
+  static void fillRows(const ImageView &view, int firstRow, int rowCount) {
+    const int begin = std::max(0, firstRow);
+    const int end = std::min(view.height(), firstRow + rowCount);
+    for (int y = begin; y < end; ++y) {
+      float *row = view.row(y);
+      std::fill(row, row + static_cast<std::ptrdiff_t>(view.width()) * kImageChannels, 0.0f);
+    }
+  }
+
+  const HostSourceImage *source_;
+  ResampleOptions options_;
+  ResampleGeometry geometry_;
+  bool copy_;
+  IdentityMap identityMap_;
+};
+
+class StIdentityRenderer final : public RowRenderer {
+ public:
+  StIdentityRenderer(OFX::ImageEffect &effect, const HostDestinationImage &destination,
+                     int sourceX, int sourceY, int sourceWidth, int sourceHeight, int mode,
+                     int origin)
+      : RowRenderer(effect, destination),
+        sourceX_(sourceX),
+        sourceY_(sourceY),
+        sourceWidth_(sourceWidth),
+        sourceHeight_(sourceHeight),
+        relative_(mode == 1),
+        topLeft_(origin == 1) {}
+
+ private:
+  void writeRows(const ImageView &view, int firstRow, int rowCount) override {
     const int begin = std::max(0, firstRow);
     const int end = std::min(view.height(), firstRow + rowCount);
     for (int y = begin; y < end; ++y) {
       float *out = view.row(y);
-      const double globalY = destination_.origin().y + static_cast<double>(y);
+      const double globalY = destination().origin().y + static_cast<double>(y);
       for (int x = 0; x < view.width(); ++x) {
-        const double globalX = destination_.origin().x + static_cast<double>(x);
+        const double globalX = destination().origin().x + static_cast<double>(x);
         float u = 0.0f;
         float v = 0.0f;
         if (!relative_) {
@@ -153,8 +151,6 @@ class StIdentityRenderer final : public OFX::MultiThread::Processor {
     }
   }
 
-  OFX::ImageEffect &effect_;
-  const HostDestinationImage &destination_;
   int sourceX_;
   int sourceY_;
   int sourceWidth_;
@@ -300,6 +296,9 @@ bool OpticalFlowPlugin::isIdentity(const OFX::IsIdentityArguments &args,
 
 void OpticalFlowPlugin::getRegionsOfInterest(const OFX::RegionsOfInterestArguments &args,
                                              OFX::RegionOfInterestSetter &rois) {
+  // This is the permanent inference contract, not an optimization of the Phase 1 fallback:
+  // flow evaluation needs both Source N and Insert N/R regardless of which final image the
+  // selected Output mode emits. Keep it aligned with getFramesNeeded and docs/plan.md.
   const FlowParameterValues values = parameters_.routingValuesAt(args.time);
   auto setRoi = [&](OFX::Clip *clip, double time) {
     if (clip == nullptr) return;
@@ -334,6 +333,9 @@ void OpticalFlowPlugin::getRegionsOfInterest(const OFX::RegionsOfInterestArgumen
 void OpticalFlowPlugin::getFramesNeeded(const OFX::FramesNeededArguments &args,
                                         OFX::FramesNeededSetter &frames) {
   try {
+    // Both inputs feed the future flow chain even though Phase 1's documented failure path
+    // copies only the selected final input. This query contract is intentionally not pruned
+    // by Output mode; see docs/plan.md.
     const OfxRangeD current = {args.time, args.time};
     if (sourceClip_ != nullptr) frames.setFramesNeeded(*sourceClip_, current);
     if (kind_ != DescriptorKind::kTrack || insertClip_ == nullptr) return;

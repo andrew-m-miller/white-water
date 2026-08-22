@@ -109,6 +109,10 @@ void defineFlowParameters(OFX::ImageEffectDescriptor &descriptor, DescriptorKind
       descriptor.defineIntParam(kParamReferenceFrame);
   label(referenceFrame, "Ref Frame");
   referenceFrame->setDefault(0);
+  // Ref Frame is one persistent scalar, not a curve. Set Ref replaces it regardless of
+  // timeline position. Use the non-throwing property path so an older host cannot make the
+  // descriptor disappear while rejecting an optional property write.
+  referenceFrame->getPropertySet().propSetInt(kOfxParamPropAnimates, 0, 0, false);
 
   OFX::PushButtonParamDescriptor *setReference =
       descriptor.definePushButtonParam(kParamSetReference);
@@ -259,7 +263,7 @@ FlowParameterValues FlowParameters::valuesAt(double time) const {
 
 void FlowParameters::setReferenceFrame(double time) const {
   if (referenceFrame_ == nullptr) return;
-  referenceFrame_->setValueAtTime(time, timeAsFrame(time));
+  referenceFrame_->setValue(timeAsFrame(time));
 }
 
 }  // namespace ofx
