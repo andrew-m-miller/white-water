@@ -68,6 +68,138 @@ def main() -> int:
     positive_report = load_json(ROOT / "bakeoff/fixtures/positive/report-v1.json")
     validate_report_consistency(positive_report, protocol, report_schema, positive_corpus, corpus_schema)
 
+    # v1 remains the backward-compatible shipping-only contract.  The admission amendment is
+    # exercised separately through the new v2 protocol/report IDs so an old consumer cannot
+    # silently reinterpret an excluded candidate as measurable.
+    protocol_v2 = load_json(ROOT / "bakeoff/protocol-v2.json")
+    protocol_schema_v2 = load_json(ROOT / "bakeoff/protocol-v2.schema.json")
+    report_schema_v2 = load_json(ROOT / "bakeoff/report-v2.schema.json")
+    positive_report_v2 = load_json(ROOT / "bakeoff/fixtures/positive/report-v2.json")
+    validate_protocol_and_schemas(protocol_v2, protocol_schema_v2, corpus_schema, report_schema_v2)
+    validate_report_consistency(
+        positive_report_v2, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+    )
+
+    excluded_but_measurable = copy.deepcopy(positive_report_v2)
+    evaluation_candidate = copy.deepcopy(positive_report_v2["candidates"][0])
+    evaluation_candidate.update({
+        "candidate_id": "waft-twins",
+        "status": "excluded",
+        "measurement_status": "measurable",
+        "exclusion_reason": {"type": "license_unknown", "message": "evaluation-only fixture"},
+    })
+    evaluation_candidate["license_verdicts"]["checkpoint"] = "unknown"
+    evaluation_candidate["redistribution_permitted"]["checkpoint"] = "unknown"
+    excluded_but_measurable["candidates"].append(evaluation_candidate)
+    set_matrix(
+        excluded_but_measurable,
+        candidate_ids=["waft-twins"],
+        shot_ids=["syn-identity"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp0_5"],
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
+    )
+    excluded_but_measurable["results"][0]["candidate_id"] = "waft-twins"
+    validate_report_consistency(
+        excluded_but_measurable, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+    )
+
+    baseline_measurable = copy.deepcopy(excluded_but_measurable)
+    baseline_candidate = copy.deepcopy(positive_report_v2["candidates"][0])
+    baseline_candidate.update({
+        "candidate_id": "raft-original",
+        "status": "excluded",
+        "measurement_status": "measurable",
+        "exclusion_reason": {"type": "license_unknown", "message": "baseline fixture"},
+    })
+    baseline_measurable["candidates"].append(baseline_candidate)
+    set_matrix(
+        baseline_measurable,
+        candidate_ids=["raft-original"],
+        shot_ids=["syn-identity"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp0_5"],
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
+    )
+    baseline_measurable["results"][0]["candidate_id"] = "raft-original"
+    validate_report_consistency(
+        baseline_measurable, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+    )
+
+    unavailable_in_matrix = copy.deepcopy(positive_report_v2)
+    unavailable_candidate = copy.deepcopy(positive_report_v2["candidates"][0])
+    unavailable_candidate.update({
+        "candidate_id": "neuflow-v2",
+        "status": "excluded",
+        "measurement_status": "unavailable",
+        "exclusion_reason": {"type": "artifact_missing", "message": "unavailable fixture"},
+    })
+    unavailable_in_matrix["candidates"].append(unavailable_candidate)
+    set_matrix(
+        unavailable_in_matrix,
+        candidate_ids=["neuflow-v2"],
+        shot_ids=["syn-identity"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp0_5"],
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
+    )
+    unavailable_in_matrix["results"][0]["candidate_id"] = "neuflow-v2"
+    expect_failure(
+        "v2 unavailable candidate matrix selection",
+        lambda: validate_report_consistency(
+            unavailable_in_matrix, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    eligible_unavailable = copy.deepcopy(positive_report_v2)
+    eligible_unavailable["candidates"][0]["measurement_status"] = "unavailable"
+    expect_failure(
+        "v2 shipping eligibility requires measurable artifact",
+        lambda: validate_report_consistency(
+            eligible_unavailable, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    v2_license_not_permitted = copy.deepcopy(positive_report_v2)
+    v2_license_not_permitted["candidates"][0]["license_verdicts"]["checkpoint"] = "unknown"
+    expect_failure(
+        "v2 shipping eligibility retains the fail-closed license gate",
+        lambda: validate_report_consistency(
+            v2_license_not_permitted, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    baseline_as_shipping = copy.deepcopy(positive_report_v2)
+    baseline_as_shipping["candidates"][0]["candidate_id"] = "raft-original"
+    expect_failure(
+        "v2 validation baseline cannot be shipping eligible",
+        lambda: validate_report_consistency(
+            baseline_as_shipping, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    measurable_without_artifact = copy.deepcopy(excluded_but_measurable)
+    measurable_without_artifact["candidates"][1].pop("artifact_sha256")
+    expect_failure(
+        "v2 measurable candidate requires artifact identity",
+        lambda: validate_report_consistency(
+            measurable_without_artifact, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    technical_reason_marked_measurable = copy.deepcopy(excluded_but_measurable)
+    technical_reason_marked_measurable["candidates"][1]["exclusion_reason"]["type"] = "artifact_missing"
+    expect_failure(
+        "v2 technically unavailable candidate cannot be measurable",
+        lambda: validate_report_consistency(
+            technical_reason_marked_measurable,
+            protocol_v2,
+            report_schema_v2,
+            positive_corpus,
+            corpus_schema,
+        ),
+    )
+
     failed_with_metrics = copy.deepcopy(positive_report)
     failed_with_metrics["results"][0]["status"] = "fail"
     failed_with_metrics["results"][0]["failure"] = {

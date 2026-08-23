@@ -78,6 +78,18 @@ _EXPECTED_CANDIDATES = [
     {"id": "neuflow-v2", "role": "shipping-candidate"},
     {"id": "raft-original", "role": "validation-baseline"},
 ]
+_V1_PROTOCOL_ID = "whitewater-p25-v1"
+_V2_PROTOCOL_ID = "whitewater-p25-v2"
+_EXPECTED_MEASUREMENT_STATUSES = ["measurable", "unavailable"]
+_TECHNICAL_UNAVAILABLE_REASONS = {
+    "artifact_missing",
+    "artifact_hash_mismatch",
+    "provider_unavailable",
+    "unsupported_tensor_contract",
+    "wrong_direction",
+    "export_not_reproducible",
+    "cap_unavailable",
+}
 _EXPECTED_REQUIRED_IDENTITY = [
     "source_commit", "checkpoint_sha256", "artifact_sha256", "export_environment_sha256",
 ]
@@ -569,16 +581,20 @@ def validate_protocol_consistency(
 
     if protocol_schema is not None:
         validate(protocol, protocol_schema)
-    _require(protocol.get("schema_version") == 1, "$.schema_version", "must be 1")
-    _require(protocol.get("protocol_id") == "whitewater-p25-v1", "$.protocol_id", "wrong protocol id")
-    _require(protocol.get("frozen_date") == "2026-08-22", "$.frozen_date", "protocol freeze date changed")
+    protocol_id = protocol.get("protocol_id")
+    _require(protocol_id in {_V1_PROTOCOL_ID, _V2_PROTOCOL_ID}, "$.protocol_id", "wrong protocol id")
+    is_v2 = protocol_id == _V2_PROTOCOL_ID
+    expected_version = 2 if is_v2 else 1
+    expected_date = "2026-08-23" if is_v2 else "2026-08-22"
+    _require(protocol.get("schema_version") == expected_version, "$.schema_version", f"must be {expected_version}")
+    _require(protocol.get("frozen_date") == expected_date, "$.frozen_date", "protocol freeze date changed")
     schema_ids = _mapping(protocol.get("schema_ids"), "$.schema_ids")
     expected_schema_ids = {
-        "protocol": "whitewater-p25-protocol-v1",
+        "protocol": f"whitewater-p25-protocol-v{'2' if is_v2 else '1'}",
         "corpus": "whitewater-p25-corpus-v1",
-        "report": "whitewater-p25-report-v1",
+        "report": f"whitewater-p25-report-v{'2' if is_v2 else '1'}",
     }
-    _require(dict(schema_ids) == expected_schema_ids, "$.schema_ids", "schema ids are not the v1 set")
+    _require(dict(schema_ids) == expected_schema_ids, "$.schema_ids", "schema ids do not match the protocol version")
     eligibility = protocol["eligibility"]
     _require(eligibility["required_identity"] == _EXPECTED_REQUIRED_IDENTITY,
              "$.eligibility.required_identity", "candidate identity contract changed")
@@ -630,6 +646,22 @@ def validate_protocol_consistency(
     _require(protocol["metrics"] == _EXPECTED_METRICS, "$.metrics", "metric contract changed")
     if report_schema is not None:
         report_defs = _mapping(report_schema.get("$defs"), "$.report_schema.$defs")
+        if is_v2:
+            report_candidate = _mapping(report_defs.get("candidate"), "$.report_schema.$defs.candidate")
+            report_candidate_required = report_candidate.get("required", [])
+            _require(
+                "measurement_status" in report_candidate_required,
+                "$.report_schema.$defs.candidate.required",
+                "v2 candidate measurement_status is required",
+            )
+            report_candidate_properties = _mapping(
+                report_candidate.get("properties"), "$.report_schema.$defs.candidate.properties",
+            )
+            _require(
+                report_candidate_properties.get("measurement_status", {}).get("enum") == _EXPECTED_MEASUREMENT_STATUSES,
+                "$.report_schema.$defs.candidate.properties.measurement_status",
+                "candidate measurement status values changed",
+            )
         report_metrics = _mapping(report_defs.get("metrics"), "$.report_schema.$defs.metrics")
         report_metric_properties = _mapping(
             report_metrics.get("properties"), "$.report_schema.$defs.metrics.properties",
@@ -691,7 +723,13 @@ def validate_corpus_consistency(
 
     validate(corpus, corpus_schema)
     _require(corpus.get("schema_version") == 1, "$.schema_version", "must be 1")
-    _require(corpus.get("protocol_id") == protocol["protocol_id"], "$.protocol_id", "does not match protocol")
+    corpus_protocol_matches = corpus.get("protocol_id") == protocol["protocol_id"]
+    # The v2 admission amendment does not change corpus semantics or frame identities, so it
+    # deliberately reuses the already-frozen corpus-v1 document/schema.  A v1 corpus therefore
+    # remains valid under the v2 protocol while every report still binds its exact corpus hash.
+    if protocol.get("protocol_id") == _V2_PROTOCOL_ID:
+        corpus_protocol_matches = corpus.get("protocol_id") == _V1_PROTOCOL_ID
+    _require(corpus_protocol_matches, "$.protocol_id", "does not match protocol")
     partitions = corpus["partitions"]
     partition_ids = [partition["id"] for partition in partitions]
     _unique(partition_ids, "$.partitions", "partition ids")
@@ -823,7 +861,13 @@ def validate_report_consistency(
     # its selected shot ids happen to be present.
     validate_corpus_consistency(corpus, protocol, corpus_schema)
     validate(report, report_schema)
-    _require(report.get("schema_version") == 1, "$.schema_version", "must be 1")
+    is_v2 = protocol.get("protocol_id") == _V2_PROTOCOL_ID
+    expected_report_version = 2 if is_v2 else 1
+    _require(
+        report.get("schema_version") == expected_report_version,
+        "$.schema_version",
+        f"must be {expected_report_version}",
+    )
     _require(report.get("protocol_id") == protocol["protocol_id"], "$.protocol_id", "does not match protocol")
     runner = report.get("runner")
     _require(isinstance(runner, Mapping), "$.runner", "must be an object")
@@ -846,6 +890,39 @@ def validate_report_consistency(
     known_candidates = {entry["id"]: entry for entry in protocol["candidate_ids"]}
     for candidate_id, candidate in candidate_map.items():
         _require(candidate_id in known_candidates, "$.candidates", f"unknown candidate {candidate_id!r}")
+        if is_v2:
+            role = known_candidates[candidate_id]["role"]
+            measurement_status = candidate["measurement_status"]
+            _require(
+                measurement_status in set(_EXPECTED_MEASUREMENT_STATUSES),
+                f"$.candidates[{candidate_id}].measurement_status",
+                "measurement_status must be measurable or unavailable",
+            )
+            if candidate["status"] == "eligible":
+                _require(
+                    role == "shipping-candidate",
+                    f"$.candidates[{candidate_id}].status",
+                    "validation-baseline candidates cannot be shipping-eligible",
+                )
+                _require(
+                    measurement_status == "measurable",
+                    f"$.candidates[{candidate_id}].measurement_status",
+                    "shipping-eligible candidates must be measurable",
+                )
+            if measurement_status == "measurable":
+                exclusion_reason = candidate.get("exclusion_reason")
+                if isinstance(exclusion_reason, Mapping):
+                    _require(
+                        exclusion_reason.get("type") not in _TECHNICAL_UNAVAILABLE_REASONS,
+                        f"$.candidates[{candidate_id}].measurement_status",
+                        "technical exclusion reasons require measurement_status=unavailable",
+                    )
+                for field in (*_EXPECTED_REQUIRED_IDENTITY, "manifest_sha256", "artifact_size_bytes"):
+                    _require(
+                        field in candidate,
+                        f"$.candidates[{candidate_id}]",
+                        f"measurable candidate needs {field}",
+                    )
         if candidate["status"] == "eligible":
             _require(
                 isinstance(candidate.get("source_commit"), str)
@@ -905,9 +982,16 @@ def validate_report_consistency(
     for candidate_index, candidate_id in enumerate(matrix_candidate_ids):
         _require(candidate_id in candidate_map, f"$.matrix.candidate_ids[{candidate_index}]",
                  "candidate is not declared in the report")
-        _require(candidate_map[candidate_id]["status"] == "eligible",
-                 f"$.matrix.candidate_ids[{candidate_index}]",
-                 "excluded candidates cannot be selected for measurement")
+        if is_v2:
+            _require(
+                candidate_map[candidate_id]["measurement_status"] == "measurable",
+                f"$.matrix.candidate_ids[{candidate_index}]",
+                "candidates without a measurable technical artifact cannot be selected for measurement",
+            )
+        else:
+            _require(candidate_map[candidate_id]["status"] == "eligible",
+                     f"$.matrix.candidate_ids[{candidate_index}]",
+                     "excluded candidates cannot be selected for measurement")
     for shot_index, shot_id in enumerate(matrix_shot_ids):
         if corpus_shots:
             _require(shot_id in corpus_shots, f"$.matrix.shot_ids[{shot_index}]",
@@ -1327,21 +1411,25 @@ def validate_protocol_and_schemas(
     """Check schema IDs and the protocol's references before validating fixtures."""
 
     validate_protocol_consistency(protocol, protocol_schema, report_schema)
+    is_v2 = protocol.get("protocol_id") == _V2_PROTOCOL_ID
+    version = 2 if is_v2 else 1
+    suffix = "2" if is_v2 else "1"
     expected_ids = {
-        "protocol": "whitewater://schema/phase2.5/protocol-v1",
+        "protocol": f"whitewater://schema/phase2.5/protocol-v{suffix}",
         "corpus": "whitewater://schema/phase2.5/corpus-v1",
-        "report": "whitewater://schema/phase2.5/report-v1",
+        "report": f"whitewater://schema/phase2.5/report-v{suffix}",
     }
     schemas = {"protocol": protocol_schema, "corpus": corpus_schema, "report": report_schema}
     for name, schema in schemas.items():
-        _require(schema.get("$id") == expected_ids[name], f"$.schemas.{name}.$id", "schema id is not the v1 id")
+        _require(schema.get("$id") == expected_ids[name], f"$.schemas.{name}.$id", "schema id does not match the selected protocol version")
         _require(schema.get("$schema") == "https://json-schema.org/draft/2020-12/schema",
                  f"$.schemas.{name}.$schema", "schema dialect is not pinned")
-    _require(corpus_schema["properties"]["protocol_id"]["const"] == protocol["protocol_id"],
+    expected_corpus_protocol = _V1_PROTOCOL_ID if is_v2 else protocol["protocol_id"]
+    _require(corpus_schema["properties"]["protocol_id"]["const"] == expected_corpus_protocol,
              "$.schemas.corpus.protocol_id", "corpus schema protocol id diverges")
     _require(report_schema["properties"]["protocol_id"]["const"] == protocol["protocol_id"],
              "$.schemas.report.protocol_id", "report schema protocol id diverges")
     _require(corpus_schema["properties"]["schema_version"]["const"] == 1,
              "$.schemas.corpus.schema_version", "corpus schema version diverges")
-    _require(report_schema["properties"]["schema_version"]["const"] == 1,
+    _require(report_schema["properties"]["schema_version"]["const"] == version,
              "$.schemas.report.schema_version", "report schema version diverges")

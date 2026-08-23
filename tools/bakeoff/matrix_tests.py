@@ -70,6 +70,21 @@ def _selections(**overrides) -> dict:
     return result
 
 
+def _v2_protocol() -> dict:
+    protocol = _protocol()
+    protocol["protocol_id"] = "whitewater-p25-v2"
+    return protocol
+
+
+def _v2_candidates() -> list[dict[str, str]]:
+    return [
+        {"candidate_id": "candidate-a", "status": "eligible", "measurement_status": "measurable"},
+        # Shipping-excluded but technically qualified: valid evaluation input.
+        {"candidate_id": "candidate-b", "status": "excluded", "measurement_status": "measurable"},
+        {"candidate_id": "candidate-x", "status": "excluded", "measurement_status": "unavailable"},
+    ]
+
+
 def _failure(kind: str, callback) -> None:
     try:
         callback()
@@ -144,11 +159,48 @@ def test_duplicate_candidate_entries_and_exclusion() -> None:
     _failure("excluded_candidate", lambda: build_matrix(_protocol(), _corpus(), excluded, _selections(candidate_ids=["candidate-a"]), "final", "el8-x86_64"))
 
 
+def test_v2_measurement_admission_is_independent_of_shipping_status() -> None:
+    evaluation = build_matrix(
+        _v2_protocol(), _corpus(), _v2_candidates(), _selections(candidate_ids=["candidate-b"]),
+        "final", "el8-x86_64",
+    )
+    assert {cell.candidate for cell in evaluation.cells} == {"candidate-b"}
+    assert evaluation.excluded_candidate_ids == ("candidate-x",)
+    _failure(
+        "unavailable_candidate",
+        lambda: build_matrix(
+            _v2_protocol(), _corpus(), _v2_candidates(),
+            _selections(candidate_ids=["candidate-x"]), "final", "el8-x86_64",
+        ),
+    )
+    shipping_unavailable = _v2_candidates()
+    shipping_unavailable[0]["measurement_status"] = "unavailable"
+    _failure(
+        "candidate_status",
+        lambda: build_matrix(
+            _v2_protocol(), _corpus(), shipping_unavailable,
+            _selections(candidate_ids=["candidate-b"]), "final", "el8-x86_64",
+        ),
+    )
+    baseline_protocol = _v2_protocol()
+    baseline_protocol["candidate_ids"][1]["role"] = "validation-baseline"
+    baseline_candidates = _v2_candidates()
+    baseline_candidates[1]["status"] = "eligible"
+    _failure(
+        "candidate_role",
+        lambda: build_matrix(
+            baseline_protocol, _corpus(), baseline_candidates,
+            _selections(candidate_ids=["candidate-b"]), "final", "el8-x86_64",
+        ),
+    )
+
+
 def main() -> int:
     test_smoke_and_final()
     test_reordered_selections_normalize_to_one_plan()
     test_negative_selection_and_provider_rules()
     test_duplicate_candidate_entries_and_exclusion()
+    test_v2_measurement_admission_is_independent_of_shipping_status()
     print("P25-4 matrix tests passed")
     return 0
 

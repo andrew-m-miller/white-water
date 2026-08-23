@@ -192,7 +192,7 @@ def assemble_report(
     plan: MatrixPlan,
     completed_results: Any,
 ) -> dict[str, Any]:
-    """Assemble, normalize, and validate one complete deterministic v1 report."""
+    """Assemble, normalize, and validate one complete deterministic protocol report."""
 
     metadata = dict(_mapping(report_metadata, "report_metadata"))
     _is_json(metadata, "report_metadata")
@@ -236,7 +236,7 @@ def assemble_report(
             _fail("cell_mismatch", f"result {index} identity does not match MatrixPlan")
     report = dict(metadata)
     report.update({
-        "schema_version": 1,
+        "schema_version": protocol.get("schema_version", 1),
         "protocol_id": protocol["protocol_id"],
         "corpus_sha256": corpus_hash,
         "matrix": plan.selector,

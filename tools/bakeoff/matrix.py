@@ -128,6 +128,29 @@ def _candidate_selection(
     return tuple(candidate_id for candidate_id in eligible if candidate_id in requested_set)
 
 
+def _measurement_candidate_selection(
+    requested: Any, measurable: Sequence[str], unavailable: Sequence[str]
+) -> tuple[str, ...]:
+    """Select v2 candidates by technical measurement admission, not shipping status."""
+
+    path = "selections.candidate_ids"
+    if not _is_sequence(requested) or not requested:
+        _fail("empty_selection", f"{path} must be a non-empty sequence")
+    requested_ids = [_nonempty_string(value, f"{path}[{index}]") for index, value in enumerate(requested)]
+    if _has_duplicates(requested_ids):
+        _fail("duplicate_selection", f"{path} contains duplicate values")
+    for candidate_id in requested_ids:
+        if candidate_id in unavailable:
+            _fail(
+                "unavailable_candidate",
+                f"{candidate_id!r} has measurement_status=unavailable and cannot be selected",
+            )
+        if candidate_id not in measurable:
+            _fail("unknown_candidate", f"{candidate_id!r} is not a measurable candidate")
+    requested_set = set(requested_ids)
+    return tuple(candidate_id for candidate_id in measurable if candidate_id in requested_set)
+
+
 def _protocol_ids(protocol: Mapping[str, Any], key: str, value_key: str | None = None) -> list[str]:
     values = protocol.get(key)
     if not _is_sequence(values) or not values:
@@ -192,6 +215,51 @@ def _candidate_orders(
     if not eligible:
         _fail("no_eligible_candidates", "candidate entries contain no eligible candidate")
     return eligible, excluded, entries
+
+
+def _measurement_candidate_orders(
+    protocol: Mapping[str, Any], candidate_entries: Any,
+) -> tuple[list[str], list[str], dict[str, Mapping[str, Any]]]:
+    """Return v2 measurable/unavailable order while preserving shipping status separately."""
+
+    protocol_order = _protocol_ids(protocol, "candidate_ids", "id")
+    role_map = {
+        entry["id"]: entry.get("role")
+        for entry in protocol.get("candidate_ids", [])
+        if isinstance(entry, Mapping) and isinstance(entry.get("id"), str)
+    }
+    if not _is_sequence(candidate_entries) or not candidate_entries:
+        _fail("candidate_shape", "candidate entries must be a non-empty sequence")
+    entries: dict[str, Mapping[str, Any]] = {}
+    for index, entry in enumerate(candidate_entries):
+        if not isinstance(entry, Mapping):
+            _fail("candidate_shape", f"candidate_entries[{index}] must be an object")
+        candidate_id = _nonempty_string(entry.get("candidate_id"), f"candidate_entries[{index}].candidate_id")
+        if candidate_id in entries:
+            _fail("duplicate_candidate", f"candidate {candidate_id!r} appears more than once")
+        if candidate_id not in protocol_order:
+            _fail("unknown_candidate", f"candidate {candidate_id!r} is absent from protocol")
+        if entry.get("status") not in {"eligible", "excluded"}:
+            _fail("candidate_status", f"candidate {candidate_id!r} has invalid status")
+        measurement_status = entry.get("measurement_status")
+        if measurement_status not in {"measurable", "unavailable"}:
+            _fail("measurement_status", f"candidate {candidate_id!r} has invalid measurement_status")
+        if entry.get("status") == "eligible" and measurement_status != "measurable":
+            _fail("candidate_status", f"shipping-eligible candidate {candidate_id!r} must be measurable")
+        if entry.get("status") == "eligible" and role_map.get(candidate_id) != "shipping-candidate":
+            _fail("candidate_role", f"validation-baseline candidate {candidate_id!r} cannot be shipping-eligible")
+        entries[candidate_id] = entry
+    measurable = [
+        candidate for candidate in protocol_order
+        if entries.get(candidate, {}).get("measurement_status") == "measurable"
+    ]
+    unavailable = [
+        candidate for candidate in protocol_order
+        if entries.get(candidate, {}).get("measurement_status") == "unavailable"
+    ]
+    if not measurable:
+        _fail("no_measurable_candidates", "candidate entries contain no measurable candidate")
+    return measurable, unavailable, entries
 
 
 def _provider_selection(
@@ -314,8 +382,16 @@ def build_matrix(
     if not isinstance(selections, Mapping) or set(selections) != _SELECTION_KEYS:
         _fail("selection_shape", "selections must contain exactly the five explicit matrix axes")
 
-    eligible, excluded, _ = _candidate_orders(protocol, candidate_entries)
-    candidate_ids = _candidate_selection(selections["candidate_ids"], eligible, excluded)
+    if protocol.get("protocol_id") == "whitewater-p25-v2":
+        measurable, unavailable, _ = _measurement_candidate_orders(protocol, candidate_entries)
+        candidate_ids = _measurement_candidate_selection(
+            selections["candidate_ids"], measurable, unavailable,
+        )
+        omitted_candidate_ids = unavailable
+    else:
+        eligible, excluded, _ = _candidate_orders(protocol, candidate_entries)
+        candidate_ids = _candidate_selection(selections["candidate_ids"], eligible, excluded)
+        omitted_candidate_ids = excluded
     shot_ids = _ordered_ids(selections["shot_ids"], _corpus_shot_order(corpus), "selections.shot_ids")
     conditioning_ids = _protocol_ids(protocol, "conditioning", "token")
     conditioning_tokens = _ordered_ids(
@@ -342,7 +418,7 @@ def build_matrix(
             candidate_ids, shot_ids, conditioning_tokens, cap_tokens, provider_loads
         )
     )
-    return MatrixPlan(selector, cells, tuple(excluded))
+    return MatrixPlan(selector, cells, tuple(omitted_candidate_ids))
 
 
 __all__ = ["CellKey", "MatrixFailure", "MatrixPlan", "build_matrix"]

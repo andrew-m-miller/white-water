@@ -45,11 +45,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     protocol_path = args.protocol
-    protocol_schema_path = root / "bakeoff/protocol-v1.schema.json"
-    corpus_schema_path = root / "bakeoff/corpus-v1.schema.json"
-    report_schema_path = root / "bakeoff/report-v1.schema.json"
     try:
         protocol = load_json(protocol_path)
+        version = protocol.get("schema_version", 1)
+        if version not in (1, 2):
+            raise ValueError(f"unsupported protocol schema version: {version!r}")
+        protocol_schema_path = root / f"bakeoff/protocol-v{version}.schema.json"
+        report_schema_path = root / f"bakeoff/report-v{version}.schema.json"
+        # v2 deliberately reuses the unchanged v1 corpus contract; keep this derived from the
+        # protocol version rather than making report validation depend on a filename convention.
+        corpus_schema_path = root / "bakeoff/corpus-v1.schema.json"
         protocol_schema = load_json(protocol_schema_path)
         corpus_schema = load_json(corpus_schema_path)
         report_schema = load_json(report_schema_path)
