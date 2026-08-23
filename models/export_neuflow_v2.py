@@ -327,6 +327,22 @@ def _contiguous_numpy(value, numpy):
     return numpy.ascontiguousarray(value.detach().cpu().numpy())
 
 
+def _validate_provider_selection(
+    provider: str, available: list[str], selected: list[str] | None = None
+) -> None:
+    """Reject unavailable providers and silent CPU fallback during qualification."""
+
+    require(
+        provider in available,
+        f"requested ONNX Runtime provider is unavailable: {provider}; available={available}",
+    )
+    if selected is not None:
+        require(
+            selected and selected[0] == provider,
+            f"ONNX Runtime did not select {provider} first: {selected}",
+        )
+
+
 def _validate_fixed_io(session, manifest: dict[str, Any]) -> dict[str, Any]:
     """Require the fixed-shape graph advertised by this NeuFlow manifest.
 
@@ -372,11 +388,7 @@ def validate_export(
 
     validation = manifest["validation"]
     available_providers = ort.get_available_providers()
-    require(
-        provider in available_providers,
-        f"requested ONNX Runtime provider is unavailable: {provider}; "
-        f"available={available_providers}",
-    )
+    _validate_provider_selection(provider, available_providers)
     _, _, height, width = manifest["export"]["example_shape"]
     dx = int(validation["translation_pixels"])
     first, second = synthetic_pair(
@@ -391,10 +403,7 @@ def validate_export(
     except Exception as exc:
         raise RuntimeError(f"ONNX Runtime {provider} session creation failed: {exc}") from exc
     selected_providers = session.get_providers()
-    require(
-        provider in selected_providers,
-        f"ONNX Runtime did not select {provider}: {selected_providers}",
-    )
+    _validate_provider_selection(provider, available_providers, selected_providers)
     advertised_io = _validate_fixed_io(session, manifest)
     input_names = [item["name"] for item in manifest["tensor_contract"]["inputs"]]
     output_name = manifest["tensor_contract"]["output"]["name"]

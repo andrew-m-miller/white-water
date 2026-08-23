@@ -25,6 +25,34 @@ EXPECTED_ARTIFACT_SHA256 = "f12b8030f7432f044ef41a373ae7e7e5180f9cbfc692a1793758
 EXPECTED_ARTIFACT_SIZE = 66177652
 CHECKPOINT_EXCLUSION_REASON = ExclusionReason.CHECKPOINT_LICENSE_TERMS_UNKNOWN.value
 EXPORT_FAILURE_EXCLUSION_REASON = ExclusionReason.EXPORT_OR_OPERATOR_FAILURE.value
+MACOS_PLATFORM = "macos-arm64"
+LINUX_PLATFORM = "linux-x86_64"
+
+
+def _validate_provider_evidence(platform: str, observed: object) -> None:
+    if not isinstance(observed, dict):
+        raise ArtifactError("NeuFlow numerical pass is missing observed provider evidence")
+    provider_validation = observed.get("provider_validation")
+    if not isinstance(provider_validation, dict):
+        raise ArtifactError("NeuFlow numerical pass is missing provider qualification evidence")
+    if provider_validation.get("passed") is not True:
+        raise ArtifactError("NeuFlow provider qualification did not pass")
+    requested = provider_validation.get("requested")
+    selected = provider_validation.get("selected")
+    if not isinstance(selected, list) or not selected:
+        raise ArtifactError("NeuFlow provider evidence has no selected providers")
+    expected_provider = (
+        "CPUExecutionProvider" if platform == MACOS_PLATFORM else "CUDAExecutionProvider"
+    )
+    if requested != expected_provider or selected[0] != expected_provider:
+        raise ArtifactError(
+            f"NeuFlow {platform} evidence must request and first-select {expected_provider}"
+        )
+    if platform == MACOS_PLATFORM and "CUDAExecutionProvider" in selected:
+        raise ArtifactError("macOS NeuFlow evidence must not claim CUDA selection")
+    environment = observed.get("environment")
+    if isinstance(environment, dict) and environment.get("provider") not in (None, requested):
+        raise ArtifactError("NeuFlow provider evidence disagrees with its environment record")
 
 
 def main() -> int:
@@ -45,10 +73,22 @@ def main() -> int:
         raise ArtifactError("NeuFlow checkpoint SHA256 changed")
     if EXPECTED_SOURCE_COMMIT not in manifest["checkpoint"]["url"]:
         raise ArtifactError("NeuFlow checkpoint URL is not revision-pinned")
-    if manifest["export_environment"]["sha256"] != EXPECTED_ENVIRONMENT_SHA256:
-        raise ArtifactError("NeuFlow export-environment SHA256 changed")
-    if manifest["export"]["export_environment_sha256"] != EXPECTED_ENVIRONMENT_SHA256:
-        raise ArtifactError("NeuFlow export environment is not bound to the manifest environment")
+    platform = manifest["export"]["platform"]
+    if platform not in {MACOS_PLATFORM, LINUX_PLATFORM}:
+        raise ArtifactError(f"NeuFlow platform must be {MACOS_PLATFORM} or {LINUX_PLATFORM}")
+    environment = manifest["export_environment"]
+    if platform == MACOS_PLATFORM:
+        if environment["platform"] != "macos" or environment["architecture"] != "arm64":
+            raise ArtifactError("macOS NeuFlow artifact has a non-macOS export environment")
+        if environment["sha256"] != EXPECTED_ENVIRONMENT_SHA256:
+            raise ArtifactError("NeuFlow macOS export-environment SHA256 changed")
+        if manifest["export"]["export_environment_sha256"] != EXPECTED_ENVIRONMENT_SHA256:
+            raise ArtifactError("NeuFlow macOS export environment is not bound to its evidence")
+    else:
+        if environment["platform"] != "linux" or environment["architecture"] != "x86_64":
+            raise ArtifactError("Linux NeuFlow artifact must carry a Linux x86_64 export environment")
+        if manifest["export"]["export_environment_sha256"] != environment["sha256"]:
+            raise ArtifactError("Linux NeuFlow export environment is not bound to its evidence")
 
     contract = manifest["tensor_contract"]
     if contract["output"]["direction"] != "image1_to_image2":
@@ -79,10 +119,13 @@ def main() -> int:
     if manifest["status"] == "export_validated":
         if manifest["validation"]["status"] != "passed":
             raise ArtifactError("validated NeuFlow export must have passed numerical validation")
-        if manifest["export"]["sha256"] != EXPECTED_ARTIFACT_SHA256:
-            raise ArtifactError("validated NeuFlow artifact SHA256 changed")
-        if manifest["export"]["size_bytes"] != EXPECTED_ARTIFACT_SIZE:
-            raise ArtifactError("validated NeuFlow artifact size changed")
+        if platform == MACOS_PLATFORM:
+            if manifest["export"]["sha256"] != EXPECTED_ARTIFACT_SHA256:
+                raise ArtifactError("validated NeuFlow macOS artifact SHA256 changed")
+            if manifest["export"]["size_bytes"] != EXPECTED_ARTIFACT_SIZE:
+                raise ArtifactError("validated NeuFlow macOS artifact size changed")
+        elif manifest["export"]["sha256"] is None or manifest["export"]["size_bytes"] is None:
+            raise ArtifactError("validated Linux NeuFlow artifact must record exact identity")
         if manifest["validation"]["shapes"]["dynamic"] is not False:
             raise ArtifactError("NeuFlow fixed-shape export must not claim dynamic support")
         if manifest["validation"]["shapes"] != {
@@ -102,10 +145,13 @@ def main() -> int:
                 raise ArtifactError("NeuFlow checkpoint admission exclusion lost its commercial-use evidence")
             if manifest["licenses"]["checkpoint"]["redistribution_permitted"] != "unknown":
                 raise ArtifactError("NeuFlow checkpoint admission exclusion lost its redistribution evidence")
-            if manifest["export"]["sha256"] != EXPECTED_ARTIFACT_SHA256:
-                raise ArtifactError("NeuFlow excluded export SHA256 changed")
-            if manifest["export"]["size_bytes"] != EXPECTED_ARTIFACT_SIZE:
-                raise ArtifactError("NeuFlow excluded export size changed")
+            if platform == MACOS_PLATFORM:
+                if manifest["export"]["sha256"] != EXPECTED_ARTIFACT_SHA256:
+                    raise ArtifactError("NeuFlow excluded macOS export SHA256 changed")
+                if manifest["export"]["size_bytes"] != EXPECTED_ARTIFACT_SIZE:
+                    raise ArtifactError("NeuFlow excluded macOS export size changed")
+            elif manifest["export"]["sha256"] is None or manifest["export"]["size_bytes"] is None:
+                raise ArtifactError("excluded Linux NeuFlow artifact must retain exact identity")
         elif reason_code == EXPORT_FAILURE_EXCLUSION_REASON:
             if manifest["validation"]["status"] != "failed":
                 raise ArtifactError("technical NeuFlow exclusion must carry failed validation status")
@@ -131,15 +177,9 @@ def main() -> int:
 
     observed = manifest["validation"].get("observed")
     if manifest["validation"]["status"] == "passed":
-        if not isinstance(observed, dict):
-            raise ArtifactError("NeuFlow numerical pass is missing observed provider evidence")
-        provider_validation = observed.get("provider_validation")
-        if not isinstance(provider_validation, dict):
-            raise ArtifactError("NeuFlow numerical pass is missing provider qualification evidence")
-        if provider_validation.get("requested") != "CPUExecutionProvider":
-            raise ArtifactError("checked NeuFlow macOS evidence must remain CPU-only")
-        if provider_validation.get("passed") is not True:
-            raise ArtifactError("NeuFlow CPU provider qualification did not pass")
+        _validate_provider_evidence(platform, observed)
+        if not isinstance(observed, dict):  # for type narrowing below
+            raise ArtifactError("NeuFlow numerical pass is missing observed evidence")
         advertised_io = observed.get("advertised_io")
         if not isinstance(advertised_io, dict):
             raise ArtifactError("NeuFlow numerical pass is missing fixed IO evidence")

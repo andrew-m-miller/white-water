@@ -252,6 +252,105 @@ def _test_contiguous_onnx_inputs() -> None:
         raise AssertionError("exporter did not normalize ONNX inputs through ascontiguousarray")
 
 
+def _test_provider_selection_guards() -> None:
+    """Provider qualification must fail on unavailable providers and silent fallback."""
+
+    _expect_error(
+        lambda: exporter._validate_provider_selection(
+            "CUDAExecutionProvider", ["CPUExecutionProvider"]
+        ),
+        RuntimeError,
+        "unavailable",
+    )
+    _expect_error(
+        lambda: exporter._validate_provider_selection(
+            "CUDAExecutionProvider",
+            ["CUDAExecutionProvider", "CPUExecutionProvider"],
+            ["CPUExecutionProvider"],
+        ),
+        RuntimeError,
+        "select CUDAExecutionProvider first",
+    )
+    exporter._validate_provider_selection(
+        "CUDAExecutionProvider",
+        ["CUDAExecutionProvider", "CPUExecutionProvider"],
+        ["CUDAExecutionProvider", "CPUExecutionProvider"],
+    )
+    exporter._validate_provider_selection(
+        "CPUExecutionProvider", ["CPUExecutionProvider"], ["CPUExecutionProvider"]
+    )
+    _expect_error(
+        lambda: checker._validate_provider_evidence(
+            "linux-x86_64",
+            {
+                "provider_validation": {
+                    "requested": "CUDAExecutionProvider",
+                    "selected": ["CPUExecutionProvider"],
+                    "passed": True,
+                }
+            },
+        ),
+        ArtifactError,
+        "first-select CUDAExecutionProvider",
+    )
+    _expect_error(
+        lambda: checker._validate_provider_evidence(
+            "macos-arm64",
+            {
+                "provider_validation": {
+                    "requested": "CUDAExecutionProvider",
+                    "selected": ["CUDAExecutionProvider"],
+                    "passed": True,
+                }
+            },
+        ),
+        ArtifactError,
+        "CPUExecutionProvider",
+    )
+
+
+def _test_linux_cuda_manifest_path(manifest) -> None:
+    """A Linux artifact may qualify CUDA, while the checked-in macOS row stays CPU-only."""
+
+    linux = copy.deepcopy(manifest)
+    observed = copy.deepcopy(linux["validation"]["observed"])
+    observed["provider_validation"] = {
+        "requested": "CUDAExecutionProvider",
+        "available": ["CUDAExecutionProvider", "CPUExecutionProvider"],
+        "selected": ["CUDAExecutionProvider", "CPUExecutionProvider"],
+        "passed": True,
+    }
+    observed["environment"]["provider"] = "CUDAExecutionProvider"
+    observed["environment"]["available_providers"] = [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider",
+    ]
+    observed["environment"]["selected_providers"] = [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider",
+    ]
+    with tempfile.TemporaryDirectory(prefix="neuflow-linux-cuda-qualification-") as directory:
+        root = Path(directory)
+        destination = root / "manifest.json"
+        output = root / "neuflow-linux.onnx"
+        output.write_bytes(b"synthetic Linux CUDA-qualified artifact")
+        output.chmod(0o644)
+        exporter.update_manifest(
+            destination,
+            linux,
+            output,
+            observed,
+            "linux-x86_64",
+        )
+        old_argv = sys.argv
+        sys.argv = ["check_neuflow_manifest.py", str(destination)]
+        try:
+            if checker.main() != 0:
+                raise AssertionError("checker rejected an exact Linux CUDA evidence row")
+        finally:
+            sys.argv = old_argv
+
+
 def main() -> int:
     manifest = load_manifest(MANIFEST_PATH)
     if manifest["status"] not in {"provenance_pinned_export_pending", "export_validated", "excluded"}:
@@ -325,6 +424,8 @@ def main() -> int:
     _test_numerically_validated_failure_is_immutable(manifest)
     _test_update_manifest_preserves_checkpoint_admission(manifest)
     _test_contiguous_onnx_inputs()
+    _test_provider_selection_guards()
+    _test_linux_cuda_manifest_path(manifest)
 
     artifact_path = MANIFEST_PATH.parent / manifest["export"]["artifact"]
     if artifact_path.exists():

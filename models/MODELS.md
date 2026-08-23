@@ -270,8 +270,9 @@ or success is never inferred from this macOS record; no macOS CUDA claim is made
 Remaining operator work is intentionally explicit: on the EL8 x86-64 target, rerun the pinned
 export/manifest workflow or stage the recorded artifact, create a CUDA provider session beside
 Flame, verify that CUDA is actually selected, and record warm latency, peak/incremental device
-memory, repeated-run stability, cancellation/cleanup, and the required mp0.5/mp2 cap cells. None
-of those Linux measurements is present in this manifest.
+memory, repeated-run stability, and cancellation/cleanup at the fixed 432x768 lattice. The
+current artifact does not owe generic mp0.5/mp2 cap cells: those require a separately exported
+and validated shape contract. None of these Linux measurements is present in this manifest.
 
 The exact checkpoint remains excluded from shipping because its file-specific commercial-use and
 redistribution terms are unknown. Numerical validation and shipping admission are intentionally
