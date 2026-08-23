@@ -9,7 +9,9 @@ from .metrics import (
     MetricFailure,
     bilinear_sample,
     chain_drift_px,
+    dense_macro_aggregate,
     dense_metrics,
+    dense_score,
     forward_backward_residual_px,
     landmark_metrics,
     linear_quantile,
@@ -76,6 +78,115 @@ def test_dense_and_mask() -> None:
         [[(0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]],
     )
     assert discriminating["endpoint_error_px"] == 1.0
+
+
+def test_dense_score_formula_and_boundaries() -> None:
+    assert dense_score(0.0, 1.0, 1.0) == 100.0
+    assert dense_score(3.0, 0.0, 0.0) == 0.0
+    assert dense_score(30.0, 0.25, 0.75) == 35.0
+    assert math.isclose(dense_score(1.5, 0.25, 0.75), 45.0, rel_tol=0.0, abs_tol=1e-12)
+    # Endpoint error beyond the 3 px scale floors only its contribution; the accuracy terms
+    # remain intact.
+    assert math.isclose(dense_score(4.0, 0.5, 1.0), 55.0, rel_tol=0.0, abs_tol=1e-12)
+    _failure("bool_value", lambda: dense_score(True, 0.0, 0.0))
+    _failure("bool_value", lambda: dense_score(0.0, False, 0.0))
+    _failure("bool_value", lambda: dense_score(0.0, 0.0, True))
+    _failure("nonfinite_value", lambda: dense_score(math.nan, 0.0, 0.0))
+    _failure("nonfinite_value", lambda: dense_score(0.0, math.inf, 0.0))
+    _failure("non_numeric", lambda: dense_score(0.0, 0.0, "1.0"))
+    _failure("negative_endpoint_error", lambda: dense_score(-0.001, 0.0, 0.0))
+    _failure("invalid_fraction", lambda: dense_score(0.0, -0.001, 0.0))
+    _failure("invalid_fraction", lambda: dense_score(0.0, 0.0, 1.001))
+    _failure("fraction_order", lambda: dense_score(0.0, 0.6, 0.5))
+
+
+def test_dense_macro_explicit_records_and_weighting() -> None:
+    records = [
+        {
+            "partition": "synthetic",
+            "category": "identity",
+            "shot_id": "perfect",
+            "endpoint_error_px": 0.0,
+            "fraction_le_1px": 1.0,
+            "fraction_le_3px": 1.0,
+        },
+        {
+            "partition": "synthetic",
+            "category": "identity",
+            "shot_id": "failed",
+            "endpoint_error_px": 3.0,
+            "fraction_le_1px": 0.0,
+            "fraction_le_3px": 0.0,
+        },
+        {
+            "partition": "synthetic",
+            "category": "translation",
+            "shot_id": "good",
+            "endpoint_error_px": 0.0,
+            "fraction_le_1px": 1.0,
+            "fraction_le_3px": 1.0,
+        },
+        {
+            "partition": "production_external",
+            "category": "blur",
+            "shot_id": "hard",
+            "endpoint_error_px": 3.0,
+            "fraction_le_1px": 0.0,
+            "fraction_le_3px": 0.0,
+        },
+        {
+            "partition": "production_external",
+            "category": "detail",
+            "shot_id": "easy",
+            "endpoint_error_px": 0.0,
+            "fraction_le_1px": 1.0,
+            "fraction_le_3px": 1.0,
+        },
+    ]
+    result = dense_macro_aggregate(records)
+    synthetic = result["partitions"]["synthetic"]
+    assert synthetic["categories"]["identity"]["shots"] == {"perfect": 100.0, "failed": 0.0}
+    assert synthetic["categories"]["identity"]["macro"] == 50.0
+    assert synthetic["categories"]["translation"]["macro"] == 100.0
+    assert synthetic["macro"] == 75.0  # equal category weighting
+    production = result["partitions"]["production_external"]
+    assert production["macro"] == 50.0  # equal partition-category weighting
+    assert set(production["categories"]) == {"blur", "detail"}
+
+    # A shot ID is scoped by partition and category, as in macro_aggregate; only an explicit
+    # duplicate in the same scope is rejected.
+    same_shot_other_partition = [
+        {**records[0], "partition": "production_external"},
+    ]
+    dense_macro_aggregate(same_shot_other_partition)
+    _failure("duplicate_shot", lambda: dense_macro_aggregate([records[0], records[0]]))
+
+
+def test_dense_macro_rejects_malformed_or_missing_records() -> None:
+    valid = {
+        "partition": "synthetic",
+        "category": "identity",
+        "shot_id": "shot",
+        "endpoint_error_px": 0.0,
+        "fraction_le_1px": 1.0,
+        "fraction_le_3px": 1.0,
+    }
+    _failure("empty_partitions", lambda: dense_macro_aggregate([]))
+    _failure("record_shape", lambda: dense_macro_aggregate([None]))
+    _failure("invalid_id", lambda: dense_macro_aggregate([{**valid, "shot_id": None}]))
+    missing_metric = dict(valid)
+    del missing_metric["fraction_le_3px"]
+    _failure("record_shape", lambda: dense_macro_aggregate([missing_metric]))
+    shot_alias = dict(valid)
+    del shot_alias["shot_id"]
+    shot_alias["shot"] = "shot"
+    _failure("record_shape", lambda: dense_macro_aggregate([shot_alias]))
+    bool_metric = dict(valid)
+    bool_metric["fraction_le_1px"] = True
+    _failure("bool_value", lambda: dense_macro_aggregate([bool_metric]))
+    nonfinite_metric = dict(valid)
+    nonfinite_metric["endpoint_error_px"] = math.inf
+    _failure("nonfinite_value", lambda: dense_macro_aggregate([nonfinite_metric]))
 
 
 def test_shape_and_empty_failures() -> None:
@@ -204,6 +315,9 @@ def test_macro_equal_weighting() -> None:
 def main() -> int:
     test_quantile()
     test_dense_and_mask()
+    test_dense_score_formula_and_boundaries()
+    test_dense_macro_explicit_records_and_weighting()
+    test_dense_macro_rejects_malformed_or_missing_records()
     test_shape_and_empty_failures()
     test_repeated_run_p99()
     test_bilinear_spatial_sampling()

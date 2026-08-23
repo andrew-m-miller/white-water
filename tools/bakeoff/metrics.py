@@ -220,6 +220,36 @@ def dense_metrics(predicted: Any, truth: Any, valid_mask: Any = None) -> dict[st
     }
 
 
+def dense_score(
+    endpoint_error_px: Any,
+    fraction_le_1px: Any,
+    fraction_le_3px: Any,
+) -> float:
+    """Return the frozen dense quality score for one shot.
+
+    The three inputs are report metric fields, not raw flow samples.  They are validated at
+    this boundary so a malformed or non-finite measurement cannot be converted into a score or
+    silently influence a macro aggregate.
+    """
+
+    endpoint_error = _scalar(endpoint_error_px, "endpoint_error_px")
+    fraction_one = _scalar(fraction_le_1px, "fraction_le_1px")
+    fraction_three = _scalar(fraction_le_3px, "fraction_le_3px")
+    if endpoint_error < 0.0:
+        _fail("negative_endpoint_error", "endpoint_error_px must be non-negative")
+    if not 0.0 <= fraction_one <= 1.0:
+        _fail("invalid_fraction", "fraction_le_1px must be in [0, 1]")
+    if not 0.0 <= fraction_three <= 1.0:
+        _fail("invalid_fraction", "fraction_le_3px must be in [0, 1]")
+    if fraction_one > fraction_three:
+        _fail("fraction_order", "fraction_le_1px must not exceed fraction_le_3px")
+    return 100.0 * (
+        0.50 * fraction_one
+        + 0.30 * fraction_three
+        + 0.20 * max(0.0, 1.0 - endpoint_error / 3.0)
+    )
+
+
 def _parse_coordinate(value: Any, path: str) -> float:
     if isinstance(value, bool):
         _fail("bool_value", f"{path} must be numeric, not bool")
@@ -731,11 +761,60 @@ def macro_aggregate(samples: Any) -> dict[str, Any]:
     return {"partitions": partitions}
 
 
+def dense_macro_aggregate(records: Any) -> dict[str, Any]:
+    """Score and macro-aggregate explicit dense metric records.
+
+    Records must name their partition, category and shot explicitly and carry the three dense
+    report metrics.  Each record becomes one scalar sample for the existing ``macro_aggregate``
+    reducer, so shot medians, equal shot weighting within categories, and equal category
+    weighting within partitions remain exactly the frozen behavior.  In particular, duplicate
+    explicit shot rows retain ``macro_aggregate``'s ``duplicate_shot`` failure rather than
+    inventing a new sample-grouping rule.
+    """
+
+    if not _is_sequence(records) or not records:
+        _fail("empty_partitions", "dense macro aggregate needs explicit metric records")
+    normalized: list[dict[str, Any]] = []
+    required_fields = {
+        "partition",
+        "category",
+        "shot_id",
+        "endpoint_error_px",
+        "fraction_le_1px",
+        "fraction_le_3px",
+    }
+    for index, record in enumerate(records):
+        path = f"records[{index}]"
+        if not isinstance(record, Mapping):
+            _fail("record_shape", f"{path} must be a mapping")
+        missing = required_fields - set(record)
+        if missing:
+            _fail("record_shape", f"{path} is missing {sorted(missing)[0]!r}")
+        partition = record["partition"]
+        category = record["category"]
+        shot_id = record["shot_id"]
+        if not all(isinstance(value, str) and value for value in (partition, category, shot_id)):
+            _fail("invalid_id", f"{path} needs non-empty partition/category/shot_id strings")
+        normalized.append({
+            "partition": partition,
+            "category": category,
+            "shot_id": shot_id,
+            "value": dense_score(
+                record["endpoint_error_px"],
+                record["fraction_le_1px"],
+                record["fraction_le_3px"],
+            ),
+        })
+    return macro_aggregate(normalized)
+
+
 __all__ = [
     "MetricFailure",
     "bilinear_sample",
     "chain_drift_px",
     "dense_metrics",
+    "dense_macro_aggregate",
+    "dense_score",
     "forward_backward_residual_px",
     "landmark_metrics",
     "linear_quantile",
