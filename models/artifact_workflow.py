@@ -261,6 +261,20 @@ def _validate_numerical_validation(manifest: Mapping[str, Any]) -> None:
         raise ArtifactError(
             f"manifest status {manifest_status!r} is incoherent with numerical validation status {status!r}"
         )
+    direction_threshold_fields = (
+        "translation_pixels",
+        "translation_x_fraction_min",
+        "translation_abs_y_max",
+    )
+    configured_thresholds = [
+        field for field in direction_threshold_fields if field in validation
+    ]
+    if configured_thresholds and len(configured_thresholds) != len(direction_threshold_fields):
+        missing = [field for field in direction_threshold_fields if field not in validation]
+        raise ArtifactError(
+            "direction thresholds must be configured as a complete triplet; "
+            f"missing {', '.join(missing)}"
+        )
     if status != "passed":
         return
     required = ("identity", "directions", "shapes", "parity")
@@ -288,14 +302,40 @@ def _validate_numerical_validation(manifest: Mapping[str, Any]) -> None:
         if limit is not None and parity[measured] > limit:
             raise ArtifactError(f"passed numerical validation exceeds {limit_name}")
     directions = validation["directions"]
+    minimum_primary = None
+    maximum_cross = None
+    if configured_thresholds:
+        fraction = validation["translation_x_fraction_min"]
+        if fraction < 0:
+            raise ArtifactError("translation_x_fraction_min must be non-negative")
+        minimum_primary = abs(validation["translation_pixels"]) * fraction
+        maximum_cross = validation["translation_abs_y_max"]
     for name in ("forward", "reverse"):
         evidence = directions[name]
         sign = evidence["expected_sign"]
-        component = evidence["median_dx_px"] if sign.endswith("x") else evidence["median_dy_px"]
+        axis = sign[-1]
+        component = evidence["median_dx_px"] if axis == "x" else evidence["median_dy_px"]
+        cross_component = evidence["median_dy_px"] if axis == "x" else evidence["median_dx_px"]
         if sign.startswith("positive_") and component <= 0:
             raise ArtifactError(f"{name} direction evidence contradicts expected {sign}")
         if sign.startswith("negative_") and component >= 0:
             raise ArtifactError(f"{name} direction evidence contradicts expected {sign}")
+        if minimum_primary is not None:
+            if sign.startswith("positive_") and component < minimum_primary:
+                raise ArtifactError(
+                    f"{name} primary motion {component} is below the configured minimum "
+                    f"{minimum_primary}"
+                )
+            if sign.startswith("negative_") and component > -minimum_primary:
+                raise ArtifactError(
+                    f"{name} primary motion {component} is below the configured minimum "
+                    f"{minimum_primary}"
+                )
+            if abs(cross_component) > maximum_cross:
+                raise ArtifactError(
+                    f"{name} transverse motion {cross_component} exceeds the configured maximum "
+                    f"{maximum_cross}"
+                )
     forward_sign = directions["forward"]["expected_sign"]
     reverse_sign = directions["reverse"]["expected_sign"]
     if forward_sign[-1] != reverse_sign[-1]:

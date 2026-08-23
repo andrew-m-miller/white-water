@@ -57,6 +57,9 @@ def main() -> int:
         "validation-forward-sign-mismatch",
         "validation-reverse-sign-mismatch",
         "validation-direction-axis-mismatch",
+        "validation-primary-motion-too-small",
+        "validation-cross-axis-too-large",
+        "validation-threshold-partial",
         "validation-status-incoherent",
         "export-status-validation-incoherent",
         "host-status-validation-incoherent",
@@ -149,6 +152,69 @@ def main() -> int:
     bad_axis["validation"]["directions"]["reverse"]["expected_sign"] = "negative_y"
     bad_axis["validation"]["directions"]["reverse"]["median_dy_px"] = -1
     expect_failure("validation direction axis mismatch", lambda: validate_manifest(bad_axis))
+
+    bad_primary = copy.deepcopy(positive)
+    bad_primary["validation"].update(
+        {
+            "translation_pixels": 4,
+            "translation_x_fraction_min": 0.5,
+            "translation_abs_y_max": 2.0,
+        }
+    )
+    bad_primary["validation"]["directions"]["forward"]["median_dx_px"] = 1
+    expect_failure("validation primary motion too small", lambda: validate_manifest(bad_primary))
+
+    bad_cross = copy.deepcopy(positive)
+    bad_cross["validation"].update(
+        {
+            "translation_pixels": 4,
+            "translation_x_fraction_min": 0.5,
+            "translation_abs_y_max": 2.0,
+        }
+    )
+    bad_cross["validation"]["directions"]["forward"].update(
+        {"median_dx_px": 4, "median_dy_px": 0}
+    )
+    bad_cross["validation"]["directions"]["reverse"].update(
+        {"median_dx_px": -4, "median_dy_px": 3}
+    )
+    expect_failure("validation cross-axis motion too large", lambda: validate_manifest(bad_cross))
+
+    y_directions = copy.deepcopy(positive)
+    y_directions["validation"].update(
+        {
+            "translation_pixels": -4,
+            "translation_x_fraction_min": 0.5,
+            "translation_abs_y_max": 2.0,
+        }
+    )
+    y_directions["validation"]["directions"]["forward"].update(
+        {"median_dx_px": 0, "median_dy_px": 2, "expected_sign": "positive_y"}
+    )
+    y_directions["validation"]["directions"]["reverse"].update(
+        {"median_dx_px": 0, "median_dy_px": -2, "expected_sign": "negative_y"}
+    )
+    validate_manifest(y_directions)
+
+    threshold_fields = (
+        "translation_pixels",
+        "translation_x_fraction_min",
+        "translation_abs_y_max",
+    )
+    for omitted in threshold_fields:
+        partial_thresholds = copy.deepcopy(positive)
+        partial_thresholds["validation"].update(
+            {
+                "translation_pixels": 4,
+                "translation_x_fraction_min": 0.5,
+                "translation_abs_y_max": 2.0,
+            }
+        )
+        del partial_thresholds["validation"][omitted]
+        expect_failure(
+            f"partial direction thresholds missing {omitted}",
+            lambda partial_thresholds=partial_thresholds: validate_manifest(partial_thresholds),
+        )
 
     bad_status = copy.deepcopy(positive)
     bad_status["validation"]["status"] = "pending"
