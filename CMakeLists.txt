@@ -140,6 +140,8 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.matrix_tests)
   add_test(NAME bakeoff::resume
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.resume_tests)
+  add_test(NAME bakeoff::coordinator
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.coordinator_tests)
   add_test(NAME bakeoff::reporting
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.reporting_tests)
   set_tests_properties(bakeoff::corpus_conditioning
@@ -149,6 +151,8 @@ if(Python3_Interpreter_FOUND)
   set_tests_properties(bakeoff::matrix
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::resume
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::coordinator
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::reporting
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
