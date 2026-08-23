@@ -142,7 +142,8 @@
           }
         },
         "manifest_sha256": {"$ref": "#/$defs/sha256"},
-        "exclusion_reason": {"$ref": "#/$defs/failure"}
+        "exclusion_reason": {"$ref": "#/$defs/failure"},
+        "measurement_exclusion_reason": {"$ref": "#/$defs/failure"}
       },
       "oneOf": [
         {
@@ -160,7 +161,13 @@
             "redistribution_terms_reviewed",
             "license_verdicts",
             "redistribution_permitted"
-          ]
+          ],
+          "not": {
+            "anyOf": [
+              {"required": ["exclusion_reason"]},
+              {"required": ["measurement_exclusion_reason"]}
+            ]
+          }
         },
         {
           "properties": {
@@ -174,15 +181,19 @@
             "export_environment_sha256",
             "manifest_sha256",
             "artifact_size_bytes",
-            "exclusion_reason"
-          ]
+            "exclusion_reason",
+            "license_verdicts",
+            "redistribution_permitted",
+            "redistribution_terms_reviewed"
+          ],
+          "not": {"required": ["measurement_exclusion_reason"]}
         },
         {
           "properties": {
             "status": {"const": "excluded"},
             "measurement_status": {"const": "unavailable"}
           },
-          "required": ["exclusion_reason"]
+          "required": ["exclusion_reason", "measurement_exclusion_reason"]
         }
       ]
     },

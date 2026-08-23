@@ -25,12 +25,20 @@ Every v2 report candidate has both fields:
   `excluded` is never shippable, even if its artifact is measurable.
 - `measurement_status` is technical measurement admission. `measurable` requires the exact source,
   checkpoint, artifact, export-environment and manifest hashes plus artifact size; `unavailable`
-  means that the technical artifact is missing, unverifiable, or failed qualification.
+  means that the technical artifact is missing, unverifiable, or failed qualification and requires
+  its own typed `measurement_exclusion_reason`. `measurement_exclusion_reason` is forbidden for a
+  measurable candidate; it is independent of the shipping `exclusion_reason`.
 
 The implication is one-way: shipping `eligible` implies `measurement_status=measurable`, but a
 measurable candidate may remain shipping `excluded` and be evaluated. Matrix planning uses only
 `measurement_status`; an `unavailable` candidate is rejected even when it is listed in the report.
 This keeps the license gate exact while allowing evaluation evidence from excluded candidates.
+
+An excluded-but-measurable candidate carries the complete `license_verdicts`,
+`redistribution_permitted`, and `redistribution_terms_reviewed` surfaces even when values are
+unknown or not permitted. The report therefore preserves the legal evidence that explains its
+shipping exclusion. The shipping `exclusion_reason` remains required for every excluded candidate;
+its type does not imply technical availability or unavailability.
 
 `raft-original` remains a `validation-baseline`. Its measurable results are useful comparisons,
 but its role prevents `status=eligible`; v2 reports contain no selection record, and the later P25-7

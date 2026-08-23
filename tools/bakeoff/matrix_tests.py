@@ -76,12 +76,23 @@ def _v2_protocol() -> dict:
     return protocol
 
 
-def _v2_candidates() -> list[dict[str, str]]:
+def _v2_candidates() -> list[dict[str, object]]:
     return [
         {"candidate_id": "candidate-a", "status": "eligible", "measurement_status": "measurable"},
         # Shipping-excluded but technically qualified: valid evaluation input.
-        {"candidate_id": "candidate-b", "status": "excluded", "measurement_status": "measurable"},
-        {"candidate_id": "candidate-x", "status": "excluded", "measurement_status": "unavailable"},
+        {
+            "candidate_id": "candidate-b",
+            "status": "excluded",
+            "measurement_status": "measurable",
+            "exclusion_reason": {"type": "license_unknown", "message": "shipping-only exclusion"},
+        },
+        {
+            "candidate_id": "candidate-x",
+            "status": "excluded",
+            "measurement_status": "unavailable",
+            "exclusion_reason": {"type": "license_unknown", "message": "shipping-only exclusion"},
+            "measurement_exclusion_reason": {"type": "artifact_missing", "message": "not measurable"},
+        },
     ]
 
 

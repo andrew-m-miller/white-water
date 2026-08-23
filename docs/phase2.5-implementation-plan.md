@@ -231,9 +231,11 @@ The pre-target-measurement contract is `whitewater-p25-v2`; v1 remains available
 compatibility. Report candidates carry shipping `status` and technical `measurement_status`
 separately. Matrix planning admits only `measurement_status=measurable`, so a shipping-excluded
 but technically qualified RAFT/NeuFlow/WAFT artifact can be evaluated without weakening the
-fail-closed license/redistribution gate. Validation baselines remain evaluation-only and cannot be
-shipping or P25-7 ranking winners. See `docs/phase2.5-protocol-v2.md` for the version boundary and
-the fixed-shape NeuFlow follow-up.
+fail-closed license/redistribution gate. Shipping `exclusion_reason` and technical
+`measurement_exclusion_reason` are independent; excluded-but-measurable entries retain all legal
+verdict and redistribution-review surfaces, including unknown/not-permitted values. Validation
+baselines remain evaluation-only and cannot be shipping or P25-7 ranking winners. See
+`docs/phase2.5-protocol-v2.md` for the version boundary and the fixed-shape NeuFlow follow-up.
 
 ### P25-5 - Local and CI qualification - Luna H
 

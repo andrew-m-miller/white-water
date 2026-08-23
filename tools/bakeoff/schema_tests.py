@@ -89,7 +89,7 @@ def main() -> int:
         "exclusion_reason": {"type": "license_unknown", "message": "evaluation-only fixture"},
     })
     evaluation_candidate["license_verdicts"]["checkpoint"] = "unknown"
-    evaluation_candidate["redistribution_permitted"]["checkpoint"] = "unknown"
+    evaluation_candidate["redistribution_permitted"]["checkpoint"] = "not_permitted"
     excluded_but_measurable["candidates"].append(evaluation_candidate)
     set_matrix(
         excluded_but_measurable,
@@ -129,21 +129,34 @@ def main() -> int:
     unavailable_in_matrix = copy.deepcopy(positive_report_v2)
     unavailable_candidate = copy.deepcopy(positive_report_v2["candidates"][0])
     unavailable_candidate.update({
-        "candidate_id": "neuflow-v2",
+        "candidate_id": "waft-twins",
         "status": "excluded",
         "measurement_status": "unavailable",
-        "exclusion_reason": {"type": "artifact_missing", "message": "unavailable fixture"},
+        "exclusion_reason": {"type": "license_unknown", "message": "shipping exclusion fixture"},
+        "measurement_exclusion_reason": {
+            "type": "artifact_missing",
+            "message": "measurement unavailability fixture",
+        },
     })
     unavailable_in_matrix["candidates"].append(unavailable_candidate)
+    unavailable_report = copy.deepcopy(unavailable_in_matrix)
+    unavailable_report["matrix"]["candidate_ids"] = ["sea-raft-m"]
+    unavailable_report["matrix"]["matrix_sha256"] = canonical_sha256(
+        {key: value for key, value in unavailable_report["matrix"].items() if key != "matrix_sha256"}
+    )
+    unavailable_report["results"][0]["candidate_id"] = "sea-raft-m"
+    validate_report_consistency(
+        unavailable_report, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+    )
     set_matrix(
         unavailable_in_matrix,
-        candidate_ids=["neuflow-v2"],
+        candidate_ids=["waft-twins"],
         shot_ids=["syn-identity"],
         conditioning_tokens=["native-clamp01-v1"],
         cap_tokens=["mp0_5"],
         providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
     )
-    unavailable_in_matrix["results"][0]["candidate_id"] = "neuflow-v2"
+    unavailable_in_matrix["results"][0]["candidate_id"] = "waft-twins"
     expect_failure(
         "v2 unavailable candidate matrix selection",
         lambda: validate_report_consistency(
@@ -187,12 +200,41 @@ def main() -> int:
         ),
     )
 
-    technical_reason_marked_measurable = copy.deepcopy(excluded_but_measurable)
-    technical_reason_marked_measurable["candidates"][1]["exclusion_reason"]["type"] = "artifact_missing"
+    measurable_without_legal_evidence = copy.deepcopy(excluded_but_measurable)
+    measurable_without_legal_evidence["candidates"][1].pop("license_verdicts")
     expect_failure(
-        "v2 technically unavailable candidate cannot be measurable",
+        "v2 excluded measurable candidate preserves license evidence",
         lambda: validate_report_consistency(
-            technical_reason_marked_measurable,
+            measurable_without_legal_evidence,
+            protocol_v2,
+            report_schema_v2,
+            positive_corpus,
+            corpus_schema,
+        ),
+    )
+
+    measurable_with_measurement_reason = copy.deepcopy(excluded_but_measurable)
+    measurable_with_measurement_reason["candidates"][1]["measurement_exclusion_reason"] = {
+        "type": "artifact_missing",
+        "message": "must be unavailable instead",
+    }
+    expect_failure(
+        "v2 measurable candidate cannot carry a measurement exclusion reason",
+        lambda: validate_report_consistency(
+            measurable_with_measurement_reason,
+            protocol_v2,
+            report_schema_v2,
+            positive_corpus,
+            corpus_schema,
+        ),
+    )
+
+    unavailable_without_measurement_reason = copy.deepcopy(unavailable_report)
+    unavailable_without_measurement_reason["candidates"][1].pop("measurement_exclusion_reason")
+    expect_failure(
+        "v2 unavailable candidate requires a measurement exclusion reason",
+        lambda: validate_report_consistency(
+            unavailable_without_measurement_reason,
             protocol_v2,
             report_schema_v2,
             positive_corpus,

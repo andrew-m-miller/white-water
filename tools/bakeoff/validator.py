@@ -81,15 +81,6 @@ _EXPECTED_CANDIDATES = [
 _V1_PROTOCOL_ID = "whitewater-p25-v1"
 _V2_PROTOCOL_ID = "whitewater-p25-v2"
 _EXPECTED_MEASUREMENT_STATUSES = ["measurable", "unavailable"]
-_TECHNICAL_UNAVAILABLE_REASONS = {
-    "artifact_missing",
-    "artifact_hash_mismatch",
-    "provider_unavailable",
-    "unsupported_tensor_contract",
-    "wrong_direction",
-    "export_not_reproducible",
-    "cap_unavailable",
-}
 _EXPECTED_REQUIRED_IDENTITY = [
     "source_commit", "checkpoint_sha256", "artifact_sha256", "export_environment_sha256",
 ]
@@ -662,6 +653,11 @@ def validate_protocol_consistency(
                 "$.report_schema.$defs.candidate.properties.measurement_status",
                 "candidate measurement status values changed",
             )
+            _require(
+                "measurement_exclusion_reason" in report_candidate_properties,
+                "$.report_schema.$defs.candidate.properties",
+                "v2 candidate measurement_exclusion_reason is required",
+            )
         report_metrics = _mapping(report_defs.get("metrics"), "$.report_schema.$defs.metrics")
         report_metric_properties = _mapping(
             report_metrics.get("properties"), "$.report_schema.$defs.metrics.properties",
@@ -898,6 +894,18 @@ def validate_report_consistency(
                 f"$.candidates[{candidate_id}].measurement_status",
                 "measurement_status must be measurable or unavailable",
             )
+            if measurement_status == "unavailable":
+                _require(
+                    "measurement_exclusion_reason" in candidate,
+                    f"$.candidates[{candidate_id}]",
+                    "unavailable candidate needs a typed measurement exclusion reason",
+                )
+            else:
+                _require(
+                    "measurement_exclusion_reason" not in candidate,
+                    f"$.candidates[{candidate_id}].measurement_exclusion_reason",
+                    "measurable candidate must not carry a measurement exclusion reason",
+                )
             if candidate["status"] == "eligible":
                 _require(
                     role == "shipping-candidate",
@@ -910,20 +918,29 @@ def validate_report_consistency(
                     "shipping-eligible candidates must be measurable",
                 )
             if measurement_status == "measurable":
-                exclusion_reason = candidate.get("exclusion_reason")
-                if isinstance(exclusion_reason, Mapping):
-                    _require(
-                        exclusion_reason.get("type") not in _TECHNICAL_UNAVAILABLE_REASONS,
-                        f"$.candidates[{candidate_id}].measurement_status",
-                        "technical exclusion reasons require measurement_status=unavailable",
-                    )
                 for field in (*_EXPECTED_REQUIRED_IDENTITY, "manifest_sha256", "artifact_size_bytes"):
                     _require(
                         field in candidate,
                         f"$.candidates[{candidate_id}]",
                         f"measurable candidate needs {field}",
                     )
+                if candidate["status"] == "excluded":
+                    for field in (
+                        "license_verdicts",
+                        "redistribution_permitted",
+                        "redistribution_terms_reviewed",
+                    ):
+                        _require(
+                            field in candidate,
+                            f"$.candidates[{candidate_id}]",
+                            f"excluded measurable candidate needs {field} for legal comparison evidence",
+                        )
         if candidate["status"] == "eligible":
+            _require(
+                "exclusion_reason" not in candidate,
+                f"$.candidates[{candidate_id}].exclusion_reason",
+                "shipping-eligible candidate must not carry a shipping exclusion reason",
+            )
             _require(
                 isinstance(candidate.get("source_commit"), str)
                 and re.fullmatch(r"[0-9a-f]{40}", candidate["source_commit"]) is not None,

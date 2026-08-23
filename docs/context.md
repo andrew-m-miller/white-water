@@ -254,10 +254,12 @@ an artifact with valid export evidence but unresolved checkpoint or backbone ter
 the matrix. Because that distinction changes report semantics, v2 is additive and versioned rather
 than silently mutating v1. `status` remains the fail-closed shipping gate; v2 adds required typed
 `measurement_status`, and matrix planning admits measurable excluded candidates while rejecting
-unavailable artifacts. Shipping eligibility implies measurable, and the validation baseline remains
-evaluation-only. The unchanged corpus stays v1 and is bound by hash. NeuFlow's fixed 432x768 export
-also needs a constrained evaluation lattice in the later runner work; the generic cap grid is not
-evidence of unsupported shape coverage.
+unavailable artifacts. Unavailable candidates carry a separate typed measurement reason, while
+excluded-but-measurable entries retain complete legal verdict and redistribution-review surfaces;
+the shipping exclusion reason never doubles as a technical admission signal. Shipping eligibility
+implies measurable, and the validation baseline remains evaluation-only. The unchanged corpus stays
+v1 and is bound by hash. NeuFlow's fixed 432x768 export also needs a constrained evaluation lattice
+in the later runner work; the generic cap grid is not evidence of unsupported shape coverage.
 
 ---
 
