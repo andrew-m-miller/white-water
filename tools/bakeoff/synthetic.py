@@ -159,7 +159,7 @@ def all_cases() -> tuple[SyntheticCase, ...]:
                       "right": 3,
                       "bottom": 2,
                       "top": 2,
-                      "policy": "caller_replication_pad",
+                      "policy": "caller-replication-crop",
                       "multiple": 8,
                   },
               }),

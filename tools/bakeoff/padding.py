@@ -15,14 +15,14 @@ from typing import Any, Sequence
 
 
 # These are the tokens emitted by candidate artifact manifests.  The migrated
-# SEA-RAFT manifest uses ``caller_replication_pad``; keeping that spelling here
+# SEA-RAFT manifest uses ``caller-replication-crop``; keeping that spelling here
 # means the runner can pass the declaration through without candidate-specific
 # translation.  The short names remain accepted as compatibility aliases for
 # older P25-2 callers, but normalized results always carry the manifest token.
-PADDING_POLICIES = ("caller_replication_pad", "caller_reflect_pad")
+PADDING_POLICIES = ("caller-replication-crop", "caller-reflection-crop")
 _PADDING_ALIASES = {
-    "replication": "caller_replication_pad",
-    "reflect": "caller_reflect_pad",
+    "replication": "caller-replication-crop",
+    "reflect": "caller-reflection-crop",
 }
 
 
@@ -106,9 +106,9 @@ def pad_rows(
 ) -> PaddedRows:
     """Pad bottom-left row-major pixels by replication or edge reflection.
 
-    The source rows are not mutated.  ``caller_replication_pad`` clamps coordinates
+    The source rows are not mutated.  ``caller-replication-crop`` clamps coordinates
     to the nearest source pixel and is the policy used by the current SEA-RAFT caller.
-    ``caller_reflect_pad`` mirrors without repeating edge pixels and matches core
+    ``caller-reflection-crop`` mirrors without repeating edge pixels and matches core
     preprocessing.  The short ``replication``/``reflect`` spellings are accepted only
     as compatibility aliases and normalize to the canonical tokens.
     A policy is mandatory by design: callers must not accidentally compare a model
@@ -138,7 +138,7 @@ def pad_rows(
     output: list[tuple[Any, ...]] = []
     for output_y in range(padded_height):
         source_y = output_y - bottom
-        if policy == "caller_replication_pad":
+        if policy == "caller-replication-crop":
             source_y = min(height - 1, max(0, source_y))
         else:
             source_y = _mirror_index(source_y, height)
@@ -146,7 +146,7 @@ def pad_rows(
         padded_row: list[Any] = []
         for output_x in range(padded_width):
             source_x = output_x - left
-            if policy == "caller_replication_pad":
+            if policy == "caller-replication-crop":
                 source_x = min(width - 1, max(0, source_x))
             else:
                 source_x = _mirror_index(source_x, width)

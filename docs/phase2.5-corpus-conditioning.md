@@ -57,10 +57,10 @@ A constant pair has `lo == hi`, so it cannot satisfy the frozen report schema's 
 
 There are two valid policies, and they are intentionally not hidden behind a candidate name:
 `tools/bakeoff/padding.py` implements the canonical manifest tokens
-`caller_replication_pad` (clamp to the edge) and `caller_reflect_pad` (mirror without
+`caller-replication-crop` (clamp to the edge) and `caller-reflection-crop` (mirror without
 repeating the edge pixel, matching `src/core/flow/Preprocess.cpp`).  The short
 `replication`/`reflect` spellings are compatibility aliases only.  The migrated SEA-RAFT
-manifest's `caller_replication_pad` token is accepted directly.  P25-2 therefore makes the
+manifest's `caller-replication-crop` token is accepted directly.  P25-2 therefore makes the
 policy an explicit required argument, tests the differing halo (`[1,2,3]` with one side on
 each end becomes `[1,1,2,3,3]` versus `[2,1,2,3,2]`), and extends right/top padding so
 requested dimensions are exact multiples of the declared tensor multiple.
@@ -69,7 +69,7 @@ P25-1 owns the candidate manifest and its exact padding field.  P25-2 does not m
 schema: its adapter passes the declared string through this narrow seam.  A cross-candidate
 comparison is valid only when the caller-side policy is identical in the comparison cell, exactly as frozen by
 `padding_comparison_policy` in `bakeoff/protocol-v1.json`; the asymmetric synthetic case records
-`caller_replication_pad` as its deterministic fixture policy for the current SEA-RAFT contract.
+`caller-replication-crop` as its deterministic fixture policy for the current SEA-RAFT contract.
 
 ## Corpus partitions
 

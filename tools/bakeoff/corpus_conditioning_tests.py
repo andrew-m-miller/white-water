@@ -17,7 +17,7 @@ from .conditioning import (
     signed_log,
 )
 from .generate_corpus import build_corpus
-from .padding import pad_rows
+from .padding import normalize_policy, pad_rows
 from .synthetic import (
     COORDINATE_CONVENTION,
     REQUIRED_SYNTHETIC_CASES,
@@ -119,18 +119,23 @@ def _test_conditioning() -> None:
 
 def _test_padding() -> None:
     source = ((1, 2, 3),)
-    replicated = pad_rows(source, left=1, right=1, policy="caller_replication_pad")
-    reflected = pad_rows(source, left=1, right=1, policy="caller_reflect_pad")
+    replicated = pad_rows(source, left=1, right=1, policy="caller-replication-crop")
+    reflected = pad_rows(source, left=1, right=1, policy="caller-reflection-crop")
     assert replicated.rows == ((1, 1, 2, 3, 3),)
     assert reflected.rows == ((2, 1, 2, 3, 2),)
     assert replicated.crop == (1, 0, 3, 1)
-    assert replicated.policy == "caller_replication_pad"
-    assert reflected.policy == "caller_reflect_pad"
+    assert replicated.policy == "caller-replication-crop"
+    assert reflected.policy == "caller-reflection-crop"
+
+    # The P25-1 manifest vocabulary is passed through byte-for-byte; no candidate
+    # name or local spelling is needed at this seam.
+    assert normalize_policy("caller-replication-crop") == "caller-replication-crop"
+    assert normalize_policy("caller-reflection-crop") == "caller-reflection-crop"
 
     # Generic names remain compatibility aliases, while the P25-1 migrated SEA-RAFT
     # declaration is accepted directly and is the token carried in the result.
-    assert pad_rows(source, left=1, right=1, policy="replication").policy == "caller_replication_pad"
-    assert pad_rows(source, left=1, right=1, policy="reflect").policy == "caller_reflect_pad"
+    assert pad_rows(source, left=1, right=1, policy="replication").policy == "caller-replication-crop"
+    assert pad_rows(source, left=1, right=1, policy="reflect").policy == "caller-reflection-crop"
 
     # Both policies preserve the source crop, while differing only in the caller-side
     # halo.  The runner passes the manifest-declared policy through this narrow seam.
@@ -144,7 +149,7 @@ def _test_padding() -> None:
         right=3,
         bottom=2,
         top=2,
-        policy="caller_replication_pad",
+        policy="caller-replication-crop",
         multiple=8,
     )
     assert asymmetric.width == 72
