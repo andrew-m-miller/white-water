@@ -96,8 +96,13 @@ prove the Twins tensors are bundled in that checkpoint, so no separate backbone 
 needed. Those 380 tensors exactly match the official timm `twins_svt_large.in1k` Apache-2.0
 reference at its pinned revision, so the backbone surface is audited separately as Apache-2.0.
 The archive contains no README, LICENSE, NOTICE, or member-level terms for the WAFT checkpoint
-itself, leaving only its commercial-use and redistribution verdicts **unknown**. No ONNX export
-or tensor qualification is claimed; the candidate remains excluded pending checkpoint terms.
+itself, leaving only its commercial-use and redistribution verdicts **unknown**. The
+evaluation-only artifact record `models/waft-twins-artifact.json` and explicit-input exporter
+`models/export_waft.py` now provide the deterministic qualification path (strict load, ONNX
+operator/domain gate, parity, identity, signed directions, dynamic shape, and hash/mode
+recording). No local checkout, checkpoint member, or ML export environment is present in this
+repository run, so no ONNX bytes or numerical qualification are claimed; the candidate remains
+excluded from shipping pending checkpoint terms.
 
 WAFT supports three backbones -- Twins, DAv2 (Depth Anything v2) and DINOv3 -- and the
 README states no licence for the weights separately from the BSD-3 code, nor which checkpoint

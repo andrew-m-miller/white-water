@@ -132,6 +132,12 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME models::waft_twins_exclusion
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/check_waft_manifest.py")
+  add_test(NAME models::waft_twins_artifact
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/check_waft_artifact.py")
+  add_test(NAME models::waft_export_gates
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/waft_export_tests.py")
   add_test(NAME models::exclusion_contract
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/exclusion_contract_tests.py")
