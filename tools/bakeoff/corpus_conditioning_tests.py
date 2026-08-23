@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 
 from .conditioning import (
@@ -236,6 +238,27 @@ def _test_corpus_and_emission() -> None:
     validate_corpus_consistency(corpus, protocol, corpus_schema)
     assert len(corpus["partitions"]) == 2
     assert not any(partition["id"] == "public" for partition in corpus["partitions"])
+
+    # generate_corpus.py intentionally supports both documented invocation forms.
+    # Keep the top-level synthetic/padding fallback import alive when the script is
+    # launched by path, while the module form continues to use package imports.
+    with tempfile.TemporaryDirectory(prefix="whitewater-p25-corpus-cli-") as temporary:
+        directory = Path(temporary)
+        for label, command in (
+            (
+                "direct",
+                [sys.executable, str(ROOT / "tools/bakeoff/generate_corpus.py"),
+                 "--output", str(directory / "direct.json")],
+            ),
+            (
+                "module",
+                [sys.executable, "-m", "tools.bakeoff.generate_corpus",
+                 "--output", str(directory / "module.json")],
+            ),
+        ):
+            subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
+            generated = load_json(directory / f"{label}.json")
+            validate_corpus_consistency(generated, protocol, corpus_schema)
 
     with tempfile.TemporaryDirectory(prefix="whitewater-p25-corpus-") as temporary:
         directory = Path(temporary)

@@ -21,7 +21,12 @@ import math
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping, Sequence
 
-from .padding import pad_rows
+if __package__ in (None, ""):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from padding import pad_rows  # type: ignore
+else:
+    from .padding import pad_rows
 
 COORDINATE_CONVENTION = (
     "x right, y up; full-resolution real-pixel coordinates at pixel centres; "
