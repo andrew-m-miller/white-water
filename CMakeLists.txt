@@ -146,6 +146,8 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.reporting_tests)
   add_test(NAME bakeoff::measurement
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.measurement_tests)
+  add_test(NAME bakeoff::pfm
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.pfm_tests)
   set_tests_properties(bakeoff::corpus_conditioning
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::metrics
@@ -159,6 +161,8 @@ if(Python3_Interpreter_FOUND)
   set_tests_properties(bakeoff::reporting
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::measurement
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::pfm
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 else()
   message(STATUS "SEA-RAFT manifest gate skipped (Python 3 not found)")
