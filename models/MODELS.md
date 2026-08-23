@@ -47,7 +47,7 @@ has been audited, and for a facility deliverable that audit is not optional.
 | **WAFT** | ICLR 2026 (oral) | **BSD-3 code, backbone weights vary** | Quality/memory candidate. Strong upstream results, but export and checkpoint licensing need resolving. |
 | **NeuFlow v2** | 2024 | not checked | Leading fast stateless candidate; export, quality and licence all require measurement. |
 | **AllTracker** | ICCV 2025 | **MIT** | Architecturally native to this problem. Investigate — it could delete the chain. |
-| RAFT | ECCV 2020 | BSD-3 | Known validation baseline, not a presumed shipping model. |
+| RAFT | ECCV 2020 | BSD-3 code; checkpoint terms unresolved | Formal validation baseline: the exact export may be evaluated, while unknown checkpoint terms exclude shipping, selection and packaging. |
 | RIFE | ECCV 2022 | MIT | Fast and exportable, but off-label for motion-field accuracy. |
 | MemFlow | CVPR 2024 | Apache-2.0 | Stateful temporal design conflicts with arbitrary-order OFX rendering; reconsider only with a sequential durable-analysis architecture. |
 | DOT | CVPR 2024 | MIT code, **CC-BY-NC front-end** | Right idea, unusable as shipped. |
@@ -309,8 +309,9 @@ and the author-linked `models/raft-things.pth` archive member by its URL, 21,108
 size, and SHA256 `fcfa4125d6418f4de95d84aec20a3c5f4e205101715a79f193243c186ac9a7e1`.
 The official README and `download_models.sh` do not state checkpoint commercial-use or
 redistribution terms, so that surface remains `unknown`; the numerical export below is
-recorded as numerically `passed` but top-level `excluded` with a typed checkpoint-terms reason,
-and makes no licence or shipping claim.
+recorded as numerically `passed` but top-level `excluded` with a typed checkpoint-terms reason.
+That exclusion blocks shipping, selection and packaging, not an explicit validation-baseline
+evaluation, and makes no licence permission claim.
 
 ### P25-3D original RAFT baseline export — 2026-08-23
 
@@ -336,7 +337,41 @@ forward median flow was `(4.0249, -0.0234)` and reverse was `(-4.0233, 0.0289)`.
 shapes and all three pairs, parity mean/p99/p99.9/max absolute error was
 `0.01437 / 0.06491 / 0.11318 / 0.30979`. These are local CPU evidence only. Because the
 checkpoint terms remain unresolved, the manifest records the exact bytes and measurements but
-remains explicitly excluded and cannot be admitted or shipped.
+remains explicitly excluded from shipping, selection and packaging. It is still a valid
+explicit validation-baseline result; no licence permission or CUDA success is inferred.
+
+The exporter has an explicit provider hook. The checked-in record is CPU-qualified on macOS;
+it does not claim CUDA merely because the exporter accepts a provider argument or because CUDA
+appears in another runtime's provider list. The remaining operator step is a fresh EL8 x86-64
+Linux qualification run with the pinned export dependencies and a CUDA-capable ONNX Runtime,
+using the same pinned source and checkpoint and requesting `CUDAExecutionProvider`:
+
+```bash
+mkdir -p /path/to/raft-linux-requalification
+cp models/raft-original.json /path/to/raft-linux-requalification/raft-original.json
+python3 models/export_raft.py \
+  --upstream /path/to/RAFT-at-2888e15a51fa41140771d3f498ed8023cff098d1 \
+  --checkpoint /path/to/raft-things.pth \
+  --manifest /path/to/raft-linux-requalification/raft-original.json \
+  --output /path/to/raft-linux-requalification/raft-original-opset17.onnx \
+  --platform linux-x86_64 \
+  --device cuda \
+  --provider CUDAExecutionProvider \
+  --update-manifest
+python3 models/check_raft_manifest.py \
+  /path/to/raft-linux-requalification/raft-original.json
+```
+
+The command first verifies the pinned checkout and mode-0644 checkpoint, then requires the
+CUDA provider to be available and actually selected before it records the identity/direction/
+dynamic-shape checks. A missing provider or failed run is a requalification failure, not a
+CUDA result; it must not be converted into a shipping claim. Running against a copy keeps the
+checked-in macOS CPU record immutable. This exporter-level run is not a substitute for the
+self-contained evaluator on the airgapped Flame box. On success, archive the copied manifest
+and ONNX hash as Linux qualification evidence, carry that exact artifact into the evaluator,
+and measure the report-v2 target cells beside live Flame; the checkpoint-terms exclusion remains
+unchanged. The current remaining Linux step is exactly this EL8 `CUDAExecutionProvider`
+requalification, followed by its target measurement run; none has been run or claimed here.
 
 ```bash
 python3.10 -m venv /path/to/searaft-export-env

@@ -21,6 +21,57 @@ EXPECTED_ARCHIVE_SHA256 = "4be6101b271f58ec49866da5cf609fd17e86e9cae2483f70630ef
 EXPECTED_ARTIFACT_SHA256 = "d9b8aa7d07c3e56303b336c5e1da101c5ebd09c3d71cdcf0c8a649de1044b6d2"
 EXPECTED_ARTIFACT_SIZE = 21419753
 EXPECTED_EXPORT_ENVIRONMENT_SHA256 = "b294d7fd5749f7342db289ad7a42e8bf654dc256450e41dcbc68f91c775c56ca"
+MACOS_PLATFORM = "macos-arm64"
+LINUX_CUDA_PLATFORM = "linux-x86_64"
+
+
+def _platform_entry(manifest: dict, platform_id: str) -> dict:
+    entries = [
+        entry
+        for entry in manifest["export"]["platform_artifacts"]
+        if entry["platform"] == platform_id
+    ]
+    if len(entries) != 1:
+        raise ArtifactError(f"original RAFT manifest must contain one {platform_id} artifact row")
+    return entries[0]
+
+
+def _check_recorded_platforms(manifest: dict) -> None:
+    """Check the known CPU record and permit a separately qualified Linux CUDA row.
+
+    The checked-in manifest has only the macOS row.  A Linux operator may work on a copy of
+    that manifest; the exporter then appends a hash-bound Linux row while retaining the known
+    CPU row.  The Linux hash and measurements are intentionally not hard-coded here because
+    they do not exist yet.
+    """
+
+    macos = _platform_entry(manifest, MACOS_PLATFORM)
+    if macos["sha256"] != EXPECTED_ARTIFACT_SHA256 or macos["size_bytes"] != EXPECTED_ARTIFACT_SIZE:
+        raise ArtifactError("D2 original RAFT macOS artifact identity changed")
+    if macos["export_environment_sha256"] != EXPECTED_EXPORT_ENVIRONMENT_SHA256:
+        raise ArtifactError("D2 original RAFT macOS export environment hash changed")
+    if macos["export_environment"]["provider"] != "CPUExecutionProvider":
+        raise ArtifactError("D2 original RAFT macOS evidence must remain CPU-qualified")
+
+    export = manifest["export"]
+    if export["platform"] == MACOS_PLATFORM:
+        return
+    if export["platform"] != LINUX_CUDA_PLATFORM:
+        raise ArtifactError(
+            "original RAFT export platform must be macos-arm64 or linux-x86_64"
+        )
+    linux = _platform_entry(manifest, LINUX_CUDA_PLATFORM)
+    if linux["sha256"] is None or linux["size_bytes"] is None:
+        raise ArtifactError("Linux CUDA requalification row must record artifact hash and size")
+    if linux["mode"] != "0644":
+        raise ArtifactError("Linux CUDA requalification artifact must be mode 0644")
+    environment = linux.get("export_environment")
+    if not isinstance(environment, dict):
+        raise ArtifactError("Linux CUDA requalification row must record its environment")
+    if environment["platform"] != "linux" or environment["architecture"] != "x86_64":
+        raise ArtifactError("Linux CUDA requalification environment is not EL8 x86-64")
+    if environment["provider"] != "CUDAExecutionProvider":
+        raise ArtifactError("Linux requalification row must use CUDAExecutionProvider")
 
 
 def main() -> int:
@@ -55,21 +106,31 @@ def main() -> int:
     if manifest["exclusion"]["reason_code"] != "checkpoint_license_terms_unknown":
         raise ArtifactError("D2 original RAFT exclusion must remain checkpoint-terms scoped")
     export = manifest["export"]
-    if export["sha256"] != EXPECTED_ARTIFACT_SHA256:
-        raise ArtifactError("D2 original RAFT export SHA256 changed")
-    if export["size_bytes"] != EXPECTED_ARTIFACT_SIZE:
-        raise ArtifactError("D2 original RAFT export size changed")
-    if export["export_environment_sha256"] != EXPECTED_EXPORT_ENVIRONMENT_SHA256:
-        raise ArtifactError("D2 original RAFT export environment hash changed")
-    if manifest["export_environment"]["sha256"] != EXPECTED_EXPORT_ENVIRONMENT_SHA256:
-        raise ArtifactError("D2 original RAFT environment hash changed")
+    _check_recorded_platforms(manifest)
+    if export["platform"] == MACOS_PLATFORM:
+        if export["sha256"] != EXPECTED_ARTIFACT_SHA256:
+            raise ArtifactError("D2 original RAFT export SHA256 changed")
+        if export["size_bytes"] != EXPECTED_ARTIFACT_SIZE:
+            raise ArtifactError("D2 original RAFT export size changed")
+        if export["export_environment_sha256"] != EXPECTED_EXPORT_ENVIRONMENT_SHA256:
+            raise ArtifactError("D2 original RAFT export environment hash changed")
+        if manifest["export_environment"]["sha256"] != EXPECTED_EXPORT_ENVIRONMENT_SHA256:
+            raise ArtifactError("D2 original RAFT environment hash changed")
     if manifest["validation"]["observed"]["checkpoint_archive_sha256"] != EXPECTED_ARCHIVE_SHA256:
         raise ArtifactError("D2 original RAFT archive hash changed")
     observed = manifest["validation"]["observed"]
     if observed["numerical_gates"] != "passed":
         raise ArtifactError("D2 original RAFT numerical gates are not recorded as passed")
-    if observed["provider_validation"]["requested"] != "CPUExecutionProvider":
-        raise ArtifactError("D2 original RAFT provider validation did not use CPU")
+    expected_provider = (
+        "CPUExecutionProvider"
+        if export["platform"] == MACOS_PLATFORM
+        else "CUDAExecutionProvider"
+    )
+    if observed["provider_validation"]["requested"] != expected_provider:
+        raise ArtifactError(
+            f"D2 original RAFT {export['platform']} provider validation did not use "
+            f"{expected_provider}"
+        )
     if observed["provider_validation"]["passed"] is not True:
         raise ArtifactError("D2 original RAFT provider validation did not pass")
     if observed["graph_domains"] != ["ai.onnx"]:
@@ -102,7 +163,11 @@ def main() -> int:
     else:
         validate_artifact(manifest, manifest_path, artifact_path)
 
-    print("original RAFT manifest is valid (numerical export recorded; checkpoint terms unknown; excluded)")
+    print(
+        "original RAFT manifest is valid "
+        f"(numerical export recorded on {export['platform']}; "
+        "checkpoint terms unknown; excluded from shipping/selection/packaging)"
+    )
     return 0
 
 

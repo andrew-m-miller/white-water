@@ -324,7 +324,9 @@
   },
   "notes": [
     "The checkpoint revision field carries the pinned official source commit because the author-linked Dropbox archive publishes no independent revision identifier; the archive member is instead bound by URL, member path, size and SHA256.",
-    "The original RAFT checkpoint is a validation baseline only. Its unknown checkpoint commercial-use and redistribution terms prevent bake-off admission until independently resolved.",
-    "D2 exported the exact original-RAFT path with 12 iterations and passed local CPU graph, provider, identity, signed-direction, dynamic-shape and PyTorch/ONNX parity gates. The candidate remains excluded because official primary sources do not state checkpoint commercial-use or redistribution terms."
+    "The original RAFT checkpoint is an explicit validation baseline. Its unknown checkpoint commercial-use and redistribution terms prevent shipping, selection and packaging, but do not prevent explicit bake-off evaluation.",
+    "D2 exported the exact original-RAFT path with 12 iterations and passed local CPUExecutionProvider graph, provider-selection, identity, signed-direction, dynamic-shape and PyTorch/ONNX parity gates. The candidate remains excluded from shipping, selection and packaging because official primary sources do not state checkpoint commercial-use or redistribution terms.",
+    "provider_support=CPUExecutionProvider_validated_on_macos-arm64;_CUDAExecutionProvider_requires_explicit_EL8_linux-x86_64_requalification;_no_CUDA_success_claim",
+    "linux_operator_testing=not_run;_use_the_pinned_source_and_checkpoint_with_--device_cuda_--provider_CUDAExecutionProvider;_record_provider_selection_and_target_measurements_separately"
   ]
 }

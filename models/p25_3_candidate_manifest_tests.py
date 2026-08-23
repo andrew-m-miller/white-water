@@ -119,6 +119,29 @@ def check_original_raft() -> None:
         manifest["validation"]["parity"]["checked"] is True,
         "RAFT PyTorch/ONNX parity was not recorded",
     )
+    observed = manifest["validation"]["observed"]
+    _require(
+        observed["provider_validation"] == {
+            "requested": "CPUExecutionProvider",
+            "available": [
+                "CoreMLExecutionProvider",
+                "AzureExecutionProvider",
+                "CPUExecutionProvider",
+            ],
+            "selected": ["CPUExecutionProvider"],
+            "passed": True,
+        },
+        "RAFT checked-in evidence must remain CPU-only",
+    )
+    notes = manifest.get("notes", [])
+    _require(
+        any("do not prevent explicit bake-off evaluation" in note for note in notes),
+        "RAFT exclusion wording must distinguish evaluation from shipping admission",
+    )
+    _require(
+        any("CUDAExecutionProvider_requires_explicit_EL8_linux-x86_64_requalification" in note for note in notes),
+        "RAFT manifest must state the unrun Linux CUDA requalification path",
+    )
 
 
 def main() -> int:

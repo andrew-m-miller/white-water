@@ -9,9 +9,14 @@ owns the fixed replication-pad/crop policy, so no data-dependent padding operati
 the graph.
 
 The source checkout and checkpoint are supplied explicitly and are verified before importing
-upstream code.  The exporter publishes an ONNX file only after graph checks, CPU provider shape
-checks, PyTorch/ONNX parity, identity, and both signed translation directions pass.  The
-checkpoint acquisition itself is handled by ``fetch_raft_checkpoint.py`` and is never implicit.
+upstream code.  The exporter publishes an ONNX file only after graph checks, the explicitly
+requested ONNX Runtime provider's shape/selection checks, PyTorch/ONNX parity, identity, and
+both signed translation directions pass.  The checked-in baseline is CPU-qualified on macOS;
+an operator may repeat the same pinned workflow with ``--device cuda`` and
+``--provider CUDAExecutionProvider`` on the EL8 Linux target when that provider is available.
+That is a separate qualification attempt, not an inference of CUDA support from the CPU record.
+The checkpoint acquisition itself is handled by ``fetch_raft_checkpoint.py`` and is never
+implicit.
 """
 
 from __future__ import annotations
@@ -56,6 +61,10 @@ EXPECTED_CHECKPOINT_SHA256 = "fcfa4125d6418f4de95d84aec20a3c5f4e205101715a79f193
 EXPECTED_CHECKPOINT_SIZE = 21108000
 EXPECTED_ARCHIVE_SHA256 = "4be6101b271f58ec49866da5cf609fd17e86e9cae2483f70630ef4a295dc66bd"
 EXPECTED_MEMBER = "models/raft-things.pth"
+QUALIFICATION_PROVIDERS = (
+    "CPUExecutionProvider",
+    "CUDAExecutionProvider",
+)
 
 
 class ExportFailure(RuntimeError):
@@ -506,8 +515,27 @@ def _platform_id(value: str | None) -> str:
     return f"{sys.platform}-{platform.machine().lower()}"
 
 
+def _validate_provider_platform(provider: str, platform_id: str) -> None:
+    """Keep the operator-facing CUDA path tied to the measured P25 Linux target.
+
+    CPU qualification is portable across exporter hosts.  CUDA is intentionally not inferred
+    from a provider name on macOS (or from a provider that merely appears in an installation);
+    the runtime session below must select it on the EL8 x86-64 target.
+    """
+
+    require(
+        provider in QUALIFICATION_PROVIDERS,
+        f"unsupported qualification provider: {provider}",
+    )
+    if provider == "CUDAExecutionProvider":
+        require(
+            platform_id == "linux-x86_64",
+            "CUDA requalification is supported only as an EL8 linux-x86_64 operator run",
+        )
+
+
 def _record_generic_validation(manifest: dict[str, Any], observed: dict[str, Any]) -> None:
-    """Map numerical evidence into the shared schema without claiming admission."""
+    """Map numerical evidence into the shared schema without claiming shipping admission."""
 
     validation = manifest["validation"]
     forward = observed["forward_median"]
@@ -541,8 +569,9 @@ def _record_generic_validation(manifest: dict[str, Any], observed: dict[str, Any
         "p999_abs": observed["onnx_pytorch_p999_abs"],
         "max_abs": observed["onnx_pytorch_max_abs"],
     }
-    # Numerical qualification and admission are separate decisions.  An artifact can pass all
-    # numerical gates while remaining excluded because its checkpoint terms are unresolved.
+    # Numerical qualification and shipping admission are separate decisions.  An artifact can
+    # pass all numerical gates while remaining excluded from shipping/selection/packaging
+    # because its checkpoint terms are unresolved.
     validation["status"] = "passed"
     validation["observed"] = {
         "numerical_gates": "passed",
@@ -576,7 +605,7 @@ def update_manifest(
     platform_id: str,
 ) -> None:
     # The baseline has unknown checkpoint commercial/redistribution terms. Record all numerical
-    # evidence and exact bytes, but keep admission explicitly excluded.
+    # evidence and exact bytes, but keep shipping/selection/packaging explicitly excluded.
     _record_generic_validation(manifest, observed)
     env_observed = observed["environment"]
     environment = {
@@ -601,13 +630,34 @@ def update_manifest(
         note
         for note in manifest.get("notes", [])
         if not note.startswith("D1 intentionally records")
+        and not note.startswith("D2 exported the exact original-RAFT path")
+        and not note.startswith("provider_support=")
+        and not note.startswith("linux_operator_testing=")
     ]
-    manifest["notes"].append(
-        "D2 exported the exact original-RAFT path with 12 iterations and passed local CPU graph, "
-        "provider, identity, signed-direction, dynamic-shape and PyTorch/ONNX parity gates. "
-        "The candidate remains excluded because official primary sources do not state checkpoint "
-        "commercial-use or redistribution terms."
+    provider = observed.get("provider_validation", {}).get(
+        "requested", env_observed.get("provider", "CPUExecutionProvider")
     )
+    manifest["notes"].append(
+        "D2 exported the exact original-RAFT path with 12 iterations and passed local "
+        f"{provider} graph, provider-selection, identity, signed-direction, dynamic-shape and "
+        "PyTorch/ONNX parity gates. The candidate remains excluded from shipping, selection and "
+        "packaging because official primary sources do not state checkpoint commercial-use or "
+        "redistribution terms."
+    )
+    if provider == "CUDAExecutionProvider":
+        manifest["notes"].extend(
+            [
+                "provider_support=CPUExecutionProvider_validated_on_macos-arm64;_CUDAExecutionProvider_validated_on_linux-x86_64;_provider_selection_recorded",
+                "linux_operator_testing=passed_exporter_provider_requalification;_carry_exact_artifact_into_the_airgapped_report-v2_evaluator",
+            ]
+        )
+    else:
+        manifest["notes"].extend(
+            [
+                "provider_support=CPUExecutionProvider_validated_on_macos-arm64;_CUDAExecutionProvider_requires_explicit_EL8_linux-x86_64_requalification;_no_CUDA_success_claim",
+                "linux_operator_testing=not_run;_use_the_pinned_source_and_checkpoint_with_--device_cuda_--provider_CUDAExecutionProvider;_record_provider_selection_and_target_measurements_separately",
+            ]
+        )
     write_manifest(path, manifest)
 
 
@@ -675,8 +725,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument(
         "--provider",
-        choices=("CPUExecutionProvider", "CUDAExecutionProvider"),
-        help="ONNX Runtime provider for local validation (defaults from --device)",
+        choices=QUALIFICATION_PROVIDERS,
+        help=(
+            "ONNX Runtime provider for local qualification (defaults from --device); "
+            "CUDA is an explicit EL8 linux-x86_64 operator requalification, not implied "
+            "by the checked-in macOS CPU record"
+        ),
     )
     parser.add_argument("--platform", help="platform identity for this exact ONNX export")
     parser.add_argument(
@@ -705,6 +759,9 @@ def main() -> int:
     provider = args.provider or (
         "CUDAExecutionProvider" if args.device == "cuda" else "CPUExecutionProvider"
     )
+    require(provider in QUALIFICATION_PROVIDERS, f"unsupported qualification provider: {provider}")
+    platform_id = _platform_id(args.platform)
+    _validate_provider_platform(provider, platform_id)
     output = (args.output or (args.manifest.parent / manifest["export"]["artifact"])).absolute()
     output.parent.mkdir(parents=True, exist_ok=True)
     model = run_stage(
@@ -751,7 +808,7 @@ def main() -> int:
     print(f"sha256:   {artifact_hash}")
     print(f"validation: {json.dumps(observed, sort_keys=True)}")
     if args.update_manifest:
-        update_manifest(args.manifest, manifest, output, observed, _platform_id(args.platform))
+        update_manifest(args.manifest, manifest, output, observed, platform_id)
         print(f"manifest updated: {args.manifest}")
     return 0
 

@@ -18,6 +18,7 @@ import warnings
 import zipfile
 
 from artifact_workflow import ArtifactError, load_manifest, sha256_file  # type: ignore
+import check_raft_manifest as raft_manifest_checker  # type: ignore
 import export_raft  # type: ignore
 import fetch_raft_checkpoint  # type: ignore
 
@@ -232,6 +233,85 @@ def _check_success_manifest_update() -> None:
         assert "reason_type" not in recorded["validation"]["observed"]
 
 
+def _check_linux_cuda_requalification_record() -> None:
+    """A successful Linux provider run may be recorded without changing admission semantics."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-raft-linux-requalification-") as directory:
+        root = Path(directory)
+        manifest_path = root / "raft-original.json"
+        output = root / "raft-original-linux-opset17.onnx"
+        generated = copy.deepcopy(load_manifest(MANIFEST))
+        manifest_path.write_text(json.dumps(generated, indent=2) + "\n", encoding="utf-8")
+        manifest_path.chmod(0o644)
+        output.write_bytes(b"deterministic-linux-cuda-export-fixture")
+        output.chmod(0o644)
+
+        observed = copy.deepcopy(generated["validation"]["observed"])
+        observed["provider_validation"] = {
+            "requested": "CUDAExecutionProvider",
+            "available": ["CUDAExecutionProvider", "CPUExecutionProvider"],
+            "selected": ["CUDAExecutionProvider"],
+            "passed": True,
+        }
+        observed["environment"] = dict(observed["environment"])
+        observed["environment"].update(
+            {
+                "platform": "Linux-6.8-x86_64",
+                "provider": "CUDAExecutionProvider",
+                "available_providers": ["CUDAExecutionProvider", "CPUExecutionProvider"],
+                "selected_providers": ["CUDAExecutionProvider"],
+            }
+        )
+        metrics = observed.pop("metrics")
+        observed.update(
+            {
+                "identity_median_epe": metrics["identity_median_epe"],
+                "forward_median": metrics["forward_median"],
+                "reverse_median": metrics["reverse_median"],
+                "onnx_pytorch_mean_abs": metrics["onnx_pytorch_mean_abs"],
+                "onnx_pytorch_p99_abs": metrics["onnx_pytorch_p99_abs"],
+                "onnx_pytorch_p999_abs": metrics["onnx_pytorch_p999_abs"],
+                "onnx_pytorch_max_abs": metrics["onnx_pytorch_max_abs"],
+                "second_dynamic_shape": generated["validation"]["shapes"]["additional"],
+            }
+        )
+        export_raft.update_manifest(
+            manifest_path,
+            generated,
+            output,
+            observed,
+            "linux-x86_64",
+        )
+        recorded = load_manifest(manifest_path)
+        assert recorded["status"] == "excluded"
+        assert recorded["candidate"]["role"] == "validation-baseline"
+        assert recorded["exclusion"]["reason_code"] == "checkpoint_license_terms_unknown"
+        assert recorded["validation"]["observed"]["provider_validation"]["requested"] == "CUDAExecutionProvider"
+        assert recorded["export"]["platform"] == "linux-x86_64"
+        assert len(recorded["export"]["platform_artifacts"]) == 2
+
+        old_argv = sys.argv
+        sys.argv = ["check_raft_manifest.py", str(manifest_path)]
+        try:
+            assert raft_manifest_checker.main() == 0
+        finally:
+            sys.argv = old_argv
+
+
+def _check_provider_platform_gate() -> None:
+    """CUDA is an explicit Linux target qualification, not a macOS inference."""
+
+    export_raft._validate_provider_platform("CPUExecutionProvider", "macos-arm64")
+    export_raft._validate_provider_platform("CPUExecutionProvider", "linux-x86_64")
+    export_raft._validate_provider_platform("CUDAExecutionProvider", "linux-x86_64")
+    for platform_id in ("macos-arm64", "linux-arm64"):
+        _expect_runtime_failure(
+            lambda platform_id=platform_id: export_raft._validate_provider_platform(
+                "CUDAExecutionProvider", platform_id
+            )
+        )
+
+
 def main() -> int:
     manifest = load_manifest(MANIFEST)
     assert manifest["export"]["script"] == "models/export_raft.py"
@@ -251,6 +331,8 @@ def main() -> int:
     _check_download_archive_semantics()
     _check_default_download_is_temporary()
     _check_success_manifest_update()
+    _check_linux_cuda_requalification_record()
+    _check_provider_platform_gate()
 
     payload = b"deterministic-raft-checkpoint-fixture"
     with tempfile.TemporaryDirectory(prefix="whitewater-raft-acquisition-") as directory:
