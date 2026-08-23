@@ -26,6 +26,7 @@ try:
         environment_sha256,
         load_manifest,
         publish_file,
+        require_regular_mode,
         sha256_file,
         update_platform_export,
         write_manifest,
@@ -36,6 +37,7 @@ except ModuleNotFoundError:  # pragma: no cover - package import path
         environment_sha256,
         load_manifest,
         publish_file,
+        require_regular_mode,
         sha256_file,
         update_platform_export,
         write_manifest,
@@ -69,12 +71,30 @@ def verify_provenance(manifest: dict[str, Any], upstream: Path, checkpoint: Path
         actual_commit == expected_commit,
         f"NeuFlow v2 checkout is {actual_commit}, expected {expected_commit}",
     )
+    status = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(upstream),
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    require(
+        not status,
+        "NeuFlow v2 checkout is dirty; refusing to export uncommitted source: "
+        + status,
+    )
     require(
         expected_commit == EXPECTED_SOURCE_COMMIT,
         "manifest changed the audited NeuFlow v2 source commit",
     )
 
-    require(checkpoint.is_file(), f"checkpoint does not exist: {checkpoint}")
+    require_regular_mode(checkpoint, "NeuFlow checkpoint")
     expected_size = manifest["checkpoint"]["size_bytes"]
     require(
         expected_size == EXPECTED_CHECKPOINT_SIZE,
@@ -457,6 +477,8 @@ def update_manifest(
     observed: dict[str, Any],
     platform_id: str,
 ) -> None:
+    # Record the numerical evidence once; update_platform_export below only records bytes and
+    # environment identity.
     _record_validation(manifest, observed)
     # A prior ``--record-failure`` attempt may have marked the same working manifest excluded;
     # a newly passing exact export supersedes that transient result and its diagnostic notes.
@@ -503,19 +525,40 @@ def record_failure(
 ) -> None:
     """Record a typed reproducible exclusion without inventing an artifact identity."""
 
+    if manifest["status"] not in {
+        "provenance_pinned_export_pending",
+        "excluded",
+    }:
+        raise ArtifactError(
+            "refusing to overwrite a validated NeuFlow manifest; copy a fresh pending manifest "
+            "before recording a new export failure"
+        )
     detail = " ".join(str(error).split())
     if len(detail) > 600:
         detail = detail[:597] + "..."
     manifest["status"] = "excluded"
     manifest["candidate"]["role"] = "excluded"
-    manifest["validation"] = {
-        "status": "failed",
-        "observed": {
-            "failure_stage": stage,
-            "failure_type": type(error).__name__,
-            "failure_detail": detail,
-        },
+    validation = dict(manifest["validation"])
+    validation["status"] = "failed"
+    validation["observed"] = {
+        "failure_stage": stage,
+        "failure_type": type(error).__name__,
+        "failure_detail": detail,
     }
+    manifest["validation"] = validation
+    manifest["notes"] = [
+        note
+        for note in manifest["notes"]
+        if not note.startswith(
+            (
+                "export_result=excluded",
+                "failure_stage=",
+                "failure_type=",
+                "failure_detail=",
+                "artifact_identity=",
+            )
+        )
+    ]
     manifest["notes"].extend(
         [
             "export_result=excluded",
