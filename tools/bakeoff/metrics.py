@@ -386,6 +386,29 @@ def _sample_parsed_grid(
     return tuple(result)
 
 
+def _sample_advected_grid(
+    rows: list[list[float | tuple[float, ...] | None]],
+    shape: tuple[int, int],
+    channels: int,
+    x: Any,
+    y: Any,
+    label: str,
+) -> float | tuple[float, ...] | None:
+    """Sample an advected coordinate, dropping only coordinates outside the grid.
+
+    Advecting a selected source pixel can leave the destination grid.  That pixel has no
+    measurable residual, but malformed coordinates and bad grid cells remain typed failures.
+    The public :func:`bilinear_sample` path continues to report out-of-bounds coordinates.
+    """
+
+    try:
+        return _sample_parsed_grid(rows, shape, channels, x, y, label)
+    except MetricFailure as failure:
+        if failure.kind != "out_of_bounds":
+            raise
+        return None
+
+
 def bilinear_sample(grid: Any, x: Any, y: Any, channels: int | None = None) -> Any:
     """Sample a scalar/RGB/flow grid with bottom-row-origin bilinear interpolation."""
 
@@ -517,7 +540,7 @@ def visible_warp_residual(
                 parsed_flow, flow_shape, 2, column, row, "forward_flow"
             )
             assert isinstance(source_rgb, tuple) and isinstance(displacement, tuple)
-            target_rgb = _sample_parsed_grid(
+            target_rgb = _sample_advected_grid(
                 parsed_image2,
                 image2_shape,
                 3,
@@ -525,10 +548,15 @@ def visible_warp_residual(
                 row + displacement[1],
                 "image2 at forward coordinate",
             )
+            if target_rgb is None:
+                continue
             assert isinstance(target_rgb, tuple)
             residuals.append(_mean_rgb_residual(source_rgb, target_rgb))
     if not residuals:
-        _fail("empty_mask", "visible_mask selects no pixels")
+        _fail(
+            "empty_mask",
+            "visible_mask selects no measurable pixels after dropping out-of-bounds samples",
+        )
     return sum(residuals) / len(residuals)
 
 
@@ -550,7 +578,7 @@ def forward_backward_residual_px(
                 parsed_forward, forward_shape, 2, column, row, "forward_flow"
             )
             assert isinstance(displacement, tuple)
-            reverse = _sample_parsed_grid(
+            reverse = _sample_advected_grid(
                 parsed_backward,
                 backward_shape,
                 2,
@@ -558,12 +586,17 @@ def forward_backward_residual_px(
                 row + displacement[1],
                 "backward_flow at forward coordinate",
             )
+            if reverse is None:
+                continue
             assert isinstance(reverse, tuple)
             residuals.append(
                 math.hypot(displacement[0] + reverse[0], displacement[1] + reverse[1])
             )
     if not residuals:
-        _fail("empty_mask", "valid_mask selects no pixels")
+        _fail(
+            "empty_mask",
+            "valid_mask selects no measurable pixels after dropping out-of-bounds samples",
+        )
     return sum(residuals) / len(residuals)
 
 
@@ -598,24 +631,30 @@ def chain_drift_px(
             current_x = float(column)
             current_y = float(row)
             for index, (parsed, shape) in enumerate(zip(parsed_flows, flow_shapes)):
-                displacement = _sample_parsed_grid(
+                displacement = _sample_advected_grid(
                     parsed, shape, 2, current_x, current_y, f"flows[{index}] at advected coordinate"
                 )
+                if displacement is None:
+                    break
                 assert isinstance(displacement, tuple)
                 current_x += displacement[0]
                 current_y += displacement[1]
-            truth = _sample_parsed_grid(
-                parsed_truth, truth_shape, 2, column, row, "truth_flow"
-            )
-            assert isinstance(truth, tuple)
-            residuals.append(
-                math.hypot(
-                    (current_x - column) - truth[0],
-                    (current_y - row) - truth[1],
+            else:
+                truth = _sample_parsed_grid(
+                    parsed_truth, truth_shape, 2, column, row, "truth_flow"
                 )
-            )
+                assert isinstance(truth, tuple)
+                residuals.append(
+                    math.hypot(
+                        (current_x - column) - truth[0],
+                        (current_y - row) - truth[1],
+                    )
+                )
     if not residuals:
-        _fail("empty_mask", "valid_mask selects no pixels")
+        _fail(
+            "empty_mask",
+            "valid_mask selects no measurable pixels after dropping out-of-bounds samples",
+        )
     return sum(residuals) / len(residuals)
 
 

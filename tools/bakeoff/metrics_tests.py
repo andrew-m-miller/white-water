@@ -260,15 +260,24 @@ def test_warp_and_forward_backward_residuals() -> None:
     assert visible_warp_residual(image, shifted_image, identity, all_visible) == 1.0
     shifted_source = [[(99.0, 0.0, 0.0), (0.0, 1.0, 2.0), (1.0, 2.0, 3.0)], [(99.0, 0.0, 0.0), (2.0, 3.0, 4.0), (3.0, 4.0, 5.0)]]
     right_flow = [[(1.0, 0.0), (1.0, 0.0)], [(1.0, 0.0), (1.0, 0.0)]]
+    # A destination exactly on the last image2 pixel remains measurable.
     assert visible_warp_residual(image, shifted_source, right_flow, all_visible) == 0.0
     _failure("mask_required", lambda: visible_warp_residual(image, image, identity, None))
-    _failure("out_of_bounds", lambda: visible_warp_residual(image, image, right_flow, all_visible))
+    partial_flow = [[(1.0, 0.0), (2.0, 0.0)], [(1.0, 0.0), (2.0, 0.0)]]
+    assert visible_warp_residual(image, shifted_source, partial_flow, all_visible) == 0.0
+    off_grid_flow = [[(3.0, 0.0), (3.0, 0.0)], [(3.0, 0.0), (3.0, 0.0)]]
+    _failure("empty_mask", lambda: visible_warp_residual(image, shifted_source, off_grid_flow, all_visible))
 
     backward = [[(-1.0, 0.0), (-1.0, 0.0), (-1.0, 0.0)]]
     forward = [[(1.0, 0.0), (1.0, 0.0)]]
+    # The second source lands exactly on backward's last pixel.
     assert forward_backward_residual_px(forward, backward, [[True, True]]) == 0.0
     assert forward_backward_residual_px(forward, [[(0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]], [[True, True]]) == 1.0
     _failure("mask_required", lambda: forward_backward_residual_px(forward, backward, None))
+    partial_forward = [[(1.0, 0.0), (2.0, 0.0)]]
+    assert forward_backward_residual_px(partial_forward, backward, [[True, True]]) == 0.0
+    off_grid_forward = [[(3.0, 0.0), (3.0, 0.0)]]
+    _failure("empty_mask", lambda: forward_backward_residual_px(off_grid_forward, backward, [[True, True]]))
 
 
 def test_chain_drift() -> None:
@@ -283,8 +292,22 @@ def test_chain_drift() -> None:
     _failure("link_count", lambda: chain_drift_px(links * 3, wrong_truth, mask, 3))
     _failure("link_count", lambda: chain_drift_px(links, wrong_truth, mask, 2))
     _failure("mask_required", lambda: chain_drift_px(links, wrong_truth, None, 1))
+    edge_first = [[(1.0, 0.0), (1.0, 0.0)]]
+    edge_second = [[(1.0, 0.0)] * 3]
+    edge_truth = [[(2.0, 0.0), (2.0, 0.0)]]
+    # The second source reaches edge_second's final pixel exactly.
+    assert chain_drift_px([edge_first, edge_second], edge_truth, [[True, True]], 2) == 0.0
+    partial_second = [[(1.0, 0.0), (1.0, 0.0)]]
+    assert chain_drift_px([edge_first, partial_second], edge_truth, [[True, True]], 2) == 0.0
+    off_grid_first = [[(2.0, 0.0), (2.0, 0.0)]]
+    _failure(
+        "empty_mask",
+        lambda: chain_drift_px(
+            [off_grid_first, partial_second], edge_truth, [[True, True]], 2
+        ),
+    )
     bad_link = [[(99.0, 0.0)] * width]
-    _failure("out_of_bounds", lambda: chain_drift_px([bad_link, links[0]], [[(1.0, 0.0)] * width], mask, 2))
+    _failure("empty_mask", lambda: chain_drift_px([bad_link, links[0]], [[(1.0, 0.0)] * width], mask, 2))
 
 
 def test_macro_equal_weighting() -> None:
