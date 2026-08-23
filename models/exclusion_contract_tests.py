@@ -57,17 +57,12 @@ def main() -> int:
     }
     validate_exclusion_contract(technical)
 
-    # The WAFT provenance record is delivered by its independent candidate workstream.  When
-    # that optional record is present, exercise its migration too; the shared contract itself
-    # remains fully covered above on this branch.
-    waft_path = ROOT / "models" / "waft-twins.json"
-    if waft_path.exists():
-        waft = json.loads(waft_path.read_text(encoding="utf-8"))
-        validate_exclusion_contract(waft)
-        old_waft = copy.deepcopy(waft)
-        old_waft["exclusion"].pop("reason_code")
-        old_waft["exclusion"]["reasons"] = ["checkpoint_terms_unavailable"]
-        expect_failure("WAFT legacy reasons array", old_waft)
+    waft = json.loads((ROOT / "models" / "waft-twins.json").read_text(encoding="utf-8"))
+    validate_exclusion_contract(waft)
+    old_waft = copy.deepcopy(waft)
+    old_waft["exclusion"].pop("reason_code")
+    old_waft["exclusion"]["reasons"] = ["checkpoint_terms_unavailable"]
+    expect_failure("WAFT legacy reasons array", old_waft)
 
     print("shared exclusion contract tests: PASS")
     return 0

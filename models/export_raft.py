@@ -506,9 +506,7 @@ def _platform_id(value: str | None) -> str:
     return f"{sys.platform}-{platform.machine().lower()}"
 
 
-def _record_generic_validation(
-    manifest: dict[str, Any], observed: dict[str, Any], *, admission_pending: bool
-) -> None:
+def _record_generic_validation(manifest: dict[str, Any], observed: dict[str, Any]) -> None:
     """Map numerical evidence into the shared schema without claiming admission."""
 
     validation = manifest["validation"]
@@ -552,7 +550,7 @@ def _record_generic_validation(
         "checkpoint_locally_verified": True,
         "checkpoint_archive_sha256": EXPECTED_ARCHIVE_SHA256,
         "checkpoint_member": EXPECTED_MEMBER,
-        "checkpoint_terms": "unknown_from_official_primary_sources" if admission_pending else "unknown",
+        "checkpoint_terms": "unknown_from_official_primary_sources",
         "provider_validation": observed["provider_validation"],
         "advertised_io": observed["advertised_io"],
         "graph_nodes": observed["graph_nodes"],
@@ -579,7 +577,7 @@ def update_manifest(
 ) -> None:
     # The baseline has unknown checkpoint commercial/redistribution terms. Record all numerical
     # evidence and exact bytes, but keep admission explicitly excluded.
-    _record_generic_validation(manifest, observed, admission_pending=True)
+    _record_generic_validation(manifest, observed)
     env_observed = observed["environment"]
     environment = {
         "platform": "macos" if platform_id.startswith("macos") else "linux",
