@@ -87,6 +87,45 @@ class SyntheticCase:
         return self.case_id
 
 
+@dataclass(frozen=True)
+class PairTruth:
+    """Typed truth for one source-frame coordinate and its target correspondence.
+
+    ``status`` is ``foreground`` or ``background`` only when a visible layer has a
+    visible correspondence in the target.  ``occluded`` and ``revealed`` identify a
+    layer mismatch and therefore carry no dense displacement.  The separate
+    ``same_coordinate_transition`` records the useful fixed-coordinate mask change,
+    even when the moving layer itself has a valid correspondence elsewhere.
+    """
+
+    status: str
+    source_layer: str
+    target_layer: str
+    source_coordinate: tuple[float, float]
+    target_coordinate: tuple[float, float]
+    displacement: tuple[float, float] | None
+    same_coordinate_transition: str
+
+    @property
+    def has_dense_truth(self) -> bool:
+        return self.displacement is not None
+
+    @property
+    def no_dense_truth(self) -> bool:
+        return self.displacement is None
+
+
+class TruthUnavailable(ValueError):
+    """Raised when a caller asks the dense helper for an occluded/revealed sample."""
+
+    def __init__(self, truth: PairTruth):
+        self.truth = truth
+        super().__init__(
+            f"{truth.status} sample has no dense displacement truth "
+            f"({truth.source_layer}->{truth.target_layer})"
+        )
+
+
 def _case(
     case_id: str,
     category: str,
@@ -148,7 +187,7 @@ def all_cases() -> tuple[SyntheticCase, ...]:
               parameters={"foreground": "moving_rectangle", "visible_mask": "analytic"}),
         _case("blur", "blur", 96, 64, seed=43,
               parameters={"kernel": "three_sample_motion", "radius": 1.0}),
-        _case("noise", "noise", 96, 64, seed=47,
+        _case("noise", "noise", 96, 64, seed=4701,
               parameters={"distribution": "uniform", "amplitude": 0.025,
                           "seed": 4701}),
         _case("hdr-scene-linear", "hdr-log", 96, 64, seed=53,
@@ -349,6 +388,72 @@ def _motion(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float,
     return mapped_x - x, mapped_y - y
 
 
+def _foreground_coordinate(
+    case: SyntheticCase,
+    from_frame: int,
+    to_frame: int,
+    x: float,
+    y: float,
+) -> tuple[float, float]:
+    """Map a visible foreground point between two frames."""
+
+    delta = float(to_frame - from_frame)
+    return x + 3.0 * delta, y - 1.0 * delta
+
+
+def _layer_at(case: SyntheticCase, frame: int, x: float, y: float) -> str:
+    if case.case_id == "occlusion-reveal" and visibility_at(case, frame, x, y):
+        return "foreground"
+    return "background"
+
+
+def _transition(source_layer: str, target_layer: str) -> str:
+    if source_layer == target_layer:
+        return "stable"
+    return "occluded" if source_layer == "foreground" else "revealed"
+
+
+def analytic_pair_truth(
+    case_or_id: SyntheticCase | str,
+    from_frame: int,
+    to_frame: int,
+    x: float,
+    y: float,
+) -> PairTruth:
+    """Return typed pair truth, including layer visibility and dense availability.
+
+    Coordinates are in ``from_frame``.  A visible foreground point follows the
+    foreground layer map; background points follow the common background map.  If
+    that correspondence lands on the other visible layer, the result is marked
+    ``occluded`` or ``revealed`` and has no displacement.  Callers that need only a
+    dense field should use :func:`analytic_displacement`, which rejects that outcome.
+    """
+
+    case = _case_for(case_or_id)
+    source_layer = _layer_at(case, from_frame, x, y)
+    if source_layer == "foreground":
+        target_x, target_y = _foreground_coordinate(case, from_frame, to_frame, x, y)
+    else:
+        source_x, source_y = _inverse_coordinate(case, from_frame, x, y)
+        target_x, target_y = _forward_coordinate(case, to_frame, source_x, source_y)
+    target_layer = _layer_at(case, to_frame, target_x, target_y)
+    status = _transition(source_layer, target_layer)
+    displacement = None if status != "stable" else (target_x - x, target_y - y)
+    same_coordinate_transition = _transition(
+        _layer_at(case, from_frame, x, y),
+        _layer_at(case, to_frame, x, y),
+    )
+    return PairTruth(
+        status if status != "stable" else source_layer,
+        source_layer,
+        target_layer,
+        (x, y),
+        (target_x, target_y),
+        displacement,
+        same_coordinate_transition,
+    )
+
+
 def analytic_pair_coordinate(
     case_or_id: SyntheticCase | str,
     from_frame: int,
@@ -356,11 +461,12 @@ def analytic_pair_coordinate(
     x: float,
     y: float,
 ) -> tuple[float, float]:
-    """Map a coordinate in ``from_frame`` to ``to_frame`` through the common plate."""
+    """Map a coordinate only when its typed pair truth has a dense correspondence."""
 
-    case = _case_for(case_or_id)
-    source_x, source_y = _inverse_coordinate(case, from_frame, x, y)
-    return _forward_coordinate(case, to_frame, source_x, source_y)
+    truth = analytic_pair_truth(case_or_id, from_frame, to_frame, x, y)
+    if truth.no_dense_truth:
+        raise TruthUnavailable(truth)
+    return truth.target_coordinate
 
 
 def analytic_displacement(
@@ -374,11 +480,17 @@ def analytic_displacement(
 
     Frames are inverse-warped samples of one common plate.  The exact pair field first
     inverts the source-frame map, then applies the target-frame map, so affine and
-    spatial truth are in the same coordinate system as the generated images.
+    spatial truth are in the same coordinate system as the generated images.  For the
+    occlusion case, use :func:`analytic_pair_truth` to inspect layer status; this helper
+    raises :class:`TruthUnavailable` instead of returning background motion for a
+    foreground or visibility-mismatch sample.
     """
 
-    target_x, target_y = analytic_pair_coordinate(case_or_id, from_frame, to_frame, x, y)
-    return target_x - x, target_y - y
+    truth = analytic_pair_truth(case_or_id, from_frame, to_frame, x, y)
+    if truth.no_dense_truth:
+        raise TruthUnavailable(truth)
+    assert truth.displacement is not None
+    return truth.displacement
 
 
 def _noise(case: SyntheticCase, frame: int, x: int, y: int) -> float:
@@ -476,7 +588,10 @@ def truth_document(case_or_id: SyntheticCase | str) -> dict[str, Any]:
         "coordinate_convention": COORDINATE_CONVENTION,
         "reference_frame": case.reference_frame,
         "frame_range": {"first": case.first_frame, "last": case.last_frame},
-        "pair_field": "forward(to_frame,inverse(from_frame,(x,y)))-(x,y)",
+        "pair_field": (
+            "analytic_pair_truth(...).displacement when status is foreground or "
+            "background; otherwise no dense truth"
+        ),
         "motion": {
             "case": case.case_id,
             "analytic": True,
@@ -490,6 +605,16 @@ def truth_document(case_or_id: SyntheticCase | str) -> dict[str, Any]:
             "truth": "sum of link fields equals analytic_displacement",
         }
     if case.case_id == "occlusion-reveal":
+        document["pair_truth"] = {
+            "api": "analytic_pair_truth(case, from_frame, to_frame, x, y)",
+            "dense_statuses": ["foreground", "background"],
+            "non_dense_statuses": ["occluded", "revealed"],
+            "non_dense_displacement": None,
+            "same_coordinate_transition": (
+                "stable, occluded, or revealed visibility transition at the queried "
+                "coordinate; this is separate from moving-layer correspondence"
+            ),
+        }
         document["visibility"] = {
             "kind": "analytic_rectangles",
             "value": "1 when left <= x < right and bottom <= y < top, else 0",
@@ -625,9 +750,12 @@ __all__ = [
     "COORDINATE_CONVENTION",
     "REQUIRED_SYNTHETIC_CASES",
     "SyntheticCase",
+    "PairTruth",
+    "TruthUnavailable",
     "all_cases",
     "case_map",
     "analytic_pair_coordinate",
+    "analytic_pair_truth",
     "analytic_displacement",
     "frame_source_coordinate",
     "foreground_rect",

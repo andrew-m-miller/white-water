@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 import subprocess
 import sys
@@ -25,12 +26,15 @@ from .synthetic import (
     REQUIRED_SYNTHETIC_CASES,
     all_cases,
     analytic_pair_coordinate,
+    analytic_pair_truth,
     analytic_displacement,
     foreground_displacement,
     foreground_rect,
     generate_frame,
     frame_source_coordinate,
+    TruthUnavailable,
     synthetic_partition,
+    truth_document,
     visibility_at,
     write_case_frames,
     _sample_base,
@@ -195,7 +199,40 @@ def _test_synthetic_cases() -> None:
         _near(displacement[1], pair[1] - y, tolerance=1.0e-12)
 
     # The moving rectangle has independent foreground/background motion, and both
-    # sides of the visibility transition are represented in the emitted truth.
+    # sides of the visibility transition are represented in the emitted truth.  The
+    # typed API follows the visible layer and rejects a correspondence that changes
+    # layers, so a foreground pixel can never silently receive background motion.
+    foreground_truth = analytic_pair_truth("occlusion-reveal", 0, 8, 20.0, 30.0)
+    assert foreground_truth.status == "foreground"
+    assert foreground_truth.source_layer == "foreground"
+    assert foreground_truth.target_layer == "foreground"
+    assert foreground_truth.displacement == (24.0, -8.0)
+    assert foreground_truth.same_coordinate_transition == "occluded"
+    assert analytic_displacement("occlusion-reveal", 0, 8, 20.0, 30.0) == (24.0, -8.0)
+    background_truth = analytic_pair_truth("occlusion-reveal", 0, 8, 50.0, 40.0)
+    assert background_truth.status == "background"
+    assert background_truth.source_layer == "background"
+    assert background_truth.target_layer == "background"
+    assert background_truth.displacement == (8.0, 4.0)
+    revealed_transition = analytic_pair_truth("occlusion-reveal", 0, 8, 50.0, 30.0)
+    assert revealed_transition.status == "background"
+    assert revealed_transition.same_coordinate_transition == "revealed"
+    revealed_truth = analytic_pair_truth("occlusion-reveal", 0, 8, 34.0, 29.0)
+    assert revealed_truth.status == "revealed"
+    assert revealed_truth.no_dense_truth
+    assert revealed_truth.displacement is None
+    try:
+        analytic_displacement("occlusion-reveal", 0, 8, 34.0, 29.0)
+    except TruthUnavailable as failure:
+        assert failure.truth == revealed_truth
+    else:
+        raise AssertionError("layer-changing sample returned dense truth")
+    try:
+        analytic_pair_coordinate("occlusion-reveal", 0, 8, 34.0, 29.0)
+    except TruthUnavailable as failure:
+        assert failure.truth == revealed_truth
+    else:
+        raise AssertionError("layer-changing sample returned a pair coordinate")
     assert visibility_at("occlusion-reveal", 0, 28, 30)
     assert not visibility_at("occlusion-reveal", 8, 28, 30)
     assert not visibility_at("occlusion-reveal", 0, 50, 30)
@@ -216,6 +253,19 @@ def _test_synthetic_cases() -> None:
     noise_a = generate_frame("noise", 5)
     noise_b = generate_frame("noise", 5)
     assert noise_a == noise_b
+    noise_case = next(case for case in cases if case.case_id == "noise")
+    assert noise_case.parameters is not None
+    recorded_seed = noise_case.parameters["seed"]
+    assert recorded_seed == noise_case.seed == 4701
+    changed_parameters = dict(noise_case.parameters)
+    changed_parameters["seed"] = recorded_seed + 1
+    changed_noise_case = replace(
+        noise_case,
+        seed=recorded_seed + 1,
+        parameters=changed_parameters,
+    )
+    assert generate_frame(changed_noise_case, 5) != noise_a
+    assert truth_document("noise")["motion"]["parameters"]["seed"] == recorded_seed
     hdr = generate_frame("hdr-scene-linear", 4)
     assert max(channel for row in hdr for pixel in row for channel in pixel) > 1.0
     log = generate_frame("log-input", 4)
@@ -274,6 +324,8 @@ def _test_corpus_and_emission() -> None:
         write_case_frames("occlusion-reveal", directory)
         visibility_truth = json.loads((directory / "occlusion-reveal/truth.json").read_text(encoding="utf-8"))
         assert visibility_truth["visibility"]["frames"]
+        assert visibility_truth["pair_truth"]["api"].startswith("analytic_pair_truth")
+        assert visibility_truth["pair_truth"]["non_dense_displacement"] is None
 
 
 def main() -> int:

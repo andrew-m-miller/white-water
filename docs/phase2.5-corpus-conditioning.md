@@ -30,6 +30,19 @@ occlusion/reveal case records an analytic rectangle for every frame: the foregro
 `(3,-1)` px per frame while its background moves `(1,.5)`, making both visibility transitions
 real and measurable.
 
+For occlusion/reveal, consumers use `analytic_pair_truth(case, from_frame, to_frame, x, y)`.
+Its typed result reports the visible source/target layers and returns dense displacement only
+for `status="foreground"` or `status="background"`; `status="occluded"` and
+`status="revealed"` have `displacement=None` and `no_dense_truth=True`.  The result also records
+fixed-coordinate `same_coordinate_transition` (`stable`, `occluded`, or `revealed`) so mask
+changes remain measurable even when a moving layer has a valid correspondence elsewhere.
+The compatibility `analytic_displacement` helper follows the selected layer and raises a
+typed `TruthUnavailable` for the no-dense cases rather than silently returning background flow.
+The occlusion truth sidecar names this API and its status contract.
+
+The noise case records one reproducible seed (`4701`) and uses that exact seed as the generator
+input; changing it changes the emitted pixels while repeated generation is identical.
+
 ## Frozen conditioning
 
 `condition_pair` implements the four protocol tokens before model-declared tensor packing:
