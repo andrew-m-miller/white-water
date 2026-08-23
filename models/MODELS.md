@@ -308,8 +308,34 @@ not-applicable and does not infer a framework licence.
 and the author-linked `models/raft-things.pth` archive member by its URL, 21,108,000-byte
 size, and SHA256 `fcfa4125d6418f4de95d84aec20a3c5f4e205101715a79f193243c186ac9a7e1`.
 The official README and `download_models.sh` do not state checkpoint commercial-use or
-redistribution terms, so that surface remains `unknown` and the manifest is explicitly
-`provenance_pinned_export_pending`; no licence conclusion or ONNX artifact is claimed.
+redistribution terms, so that surface remains `unknown`; the numerical export below is
+recorded as `excluded`/admission `pending` and makes no licence or shipping claim.
+
+### P25-3D original RAFT baseline export — 2026-08-23
+
+`models/fetch_raft_checkpoint.py` verifies the author-linked archive SHA256
+`4be6101b271f58ec49866da5cf609fd17e86e9cae2483f70630ef4a295dc66bd`, extracts only the
+`models/raft-things.pth` member, and verifies the pinned member hash before publishing mode
+`0644`. Network access is opt-in. `models/export_raft.py` then verifies the source checkout and
+member again, loads the complete state dict strictly, and exports the official full RAFT path
+with 12 iterations baked into the graph. Inputs are caller-replication-padded to a multiple of
+eight and the caller crops the output; the graph does not hide data-dependent padding.
+
+The export used `models/requirements-raft-export.txt` in the external environment
+`/private/tmp/white-water-searaft-export-env` (Python 3.11.15, PyTorch 2.2.0, ONNX 1.15.0,
+ONNX Runtime 1.29.0). The exact mode-0644 opset-17 artifact is kept outside Git at
+`/private/tmp/raft-original-opset17.onnx`: 21,419,753 bytes,
+SHA256 `d9b8aa7d07c3e56303b336c5e1da101c5ebd09c3d71cdcf0c8a649de1044b6d2`. The graph has
+2,598 standard `ai.onnx` nodes. CPU provider validation selected
+`CPUExecutionProvider`; CoreML and Azure were visible but were not run or qualified here.
+
+The local synthetic gates passed identity, both signed translations, runtime `[1,2,H,W]`
+shapes at 128x192 and 160x256, and PyTorch/ONNX parity. Identity median EPE was 0.02275 px;
+forward median flow was `(4.0249, -0.0234)` and reverse was `(-4.0233, 0.0289)`. Across both
+shapes and all three pairs, parity mean/p99/p99.9/max absolute error was
+`0.01437 / 0.06491 / 0.11318 / 0.30979`. These are local CPU evidence only. Because the
+checkpoint terms remain unresolved, the manifest records the exact bytes and measurements but
+remains explicitly excluded and cannot be admitted or shipped.
 
 ```bash
 python3.10 -m venv /path/to/searaft-export-env

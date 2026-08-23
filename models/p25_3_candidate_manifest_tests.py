@@ -20,6 +20,9 @@ SEA_ARTIFACT_SIZE = 78840944
 SEA_CHECKPOINT_SHA256 = "cb8cfbf14c5e0f6734b64add383708b7ff68cc6089a0007c67165d4761346102"
 RAFT_SOURCE_COMMIT = "2888e15a51fa41140771d3f498ed8023cff098d1"
 RAFT_CHECKPOINT_SHA256 = "fcfa4125d6418f4de95d84aec20a3c5f4e205101715a79f193243c186ac9a7e1"
+RAFT_ARCHIVE_SHA256 = "4be6101b271f58ec49866da5cf609fd17e86e9cae2483f70630ef4a295dc66bd"
+RAFT_ARTIFACT_SHA256 = "d9b8aa7d07c3e56303b336c5e1da101c5ebd09c3d71cdcf0c8a649de1044b6d2"
+RAFT_ARTIFACT_SIZE = 21419753
 
 
 def _require(condition: bool, message: str) -> None:
@@ -96,17 +99,26 @@ def check_original_raft() -> None:
         manifest["licenses"]["checkpoint"]["redistribution_permitted"] == "unknown",
         "RAFT checkpoint redistribution terms were guessed",
     )
-    _require(
-        manifest["status"] == "provenance_pinned_export_pending",
-        "RAFT pending status changed",
-    )
+    _require(manifest["status"] == "excluded", "RAFT numerical export must remain excluded")
     _require(manifest["validation"]["status"] == "pending", "RAFT validation status changed")
-    _require(manifest["export"]["sha256"] is None, "RAFT pending export must not claim bytes")
-    _require(manifest["export"]["size_bytes"] is None, "RAFT pending export must not claim size")
+    _require(manifest["export"]["sha256"] == RAFT_ARTIFACT_SHA256, "RAFT export hash changed")
+    _require(manifest["export"]["size_bytes"] == RAFT_ARTIFACT_SIZE, "RAFT export size changed")
     _require(
         manifest["validation"]["observed"]["reason_type"]
-        == "checkpoint_terms_unresolved_and_export_not_run",
-        "RAFT pending reason must remain typed",
+        == "checkpoint_terms_unresolved",
+        "RAFT exclusion reason must remain typed",
+    )
+    _require(
+        manifest["validation"]["observed"]["checkpoint_archive_sha256"] == RAFT_ARCHIVE_SHA256,
+        "RAFT archive hash changed",
+    )
+    _require(
+        manifest["validation"]["observed"]["numerical_gates"] == "passed",
+        "RAFT numerical gates are not recorded as passed",
+    )
+    _require(
+        manifest["validation"]["parity"]["checked"] is True,
+        "RAFT PyTorch/ONNX parity was not recorded",
     )
 
 

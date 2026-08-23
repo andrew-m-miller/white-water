@@ -1,0 +1,7 @@
+# Original RAFT source documents PyTorch 1.6/CUDA 10.1.  The reproducible exporter uses this
+# pinned CPU-capable environment while loading that unchanged source at the pinned revision.
+torch==2.2.0
+numpy==1.26.4
+scipy==1.12.0
+onnx==1.15.0
+onnxruntime==1.29.0

@@ -130,6 +130,9 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME models::p25_3_candidate_manifests
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/p25_3_candidate_manifest_tests.py")
+  add_test(NAME models::raft_export_framework
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/raft_export_tests.py")
   add_test(NAME models::artifact_framework
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/artifact_tests.py")
