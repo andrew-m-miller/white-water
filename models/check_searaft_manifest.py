@@ -39,6 +39,8 @@ def main() -> int:
         raise ArtifactError("SEA-RAFT output direction is not preserved")
     if contract["padding"]["multiple"] != 8:
         raise ArtifactError("SEA-RAFT padding multiple is not preserved")
+    if contract["padding"]["policy"] != "caller-replication-crop":
+        raise ArtifactError("SEA-RAFT caller replication/crop policy is not preserved")
     if contract["iterations"] != "4_baked_into_graph":
         raise ArtifactError("SEA-RAFT iteration handling is not preserved")
     if manifest["model"]["config"]["scale"] != -1:

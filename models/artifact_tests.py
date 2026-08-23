@@ -46,6 +46,20 @@ def main() -> int:
         "unknown-top-level-field",
         "unknown-nested-field",
         "incompatible-tensor-contract",
+        "input-pair-dtype-mismatch",
+        "input-pair-layout-mismatch",
+        "input-pair-channel-mismatch",
+        "padding-policy-unknown",
+        "validation-identity-false",
+        "validation-identity-threshold",
+        "validation-parity-unchecked",
+        "validation-parity-threshold",
+        "validation-forward-sign-mismatch",
+        "validation-reverse-sign-mismatch",
+        "validation-status-incoherent",
+        "export-status-validation-incoherent",
+        "host-status-validation-incoherent",
+        "export-status-hash-incoherent",
         "artifact-sha256-mismatch",
         "artifact-size-mismatch",
         "artifact-symlink",
@@ -56,7 +70,9 @@ def main() -> int:
         raise AssertionError("negative artifact fixture inventory is incomplete")
     positive = load_manifest(POSITIVE, protocol_path=False)
     validate_artifact(positive, POSITIVE, POSITIVE_ARTIFACT)
-    load_manifest(SEA_RAFT)
+    sea_raft = load_manifest(SEA_RAFT)
+    if sea_raft["tensor_contract"]["padding"]["policy"] != "caller-replication-crop":
+        raise AssertionError("SEA-RAFT manifest does not expose the canonical replication policy")
 
     unknown = copy.deepcopy(positive)
     unknown["unknown_required_field"] = True
@@ -68,12 +84,89 @@ def main() -> int:
 
     incompatible = copy.deepcopy(positive)
     incompatible["tensor_contract"]["output"]["units"] = "input_pixels"
-    incompatible["tensor_contract"]["padding"]["crop"] = "none"
+    incompatible["tensor_contract"]["padding"]["policy"] = "none"
     protocol = load_json(PROTOCOL_PATH)
     expect_failure(
         "incompatible P25-0 tensor contract",
         lambda: validate_manifest(incompatible, protocol=protocol),
     )
+
+    pair_mutations = {
+        "input-pair-dtype-mismatch": ("dtype", "float16"),
+        "input-pair-layout-mismatch": ("layout", "NHWC"),
+        "input-pair-channel-mismatch": ("channels", "RGBA"),
+    }
+    for label, (field, value) in pair_mutations.items():
+        bad_pair = copy.deepcopy(positive)
+        bad_pair["tensor_contract"]["inputs"][1][field] = value
+        expect_failure(label, lambda bad_pair=bad_pair: validate_manifest(bad_pair, protocol=protocol))
+
+    bad_pair_without_protocol = copy.deepcopy(positive)
+    bad_pair_without_protocol["tensor_contract"]["inputs"][1]["dtype"] = "float16"
+    expect_failure(
+        "input pair mismatch without protocol",
+        lambda: validate_manifest(bad_pair_without_protocol),
+    )
+
+    bad_padding = copy.deepcopy(positive)
+    bad_padding["tensor_contract"]["padding"]["policy"] = "caller-custom-pad"
+    expect_failure("padding-policy-unknown", lambda: validate_manifest(bad_padding))
+
+    bad_identity = copy.deepcopy(positive)
+    bad_identity["validation"]["identity"]["passed"] = False
+    expect_failure("validation-identity-false", lambda: validate_manifest(bad_identity))
+
+    bad_identity_threshold = copy.deepcopy(positive)
+    bad_identity_threshold["validation"]["identity"]["median_epe_px"] = 1
+    bad_identity_threshold["validation"]["identity_median_epe_max"] = 0.75
+    expect_failure(
+        "validation identity threshold",
+        lambda: validate_manifest(bad_identity_threshold),
+    )
+
+    bad_parity = copy.deepcopy(positive)
+    bad_parity["validation"]["parity"]["checked"] = False
+    expect_failure("validation-parity-unchecked", lambda: validate_manifest(bad_parity))
+
+    bad_parity_threshold = copy.deepcopy(positive)
+    bad_parity_threshold["validation"]["parity"]["mean_abs"] = 1
+    bad_parity_threshold["validation"]["onnx_pytorch_mean_abs_max"] = 0.05
+    expect_failure(
+        "validation parity threshold",
+        lambda: validate_manifest(bad_parity_threshold),
+    )
+
+    bad_forward = copy.deepcopy(positive)
+    bad_forward["validation"]["directions"]["forward"]["median_dx_px"] = -1
+    expect_failure("validation-forward-sign-mismatch", lambda: validate_manifest(bad_forward))
+
+    bad_reverse = copy.deepcopy(positive)
+    bad_reverse["validation"]["directions"]["reverse"]["median_dx_px"] = 1
+    expect_failure("validation-reverse-sign-mismatch", lambda: validate_manifest(bad_reverse))
+
+    bad_status = copy.deepcopy(positive)
+    bad_status["validation"]["status"] = "pending"
+    expect_failure("validation-status-incoherent", lambda: validate_manifest(bad_status))
+
+    bad_export_validation = copy.deepcopy(positive)
+    bad_export_validation["status"] = "export_validated"
+    bad_export_validation["validation"]["status"] = "pending"
+    expect_failure(
+        "export status/validation incoherence",
+        lambda: validate_manifest(bad_export_validation),
+    )
+
+    bad_host_validation = copy.deepcopy(positive)
+    bad_host_validation["status"] = "host_probe_cpu_cuda_passed"
+    bad_host_validation["validation"]["status"] = "pending"
+    expect_failure(
+        "host status/validation incoherence",
+        lambda: validate_manifest(bad_host_validation),
+    )
+
+    bad_export_status = copy.deepcopy(positive)
+    bad_export_status["status"] = "provenance_pinned_export_pending"
+    expect_failure("export status/hash incoherence", lambda: validate_manifest(bad_export_status))
 
     with tempfile.TemporaryDirectory(prefix="whitewater-artifact-tests-") as temporary:
         directory = Path(temporary)

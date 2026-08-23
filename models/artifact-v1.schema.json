@@ -243,11 +243,17 @@
         "padding": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["multiple", "mode", "crop"],
+          "required": ["multiple", "policy"],
           "properties": {
             "multiple": {"type": "integer", "minimum": 1},
-            "mode": {"type": "string", "minLength": 1},
-            "crop": {"type": "string", "minLength": 1}
+            "policy": {
+              "enum": [
+                "none",
+                "caller-replication-crop",
+                "caller-reflection-crop",
+                "graph-internal"
+              ]
+            }
           }
         },
         "batch": {"const": 1},

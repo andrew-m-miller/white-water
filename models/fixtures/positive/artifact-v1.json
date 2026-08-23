@@ -75,7 +75,7 @@
     "normalization": "identity",
     "normalization_location": "caller",
     "normalization_formula": "identity",
-    "padding": {"multiple": 8, "mode": "none", "crop": "none"},
+    "padding": {"multiple": 8, "policy": "none"},
     "batch": 1,
     "spatial_dimensions": "dynamic_multiples_of_8",
     "iterations": "none",

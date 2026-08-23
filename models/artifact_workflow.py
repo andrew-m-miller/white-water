@@ -102,26 +102,47 @@ def environment_sha256(environment: Mapping[str, Any]) -> str:
     return canonical_sha256(value)
 
 
+def _canonical_channels(value: Any) -> str | list[str]:
+    if isinstance(value, list):
+        return "".join(value)
+    return value
+
+
+def _validate_input_pair(inputs: list[Mapping[str, Any]]) -> None:
+    first = inputs[0]
+    second = inputs[1]
+    for field in ("dtype", "layout", "channels"):
+        first_value = _canonical_channels(first[field]) if field == "channels" else first[field]
+        second_value = _canonical_channels(second[field]) if field == "channels" else second[field]
+        if first_value != second_value:
+            raise ArtifactError(
+                f"tensor_contract.inputs image1 and image2 differ in {field}: "
+                f"{first_value!r} != {second_value!r}"
+            )
+
+
 def _canonical_contract(manifest: Mapping[str, Any]) -> dict[str, Any]:
     """Return the P25-0 contract vocabulary represented by a detailed manifest.
 
-    SEA-RAFT's original manifest called its post-crop vectors ``input_pixels``.  Its padding
-    contract explicitly crops the result to the unpadded extent, so this is equivalent to the
-    frozen protocol's ``unpadded_analysis_pixels`` token.  Keeping that spelling in the
-    migrated manifest preserves the Phase 0B record while still rejecting genuinely incompatible
-    candidates.
+    SEA-RAFT's original manifest called its post-crop vectors ``input_pixels``.  Its canonical
+    ``caller-replication-crop`` policy explicitly crops the result to the unpadded extent, so
+    this is equivalent to the frozen protocol's ``unpadded_analysis_pixels`` token. Keeping
+    that spelling in the migrated manifest preserves the Phase 0B record while still rejecting
+    genuinely incompatible candidates.
     """
 
     contract = manifest["tensor_contract"]
     inputs = contract["inputs"]
     output = contract["output"]
     units = output["units"]
-    crop = str(contract["padding"]["crop"]).lower()
-    if units == "input_pixels" and "crop" in crop and "unpadded" in crop:
+    padding_policy = contract["padding"]["policy"]
+    if units == "input_pixels" and padding_policy in {
+        "caller-replication-crop",
+        "caller-reflection-crop",
+    }:
         units = "unpadded_analysis_pixels"
-    channels = inputs[0]["channels"]
-    if isinstance(channels, list):
-        channels = "".join(channels)
+
+    channels = _canonical_channels(inputs[0]["channels"])
     return {
         "batch": contract["batch"],
         "input_dtype": inputs[0]["dtype"],
@@ -133,18 +154,45 @@ def _canonical_contract(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "output_channels": output["channels"],
         "output_direction": output["direction"],
         "output_units": units,
+        # Keep both inputs in the canonical representation.  The frozen protocol names the
+        # pair's shared dtype/layout/channel contract as scalars, but retaining each member
+        # here makes a second-input drift visible instead of silently inheriting input[0].
+        "input_contracts": [
+            {
+                "name": item["name"],
+                "dtype": item["dtype"],
+                "layout": item["layout"],
+                "channels": _canonical_channels(item["channels"]),
+            }
+            for item in inputs
+        ],
     }
 
 
 def _validate_contract_compatibility(manifest: Mapping[str, Any], protocol: Mapping[str, Any]) -> None:
     expected = protocol["eligibility"]["required_tensor_contract"]
     actual = _canonical_contract(manifest)
-    if actual != expected:
-        differences = [
-            f"{key}: expected {expected.get(key)!r}, got {actual.get(key)!r}"
-            for key in expected
-            if actual.get(key) != expected.get(key)
-        ]
+    differences = [
+        f"{key}: expected {expected.get(key)!r}, got {actual.get(key)!r}"
+        for key in expected
+        if actual.get(key) != expected.get(key)
+    ]
+    for index, item in enumerate(actual["input_contracts"]):
+        for field, expected_key in (
+            ("dtype", "input_dtype"),
+            ("layout", "input_layout"),
+            ("channels", "input_channels"),
+        ):
+            if item[field] != expected[expected_key]:
+                differences.append(
+                    f"input[{index}].{field}: expected {expected[expected_key]!r}, got {item[field]!r}"
+                )
+    if any(
+        actual["input_contracts"][0][field] != actual["input_contracts"][1][field]
+        for field in ("dtype", "layout", "channels")
+    ):
+        differences.append("image1 and image2 input tensor contracts differ")
+    if differences:
         raise ArtifactError(
             "tensor contract is incompatible with frozen P25-0 contract (" + "; ".join(differences) + ")"
         )
@@ -200,13 +248,56 @@ def _validate_export_identity(manifest: Mapping[str, Any]) -> None:
 
 def _validate_numerical_validation(manifest: Mapping[str, Any]) -> None:
     validation = manifest["validation"]
-    if validation["status"] != "passed":
+    status = validation["status"]
+    manifest_status = manifest["status"]
+    expected_statuses = {
+        "provenance_pinned_export_pending": {"pending"},
+        "export_validated": {"passed"},
+        "host_probe_pending": {"passed"},
+        "host_probe_cpu_cuda_passed": {"passed"},
+        "excluded": {"pending", "failed"},
+    }
+    if status not in expected_statuses[manifest_status]:
+        raise ArtifactError(
+            f"manifest status {manifest_status!r} is incoherent with numerical validation status {status!r}"
+        )
+    if status != "passed":
         return
     required = ("identity", "directions", "shapes", "parity")
     missing = [name for name in required if name not in validation]
     if missing or validation.get("observed") is None:
         names = ", ".join(missing) if missing else "observed"
         raise ArtifactError(f"passed numerical validation is missing {names}")
+    identity = validation["identity"]
+    if identity["passed"] is not True:
+        raise ArtifactError("passed numerical validation has identity.passed=false")
+    identity_limit = validation.get("identity_median_epe_max")
+    if identity_limit is not None and identity["median_epe_px"] > identity_limit:
+        raise ArtifactError("passed numerical validation exceeds identity_median_epe_max")
+    parity = validation["parity"]
+    if parity["checked"] is not True:
+        raise ArtifactError("passed numerical validation has parity.checked=false")
+    parity_limits = (
+        ("mean_abs", "onnx_pytorch_mean_abs_max"),
+        ("p99_abs", "onnx_pytorch_p99_abs_max"),
+        ("p999_abs", "onnx_pytorch_p999_abs_max"),
+        ("max_abs", "onnx_pytorch_max_abs_max"),
+    )
+    for measured, limit_name in parity_limits:
+        limit = validation.get(limit_name)
+        if limit is not None and parity[measured] > limit:
+            raise ArtifactError(f"passed numerical validation exceeds {limit_name}")
+    directions = validation["directions"]
+    for name in ("forward", "reverse"):
+        evidence = directions[name]
+        sign = evidence["expected_sign"]
+        component = evidence["median_dx_px"] if sign.endswith("x") else evidence["median_dy_px"]
+        if sign.startswith("positive_") and component <= 0:
+            raise ArtifactError(f"{name} direction evidence contradicts expected {sign}")
+        if sign.startswith("negative_") and component >= 0:
+            raise ArtifactError(f"{name} direction evidence contradicts expected {sign}")
+    if directions["forward"]["expected_sign"] == directions["reverse"]["expected_sign"]:
+        raise ArtifactError("forward and reverse direction evidence must have opposite signs")
 
 
 def validate_manifest(
@@ -232,6 +323,7 @@ def validate_manifest(
     output_confidence = manifest["tensor_contract"]["output"].get("confidence", False)
     if bool(output_confidence) != bool(confidence_present):
         raise ArtifactError("confidence contract disagrees between output and confidence fields")
+    _validate_input_pair(inputs)
     if protocol is not None:
         _validate_contract_compatibility(manifest, protocol)
 

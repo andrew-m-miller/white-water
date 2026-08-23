@@ -108,8 +108,7 @@
     "exported_forward_input_scale": 1.0,
     "padding": {
       "multiple": 8,
-      "mode": "caller_replication_pad",
-      "crop": "caller_crops_flow_to_unpadded_extent"
+      "policy": "caller-replication-crop"
     },
     "batch": 1,
     "spatial_dimensions": "dynamic_multiples_of_8",
