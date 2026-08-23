@@ -11,9 +11,14 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-import statistics
 from numbers import Real
 from typing import Any
+
+try:
+    from . import geometry, metrics
+except ImportError:  # pragma: no cover - supports direct invocation on the air-gapped host
+    import geometry  # type: ignore
+    import metrics  # type: ignore
 
 
 class MeasurementFailure(ValueError):
@@ -35,7 +40,6 @@ PROFILES: dict[str, dict[str, int]] = {
 
 _CAP_UNIT_PIXELS = 1_000_000
 _INT_MAX = 2_147_483_647
-_LLONG_MAX = 9_223_372_036_854_775_807
 
 
 def _fail(kind: str, message: str) -> None:
@@ -67,86 +71,24 @@ def _positive_dimension(value: Any, path: str) -> int:
     return value
 
 
-def _rounded_dimension(value: float, path: str) -> int:
-    if not math.isfinite(value) or value <= 0.0:
-        _fail("invalid_geometry", f"{path} is not a positive finite extent")
-    rounded = math.floor(value + 0.5)
-    if rounded < 1:
-        return 1
-    if rounded > _INT_MAX:
-        _fail("invalid_dimension", f"{path} rounds beyond the supported integer range")
-    return int(rounded)
-
-
 def _analysis_dimensions(
     source_width: int,
     source_height: int,
     pixel_aspect_ratio: float,
     cap_megapixels: float,
 ) -> tuple[int, int]:
-    """Mirror ``src/core/flow/Preprocess.cpp``'s analysisGeometry-v1 sizing.
+    """Apply the shared frozen ``analysisGeometry-v1`` sizing algorithm."""
 
-    Each axis is rounded half-up after the common canonical-area scale.  When independent
-    rounding exceeds the integer cap, the axis with the larger relative rounded scale is
-    clamped first, exactly as the host-free C++ preprocessing path does.
-    """
-
-    canonical_width = float(source_width) * pixel_aspect_ratio
-    canonical_height = float(source_height)
-    canonical_area = canonical_width * canonical_height
-    if not math.isfinite(canonical_width) or not math.isfinite(canonical_area) or canonical_area <= 0.0:
-        _fail("invalid_geometry", "canonical analysis extent is not finite")
-
-    cap_pixels_value = cap_megapixels * _CAP_UNIT_PIXELS
-    if cap_megapixels > 0.0 and (
-        not math.isfinite(cap_pixels_value) or cap_pixels_value <= 0.0
-    ):
-        _fail("invalid_cap", "megapixel cap is outside the supported range")
-
-    cap_applied = cap_megapixels > 0.0 and canonical_area > cap_pixels_value
-    if cap_applied and cap_pixels_value > float(_LLONG_MAX):
-        _fail("invalid_cap", "megapixel cap exceeds integer pixel accounting")
-
-    scale = 1.0
-    if cap_applied:
-        scale = min(math.sqrt(cap_pixels_value / canonical_area), 1.0)
-    analysis_width = _rounded_dimension(canonical_width * scale, "analysis width")
-    analysis_height = _rounded_dimension(canonical_height * scale, "analysis height")
-
-    if cap_applied:
-        cap_pixels = max(1, math.floor(cap_pixels_value))
-        if analysis_width * analysis_height > cap_pixels:
-            rounded_scale_x = analysis_width / canonical_width
-            rounded_scale_y = analysis_height / canonical_height
-
-            def clamp_width() -> None:
-                nonlocal analysis_width
-                limit = cap_pixels // max(1, analysis_height)
-                analysis_width = max(1, min(analysis_width, limit))
-
-            def clamp_height() -> None:
-                nonlocal analysis_height
-                limit = cap_pixels // max(1, analysis_width)
-                analysis_height = max(1, min(analysis_height, limit))
-
-            if rounded_scale_x >= rounded_scale_y:
-                clamp_width()
-                if analysis_width * analysis_height > cap_pixels:
-                    clamp_height()
-            else:
-                clamp_height()
-                if analysis_width * analysis_height > cap_pixels:
-                    clamp_width()
-            if analysis_width * analysis_height > cap_pixels:
-                clamp_width()
-                clamp_height()
-
-        if analysis_width * analysis_height > cap_pixels:
-            # This should be unreachable for the frozen algorithm.  Keep it typed rather than
-            # emitting a report that would fail the cap gate if the algorithm is edited later.
-            _fail("cap_violation", "rounded analysis dimensions exceed the megapixel cap")
-
-    return analysis_width, analysis_height
+    try:
+        return geometry.analysis_dimensions(
+            source_width,
+            source_height,
+            pixel_aspect_ratio,
+            cap_megapixels,
+            cap_unit_pixels=_CAP_UNIT_PIXELS,
+        )
+    except geometry.GeometryFailure as failure:
+        _fail(failure.kind, failure.message)
 
 
 def reduce_geometry(
@@ -360,13 +302,13 @@ def reduce_timing(
         normalized_sessions.append(normalized)
         steady_samples.extend(session_steady)
 
-    session_creation_median = float(statistics.median(
-        session["session_creation_ms"] for session in normalized_sessions
-    ))
-    first_inference_median = float(statistics.median(
-        session["first_inference_ms"] for session in normalized_sessions
-    ))
-    steady_median = float(statistics.median(steady_samples))
+    session_creation_median = metrics.linear_quantile(
+        [session["session_creation_ms"] for session in normalized_sessions], 0.5
+    )
+    first_inference_median = metrics.linear_quantile(
+        [session["first_inference_ms"] for session in normalized_sessions], 0.5
+    )
+    steady_median = metrics.linear_quantile(steady_samples, 0.5)
     return {
         "preprocessing_ms": preprocessing,
         "session_creation_ms": session_creation_median,

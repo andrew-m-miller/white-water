@@ -14,10 +14,15 @@ import hashlib
 import json
 import math
 import re
-import statistics
 from itertools import product
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
+
+try:
+    from . import geometry, metrics
+except ImportError:  # pragma: no cover - supports direct invocation on the air-gapped host
+    import geometry  # type: ignore
+    import metrics  # type: ignore
 
 
 class ValidationError(ValueError):
@@ -523,53 +528,16 @@ def _validate_metadata_only(value: Any, path: str) -> None:
         _require(False, path, "generator parameters may not contain binary payloads")
 
 
-def _rounded_dimension(value: float) -> int:
-    return max(1, math.floor(value + 0.5))
-
-
 def _expected_analysis_dimensions(source_width: int, source_height: int, pixel_aspect_ratio: float,
                                   cap_megapixels: float) -> tuple[int, int]:
-    """Mirror src/core/flow/Preprocess.cpp's frozen cap-sizing algorithm."""
+    """Return the shared frozen ``analysisGeometry-v1`` dimensions."""
 
-    canonical_width = float(source_width) * float(pixel_aspect_ratio)
-    canonical_height = float(source_height)
-    canonical_area = canonical_width * canonical_height
-    cap_pixels_value = float(cap_megapixels) * 1_000_000.0
-    cap_applied = cap_megapixels > 0.0 and canonical_area > cap_pixels_value
-    scale = 1.0
-    if cap_applied:
-        scale = min(math.sqrt(cap_pixels_value / canonical_area), 1.0)
-    analysis_width = _rounded_dimension(canonical_width * scale)
-    analysis_height = _rounded_dimension(canonical_height * scale)
-    if cap_applied:
-        cap_pixels = max(1, math.floor(cap_pixels_value))
-        rounded_area = analysis_width * analysis_height
-        if rounded_area > cap_pixels:
-            rounded_scale_x = analysis_width / canonical_width
-            rounded_scale_y = analysis_height / canonical_height
-
-            def clamp_width() -> None:
-                nonlocal analysis_width
-                limit = cap_pixels // max(1, analysis_height)
-                analysis_width = max(1, min(analysis_width, limit))
-
-            def clamp_height() -> None:
-                nonlocal analysis_height
-                limit = cap_pixels // max(1, analysis_width)
-                analysis_height = max(1, min(analysis_height, limit))
-
-            if rounded_scale_x >= rounded_scale_y:
-                clamp_width()
-                if analysis_width * analysis_height > cap_pixels:
-                    clamp_height()
-            else:
-                clamp_height()
-                if analysis_width * analysis_height > cap_pixels:
-                    clamp_width()
-            if analysis_width * analysis_height > cap_pixels:
-                clamp_width()
-                clamp_height()
-    return analysis_width, analysis_height
+    return geometry.analysis_dimensions(
+        source_width,
+        source_height,
+        pixel_aspect_ratio,
+        cap_megapixels,
+    )
 
 
 def validate_protocol_consistency(
@@ -1205,18 +1173,32 @@ def _validate_result_measurement(
     _require(timing["steady_samples_ms"] == concatenated_steady,
              f"{path}.timing.steady_samples_ms",
              "top-level steady samples must equal the per-session concatenation")
-    _require(math.isclose(timing["session_creation_ms"],
-                          statistics.median(session["session_creation_ms"] for session in sessions),
-                          rel_tol=0.0, abs_tol=1e-9),
+    _require(math.isclose(
+        timing["session_creation_ms"],
+        metrics.linear_quantile(
+            [session["session_creation_ms"] for session in sessions], 0.5
+        ),
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    ),
              f"{path}.timing.session_creation_ms",
              "must be the median of per-session creation durations")
-    _require(math.isclose(timing["first_inference_ms"],
-                          statistics.median(session["first_inference_ms"] for session in sessions),
-                          rel_tol=0.0, abs_tol=1e-9),
+    _require(math.isclose(
+        timing["first_inference_ms"],
+        metrics.linear_quantile(
+            [session["first_inference_ms"] for session in sessions], 0.5
+        ),
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    ),
              f"{path}.timing.first_inference_ms",
              "must be the median of per-session first-inference durations")
-    _require(math.isclose(timing["steady_inference_ms"], statistics.median(concatenated_steady),
-                          rel_tol=0.0, abs_tol=1e-9),
+    _require(math.isclose(
+        timing["steady_inference_ms"],
+        metrics.linear_quantile(concatenated_steady, 0.5),
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    ),
              f"{path}.timing.steady_inference_ms",
              "must be the median of flattened steady samples")
     expected_total_pair_ms = (
@@ -1228,13 +1210,13 @@ def _validate_result_measurement(
                           rel_tol=0.0, abs_tol=1e-9),
              f"{path}.timing.total_pair_ms",
              "must equal preprocessing plus steady inference plus postprocessing")
-    metrics = result["metrics"]
-    not_applicable = metrics["not_applicable"]
-    _validate_metric_applicability(metrics, not_applicable, shot, path)
+    report_metrics = result["metrics"]
+    not_applicable = report_metrics["not_applicable"]
+    _validate_metric_applicability(report_metrics, not_applicable, shot, path)
 
-    _require(metrics["nonfinite_fraction"] <= protocol["hard_gates"]["nonfinite_fraction_max"],
+    _require(report_metrics["nonfinite_fraction"] <= protocol["hard_gates"]["nonfinite_fraction_max"],
              f"{path}.metrics.nonfinite_fraction", "pass result exceeds nonfinite gate")
-    _require(metrics["repeated_run_p99_delta_px"] <= protocol["hard_gates"]["repeated_run_p99_delta_px_max"],
+    _require(report_metrics["repeated_run_p99_delta_px"] <= protocol["hard_gates"]["repeated_run_p99_delta_px_max"],
              f"{path}.metrics.repeated_run_p99_delta_px", "pass result exceeds repeated-run gate")
     _require(result["resource"]["peak_incremental_device_memory_gib"] <= protocol["hard_gates"]["peak_incremental_device_memory_gib_max"],
              f"{path}.resource.peak_incremental_device_memory_gib", "pass result exceeds memory gate")

@@ -7,8 +7,13 @@ import math
 from pathlib import Path
 
 from . import measurement as measurement_module
+from . import metrics as metrics_module
 from .measurement import MeasurementFailure, reduce_geometry, reduce_timing
-from .validator import load_json, validate_report_consistency
+from .validator import (
+    _expected_analysis_dimensions,
+    load_json,
+    validate_report_consistency,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -81,6 +86,63 @@ def test_geometry_rounding_par_caps_and_padding() -> None:
     padded = reduce_geometry(64, 48, 1.0, 0.000001, 8, 8)
     assert (padded["analysis_width"], padded["analysis_height"]) == (1, 1)
     assert padded["effective_padded_megapixels"] == 64 / 1_000_000.0
+
+
+def test_geometry_branch_parity_and_tie_breaking() -> None:
+    # Exercise both correction branches.  The first case has equal rounded scales, so the
+    # frozen >= tie-break must clamp width first; the second must clamp height first.
+    cases = [
+        (3, 3, 1.0, 0.000008, 2, 3),
+        (3, 2, 0.75, 0.000003, 2, 1),
+        (80, 64, 0.5, 0.5, 40, 64),
+    ]
+    for source_width, source_height, par, cap, padded_width, padded_height in cases:
+        reduced = reduce_geometry(
+            source_width,
+            source_height,
+            par,
+            cap,
+            padded_width,
+            padded_height,
+        )
+        expected = _expected_analysis_dimensions(source_width, source_height, par, cap)
+        assert (reduced["analysis_width"], reduced["analysis_height"]) == expected
+
+
+def test_timing_routes_medians_through_linear_quantile() -> None:
+    calls: list[tuple[list[float], float]] = []
+    original_linear_quantile = metrics_module.linear_quantile
+
+    def recording_linear_quantile(values, percentile):
+        calls.append((list(values), percentile))
+        return original_linear_quantile(values, percentile)
+
+    metrics_module.linear_quantile = recording_linear_quantile
+    try:
+        result = reduce_timing(
+            {"fresh_sessions": 2, "warmups_per_session": 0, "steady_samples_per_session": 1},
+            [_session(0, creation=1.0, first=2.0, steady=[4.0]),
+             _session(1, creation=3.0, first=4.0, steady=[6.0])],
+            0.0,
+            0.0,
+        )
+        assert result["session_creation_ms"] == 2.0
+        assert result["first_inference_ms"] == 3.0
+        assert result["steady_inference_ms"] == 5.0
+
+        protocol = load_json(ROOT / "bakeoff/protocol-v1.json")
+        corpus = load_json(ROOT / "bakeoff/fixtures/positive/corpus-v1.json")
+        report_schema = load_json(ROOT / "bakeoff/report-v1.schema.json")
+        corpus_schema = load_json(ROOT / "bakeoff/corpus-v1.schema.json")
+        report = load_json(ROOT / "bakeoff/fixtures/positive/report-v1.json")
+        validate_report_consistency(report, protocol, report_schema, corpus, corpus_schema)
+    finally:
+        metrics_module.linear_quantile = original_linear_quantile
+
+    assert [percentile for _, percentile in calls] == [0.5] * 6
+    assert calls[0][0] == [1.0, 3.0]
+    assert calls[1][0] == [2.0, 4.0]
+    assert calls[2][0] == [4.0, 6.0]
 
 
 def test_geometry_rejects_invalid_and_undersized_inputs() -> None:
@@ -209,8 +271,10 @@ def test_reducers_bind_to_positive_report_fixture() -> None:
 
 def main() -> int:
     test_geometry_rounding_par_caps_and_padding()
+    test_geometry_branch_parity_and_tie_breaking()
     test_geometry_rejects_invalid_and_undersized_inputs()
     test_timing_all_profiles_and_medians()
+    test_timing_routes_medians_through_linear_quantile()
     test_timing_rejects_malformed_nonfinite_counts_and_order()
     test_reducers_bind_to_positive_report_fixture()
     print("P25-4 measurement reducer tests passed")
