@@ -17,6 +17,11 @@ from pathlib import Path
 import stat
 from typing import Any, Mapping
 
+try:
+    from .exclusion_contract import validate_exclusion_contract
+except ImportError:  # Direct script imports keep the existing dependency-light entry points working.
+    from exclusion_contract import validate_exclusion_contract
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "models" / "artifact-v1.schema.json"
@@ -364,6 +369,7 @@ def validate_manifest(
 
     schema = load_json(SCHEMA_PATH)
     validate(manifest, schema)
+    validate_exclusion_contract(manifest)
     if manifest["export_environment"]["sha256"] != environment_sha256(manifest["export_environment"]):
         raise ArtifactError("export_environment.sha256 does not match its canonical environment fields")
     if manifest["export"]["export_environment_sha256"] != manifest["export_environment"]["sha256"]:
