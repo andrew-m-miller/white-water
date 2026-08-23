@@ -13,6 +13,18 @@
     {"id": "neuflow-v2", "role": "shipping-candidate"},
     {"id": "raft-original", "role": "validation-baseline"}
   ],
+  "candidate_constraints": [
+    {
+      "candidate_id": "neuflow-v2",
+      "providers": ["cpu", "cuda"],
+      "cap_tokens": ["mp0_331776"],
+      "required_geometry": {
+        "analysis_width": 768,
+        "analysis_height": 432,
+        "canonical_aspect_ratio": "16:9"
+      }
+    }
+  ],
   "eligibility": {
     "required_identity": ["source_commit", "checkpoint_sha256", "artifact_sha256", "export_environment_sha256"],
     "license_surfaces": ["code", "checkpoint", "backbone"],
@@ -32,9 +44,9 @@
     }
   },
   "providers": [
-    {"token": "cpu", "environment": "el8-x86_64", "purpose": "correctness", "cap_tokens": ["mp0_5"]},
-    {"token": "cuda", "environment": "el8-x86_64", "purpose": "selection", "cap_tokens": ["mp0_5", "mp1", "mp2", "mp4", "mp6", "mp8"]},
-    {"token": "coreml", "environment": "macos-arm64", "purpose": "supporting", "cap_tokens": ["mp0_5", "mp1", "mp2"]}
+    {"token": "cpu", "environment": "el8-x86_64", "purpose": "correctness", "cap_tokens": ["mp0_5", "mp0_331776"]},
+    {"token": "cuda", "environment": "el8-x86_64", "purpose": "selection", "cap_tokens": ["mp0_5", "mp1", "mp2", "mp4", "mp6", "mp8", "mp0_331776"]},
+    {"token": "coreml", "environment": "macos-arm64", "purpose": "supporting", "cap_tokens": ["mp0_5", "mp1", "mp2", "mp0_331776"]}
   ],
   "analysis_caps": [
     {"token": "mp0_5", "decimal_megapixels": 0.5},
@@ -42,7 +54,16 @@
     {"token": "mp2", "decimal_megapixels": 2.0},
     {"token": "mp4", "decimal_megapixels": 4.0},
     {"token": "mp6", "decimal_megapixels": 6.0},
-    {"token": "mp8", "decimal_megapixels": 8.0}
+    {"token": "mp8", "decimal_megapixels": 8.0},
+    {
+      "token": "mp0_331776",
+      "decimal_megapixels": 0.331776,
+      "lattice": {
+        "analysis_width": 768,
+        "analysis_height": 432,
+        "canonical_aspect_ratio": "16:9"
+      }
+    }
   ],
   "cap_accounting": {
     "unit_pixels": 1000000,

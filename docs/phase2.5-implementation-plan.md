@@ -237,6 +237,28 @@ verdict and redistribution-review surfaces, including unknown/not-permitted valu
 baselines remain evaluation-only and cannot be shipping or P25-7 ranking winners. See
 `docs/phase2.5-protocol-v2.md` for the version boundary and the fixed-shape NeuFlow follow-up.
 
+#### Fixed-shape comparison lattice (2026-08-23)
+
+Protocol v2 appends the shared `mp0_331776` evaluation point (0.331776 MP) to every provider's
+capability list. Its frozen lattice is exactly 768x432 analysis pixels at canonical 16:9. The
+`candidate_constraints` table restricts NeuFlow v2 to that cap, CPU/CUDA providers, and shots
+whose computed geometry and PAR actually satisfy the lattice; matrix planning rejects unsupported
+NeuFlow cells before row generation. SEA-RAFT, RAFT, and a qualified WAFT may use the same point.
+The existing `mp0_5`–`mp8` grid and final CUDA `mp2` FHD/UHD gates are unchanged.
+
+Provider capability is not provider qualification. Every measurable v2 report candidate declares
+`measurement_providers`, and the planner only schedules providers listed there. The checked-in
+NeuFlow evidence lists CPU only, so an operator must return a technically measurable report
+candidate with CUDA explicitly listed before a NeuFlow CUDA lattice run is admitted. No CUDA pass
+is implied by the protocol or by this lattice.
+
+Corpus selection for a NeuFlow comparison should use the existing FHD/UHD PAR1 synthetic targets
+or production shots that compute to 768x432 at the new cap. Non-16:9, anamorphic, undersized, and
+other rounded geometries remain valid for unconstrained candidates but must be separate from a
+NeuFlow matrix. The operator command must select `profile=screen`, `cap_tokens=["mp0_331776"]`,
+and only those shots/providers; final shipping commands continue to select the unchanged `mp2`
+target cells.
+
 ### P25-5 - Local and CI qualification - Luna H
 
 Run export, schema, hash, permission, tensor-contract, direction, operator and CPU-correctness

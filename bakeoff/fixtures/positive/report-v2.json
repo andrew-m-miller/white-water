@@ -46,6 +46,7 @@
       "export_environment_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
       "manifest_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
       "artifact_size_bytes": 1000000,
+      "measurement_providers": ["cpu"],
       "license_verdicts": {
         "code": "commercial_use_permitted",
         "checkpoint": "commercial_use_permitted",

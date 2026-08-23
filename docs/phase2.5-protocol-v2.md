@@ -54,8 +54,45 @@ but its role prevents `status=eligible`; v2 reports contain no selection record,
 selection/ranking record may name only shipping-eligible candidates. Evaluation rows and scores
 therefore cannot become an OFX choice or a shipping winner by accident.
 
-NeuFlow v2 currently has a fixed 432x768 export. Candidate-specific shape/cap constraints must be
-represented by its artifact manifest and selected as a constrained evaluation lattice (an exact
-roughly-0.33 MP 16:9 point is a likely follow-up); the generic shipping `mp0_5`–`mp8` grid must not
-be read as proof that this fixed-shape artifact supports those caps. This amendment admits the
-artifact without pretending that its shape support is broader than measured.
+NeuFlow v2 currently has a fixed `NCHW [1,3,432,768]` export. v2 therefore freezes an additional
+`mp0_331776` evaluation cap/lattice: decimal area `0.331776` MP, computed analysis geometry exactly
+`768x432`, and canonical square-pixel aspect ratio `16:9`. The cap is appended to the provider
+lists so every measurable candidate can run the same comparison point; it does not alter the
+shipping `mp0_5`–`mp8` grid or the final `mp2` gates.
+
+The executable `candidate_constraints` entry admits `neuflow-v2` only on `cpu` or `cuda`, only at
+`mp0_331776`, and only when the source/PAR metadata computes to that exact geometry and canonical
+16:9. A NeuFlow matrix that requests `mp0_5`, `mp2`, CoreML, a non-16:9 source, or any other
+computed dimensions is rejected before Cartesian rows are generated. SEA-RAFT, RAFT, and a
+qualified WAFT may use the shared lattice under the ordinary provider/cap rules.
+
+Provider support is potential capability, not qualification evidence. A measurable v2 report
+candidate must list its `measurement_providers`; the planner requires every selected provider to
+appear there.
+The checked-in NeuFlow evidence remains CPU-only, so no NeuFlow CUDA row is schedulable until a
+returned report candidate explicitly carries `measurement_providers: ["cuda"]` (or includes it
+alongside CPU). This field must never be filled merely because the protocol allows CUDA.
+
+Corpus/operator implication: a NeuFlow comparison run must select synthetic or air-gapped shots
+whose computed analysis geometry is exactly `768x432` and whose canonical geometry is 16:9. The
+existing FHD `1920x1080 PAR1` and UHD `3840x2160 PAR1` synthetic targets both satisfy this lattice;
+small, non-16:9, anamorphic, or otherwise rounded shots remain useful for the other candidates but
+must be omitted from a NeuFlow matrix. Use a separate `screen` invocation for the shared lattice.
+The runner command should carry a selection equivalent to:
+
+```json
+{
+  "profile": "screen",
+  "environment": "el8-x86_64",
+  "candidate_ids": ["neuflow-v2", "sea-raft-m"],
+  "conditioning_tokens": ["native-clamp01-v1"],
+  "cap_tokens": ["mp0_331776"],
+  "providers": [{"token": "cpu", "host_loads": ["not_applicable"]}],
+  "shot_ids": ["syn-fhd-1920x1080-par1", "syn-uhd-3840x2160-par1"]
+}
+```
+
+The exact CLI wrapper may choose a different option spelling, but the persisted selections must
+carry the same candidate/cap/provider/shot axes. Do not add `mp2` to that NeuFlow selection to
+force final shipping coverage; final reports still require the unchanged CUDA `mp2` FHD/UHD cells
+for candidates whose artifacts support those gates.

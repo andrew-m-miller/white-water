@@ -3,8 +3,15 @@
 
 from __future__ import annotations
 
+import copy
+import json
+from pathlib import Path
+
 from .matrix import CellKey, MatrixFailure, build_matrix
 from .validator import canonical_sha256
+
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _protocol() -> dict:
@@ -206,12 +213,100 @@ def test_v2_measurement_admission_is_independent_of_shipping_status() -> None:
     )
 
 
+def test_v2_neuflow_fixed_lattice_and_provider_admission() -> None:
+    """The fixed export is schedulable only at its exact computed lattice."""
+
+    protocol = json.loads((ROOT / "bakeoff/protocol-v2.json").read_text(encoding="utf-8"))
+    entries = [{
+        "candidate_id": "neuflow-v2",
+        "status": "excluded",
+        "measurement_status": "measurable",
+        # This deliberately does not claim CUDA qualification.  The positive CPU cell is
+        # enough to prove that the protocol lattice itself is schedulable.
+        "measurement_providers": ["cpu"],
+    }]
+    cpu = _selections(
+        candidate_ids=["neuflow-v2"],
+        shot_ids=["fhd"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp0_331776"],
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
+    )
+    plan = build_matrix(protocol, _corpus(), entries, cpu, "screen", "el8-x86_64")
+    assert plan.cells == (
+        CellKey("neuflow-v2", "fhd", "native-clamp01-v1", "mp0_331776", "cpu", "not_applicable"),
+    )
+
+    cuda_capability_entries = copy.deepcopy(entries)
+    cuda_capability_entries[0]["measurement_providers"] = ["cpu", "cuda"]
+    _failure(
+        "candidate_capability",
+        lambda: build_matrix(
+            protocol, _corpus(), cuda_capability_entries,
+            dict(cpu, cap_tokens=["mp2"], providers=[{"token": "cuda", "host_loads": ["idle"]}]),
+            "screen", "el8-x86_64",
+        ),
+    )
+    _failure(
+        "candidate_geometry",
+        lambda: build_matrix(
+            protocol, _corpus(), entries,
+            dict(cpu, shot_ids=["identity"]), "screen", "el8-x86_64",
+        ),
+    )
+    _failure(
+        "provider_unavailable",
+        lambda: build_matrix(
+            protocol, _corpus(), entries,
+            dict(cpu, providers=[{"token": "cuda", "host_loads": ["idle"]}]),
+            "screen", "el8-x86_64",
+        ),
+    )
+    missing_provider_evidence = copy.deepcopy(entries)
+    missing_provider_evidence[0].pop("measurement_providers")
+    _failure(
+        "provider_unavailable",
+        lambda: build_matrix(protocol, _corpus(), missing_provider_evidence, cpu, "screen", "el8-x86_64"),
+    )
+
+    # Once the candidate report explicitly carries CUDA technical evidence, the same fixed
+    # lattice is schedulable on CUDA.  This is an admission test, not a claim about checked-in
+    # NeuFlow CUDA results.
+    cuda_entries = copy.deepcopy(entries)
+    cuda_entries[0]["measurement_providers"] = ["cpu", "cuda"]
+    cuda = build_matrix(
+        protocol, _corpus(), cuda_entries,
+        dict(cpu, providers=[{"token": "cuda", "host_loads": ["idle"]}]),
+        "screen", "el8-x86_64",
+    )
+    assert cuda.cells == (
+        CellKey("neuflow-v2", "fhd", "native-clamp01-v1", "mp0_331776", "cuda", "idle"),
+    )
+
+    non_widescreen = _corpus()
+    non_widescreen["partitions"][0]["shots"].append({
+        "id": "four-three",
+        "case_id": "four-three",
+        "width": 1024,
+        "height": 768,
+        "pixel_aspect_ratio": 1.0,
+    })
+    _failure(
+        "candidate_geometry",
+        lambda: build_matrix(
+            protocol, non_widescreen, entries,
+            dict(cpu, shot_ids=["four-three"]), "screen", "el8-x86_64",
+        ),
+    )
+
+
 def main() -> int:
     test_smoke_and_final()
     test_reordered_selections_normalize_to_one_plan()
     test_negative_selection_and_provider_rules()
     test_duplicate_candidate_entries_and_exclusion()
     test_v2_measurement_admission_is_independent_of_shipping_status()
+    test_v2_neuflow_fixed_lattice_and_provider_admission()
     print("P25-4 matrix tests passed")
     return 0
 

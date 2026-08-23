@@ -258,8 +258,13 @@ unavailable artifacts. Unavailable candidates carry a separate typed measurement
 excluded-but-measurable entries retain complete legal verdict and redistribution-review surfaces;
 the shipping exclusion reason never doubles as a technical admission signal. Shipping eligibility
 implies measurable, and the validation baseline remains evaluation-only. The unchanged corpus stays
-v1 and is bound by hash. NeuFlow's fixed 432x768 export also needs a constrained evaluation lattice
-in the later runner work; the generic cap grid is not evidence of unsupported shape coverage.
+v1 and is bound by hash. NeuFlow's fixed 432x768 export now has an explicit v2-only constrained
+comparison lattice: `mp0_331776` computes to exactly 768x432 at canonical 16:9, and candidate
+constraints reject every other cap/provider/source geometry before rows are generated. The shared
+cap is available to other measurable models for a fair comparison, while the unchanged final
+shipping `mp2` coverage remains separate. Candidate report entries also carry provider-specific
+technical measurement evidence; the checked-in NeuFlow evidence is CPU only, so no CUDA pass is
+implied.
 
 ---
 

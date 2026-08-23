@@ -80,6 +80,70 @@ def main() -> int:
         positive_report_v2, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
     )
 
+    # The new sub-mp0.5 lattice is available to an ordinary measurable candidate.  The
+    # positive row remains the small 64x48 fixture geometry; the cap is an upper bound, not a
+    # forced resize for sources already below it.
+    shared_lattice_report = copy.deepcopy(positive_report_v2)
+    shared_lattice_report["matrix"]["cap_tokens"] = ["mp0_331776"]
+    shared_lattice_report["matrix"]["matrix_sha256"] = canonical_sha256({
+        key: value for key, value in shared_lattice_report["matrix"].items()
+        if key != "matrix_sha256"
+    })
+    shared_lattice_report["results"][0]["cap_token"] = "mp0_331776"
+    validate_report_consistency(
+        shared_lattice_report, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+    )
+
+    neuflow_wrong_geometry = copy.deepcopy(shared_lattice_report)
+    neuflow_candidate = copy.deepcopy(neuflow_wrong_geometry["candidates"][0])
+    neuflow_candidate.update({
+        "candidate_id": "neuflow-v2",
+        "status": "excluded",
+        "measurement_status": "measurable",
+        "measurement_providers": ["cpu"],
+        "exclusion_reason": {"type": "license_unknown", "message": "fixed-shape fixture"},
+    })
+    neuflow_wrong_geometry["candidates"] = [neuflow_candidate]
+    neuflow_wrong_geometry["matrix"]["candidate_ids"] = ["neuflow-v2"]
+    neuflow_wrong_geometry["matrix"]["matrix_sha256"] = canonical_sha256({
+        key: value for key, value in neuflow_wrong_geometry["matrix"].items()
+        if key != "matrix_sha256"
+    })
+    neuflow_wrong_geometry["results"][0]["candidate_id"] = "neuflow-v2"
+    expect_failure(
+        "NeuFlow rejects non-16:9 fixed-lattice source geometry",
+        lambda: validate_report_consistency(
+            neuflow_wrong_geometry, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    neuflow_wrong_cap = copy.deepcopy(neuflow_wrong_geometry)
+    neuflow_wrong_cap["matrix"]["cap_tokens"] = ["mp2"]
+    neuflow_wrong_cap["matrix"]["providers"] = [{"token": "cuda", "host_loads": ["idle"]}]
+    neuflow_wrong_cap["matrix"]["matrix_sha256"] = canonical_sha256({
+        key: value for key, value in neuflow_wrong_cap["matrix"].items()
+        if key != "matrix_sha256"
+    })
+    neuflow_wrong_cap["results"][0].update({
+        "cap_token": "mp2", "provider": "cuda", "host_load": "idle",
+    })
+    neuflow_wrong_cap["candidates"][0]["measurement_providers"] = ["cpu", "cuda"]
+    expect_failure(
+        "NeuFlow rejects frozen shipping caps",
+        lambda: validate_report_consistency(
+            neuflow_wrong_cap, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    protocol_v2_bad_lattice = copy.deepcopy(protocol_v2)
+    protocol_v2_bad_lattice["analysis_caps"][-1]["lattice"]["analysis_width"] = 769
+    expect_failure(
+        "v2 fixed lattice dimensions are frozen",
+        lambda: validate_protocol_consistency(
+            protocol_v2_bad_lattice, protocol_schema_v2, report_schema_v2,
+        ),
+    )
+
     excluded_but_measurable = copy.deepcopy(positive_report_v2)
     evaluation_candidate = copy.deepcopy(positive_report_v2["candidates"][0])
     evaluation_candidate.update({

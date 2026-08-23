@@ -10,6 +10,7 @@
     "frozen_date",
     "schema_ids",
     "candidate_ids",
+    "candidate_constraints",
     "eligibility",
     "providers",
     "analysis_caps",
@@ -46,6 +47,11 @@
       "type": "array",
       "minItems": 2,
       "items": {"$ref": "#/$defs/candidate"}
+    },
+    "candidate_constraints": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/candidate_constraint"}
     },
     "eligibility": {
       "type": "object",
@@ -298,7 +304,39 @@
       "required": ["token", "decimal_megapixels"],
       "properties": {
         "token": {"$ref": "#/$defs/token"},
-        "decimal_megapixels": {"type": "number", "exclusiveMinimum": 0}
+        "decimal_megapixels": {"type": "number", "exclusiveMinimum": 0},
+        "lattice": {"$ref": "#/$defs/evaluation_lattice"}
+      }
+    },
+    "evaluation_lattice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["analysis_width", "analysis_height", "canonical_aspect_ratio"],
+      "properties": {
+        "analysis_width": {"const": 768},
+        "analysis_height": {"const": 432},
+        "canonical_aspect_ratio": {"const": "16:9"}
+      }
+    },
+    "candidate_constraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_id", "providers", "cap_tokens", "required_geometry"],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/token"},
+        "providers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["cpu", "cuda", "coreml"]}
+        },
+        "cap_tokens": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/token"}
+        },
+        "required_geometry": {"$ref": "#/$defs/evaluation_lattice"}
       }
     },
     "conditioning": {

@@ -14,6 +14,11 @@ import math
 from numbers import Real
 from typing import Any, Mapping, Sequence
 
+try:
+    from . import geometry
+except ImportError:  # pragma: no cover - supports direct air-gapped invocation
+    import geometry  # type: ignore
+
 from .validator import canonical_sha256
 
 
@@ -191,6 +196,24 @@ def _corpus_shot_order(corpus: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _corpus_shot_map(corpus: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """Return the validated metadata needed for candidate-specific geometry admission."""
+
+    result: dict[str, Mapping[str, Any]] = {}
+    partitions = corpus.get("partitions")
+    if not _is_sequence(partitions):
+        _fail("corpus_shape", "corpus.partitions must be a non-empty sequence")
+    for partition_index, partition in enumerate(partitions):
+        if not isinstance(partition, Mapping) or not _is_sequence(partition.get("shots")):
+            _fail("corpus_shape", f"corpus.partitions[{partition_index}].shots must be a sequence")
+        for shot_index, shot in enumerate(partition["shots"]):
+            if not isinstance(shot, Mapping):
+                _fail("corpus_shape", f"corpus shot {partition_index}/{shot_index} must be an object")
+            shot_id = _nonempty_string(shot.get("id"), f"corpus shot {partition_index}/{shot_index}.id")
+            result[shot_id] = shot
+    return result
+
+
 def _candidate_orders(
     protocol: Mapping[str, Any], candidate_entries: Any
 ) -> tuple[list[str], list[str], dict[str, Mapping[str, Any]]]:
@@ -337,6 +360,110 @@ def _validate_provider_caps(
                 _fail("provider_cap", f"provider {provider['token']!r} does not support cap {cap!r}")
 
 
+def _validate_candidate_constraints(
+    protocol: Mapping[str, Any],
+    candidate_ids: Sequence[str],
+    candidate_entries: Mapping[str, Mapping[str, Any]],
+    shot_map: Mapping[str, Mapping[str, Any]],
+    cap_tokens: Sequence[str],
+    providers: Sequence[Mapping[str, Any]],
+) -> None:
+    """Reject matrix selections that would create an unsupported candidate row."""
+
+    raw_constraints = protocol.get("candidate_constraints", [])
+    if not _is_sequence(raw_constraints):
+        # v1 and small hand-built protocol fixtures predate the v2 constraint field.
+        return
+    constraints: dict[str, Mapping[str, Any]] = {}
+    for index, constraint in enumerate(raw_constraints):
+        if not isinstance(constraint, Mapping):
+            _fail("protocol_shape", f"protocol.candidate_constraints[{index}] must be an object")
+        candidate_id = _nonempty_string(
+            constraint.get("candidate_id"), f"protocol.candidate_constraints[{index}].candidate_id",
+        )
+        if candidate_id in constraints:
+            _fail("protocol_shape", f"protocol.candidate_constraints contains duplicate {candidate_id!r}")
+        constraints[candidate_id] = constraint
+
+    cap_map = {
+        cap["token"]: cap
+        for cap in protocol.get("analysis_caps", [])
+        if isinstance(cap, Mapping) and isinstance(cap.get("token"), str)
+    }
+    provider_tokens = [provider["token"] for provider in providers]
+    for candidate_id in candidate_ids:
+        candidate_entry = candidate_entries[candidate_id]
+        measurement_providers = candidate_entry.get("measurement_providers")
+        constraint = constraints.get(candidate_id)
+        if constraint is not None and measurement_providers is None:
+            _fail(
+                "provider_unavailable",
+                f"candidate {candidate_id!r} has no provider-specific technical measurement evidence",
+            )
+        if measurement_providers is not None:
+            if not _is_sequence(measurement_providers) or not measurement_providers:
+                _fail("measurement_provider", f"candidate {candidate_id!r} has no measurable providers")
+            for provider_token in provider_tokens:
+                if provider_token not in measurement_providers:
+                    _fail(
+                        "provider_unavailable",
+                        f"candidate {candidate_id!r} is not technically measurable on provider {provider_token!r}",
+                    )
+
+        if constraint is None:
+            continue
+        allowed_providers = constraint.get("providers", [])
+        allowed_caps = constraint.get("cap_tokens", [])
+        for provider_token in provider_tokens:
+            if provider_token not in allowed_providers:
+                _fail(
+                    "candidate_capability",
+                    f"candidate {candidate_id!r} does not support provider {provider_token!r}",
+                )
+        for cap_token in cap_tokens:
+            if cap_token not in allowed_caps:
+                _fail(
+                    "candidate_capability",
+                    f"candidate {candidate_id!r} does not support cap {cap_token!r}",
+                )
+            cap = cap_map.get(cap_token)
+            required = constraint.get("required_geometry")
+            if not isinstance(cap, Mapping) or not isinstance(required, Mapping):
+                _fail("candidate_capability", f"candidate {candidate_id!r} has an invalid geometry constraint")
+            lattice = cap.get("lattice")
+            if not isinstance(lattice, Mapping) or any(
+                lattice.get(field) != required.get(field)
+                for field in ("analysis_width", "analysis_height", "canonical_aspect_ratio")
+            ):
+                _fail("candidate_capability", f"candidate {candidate_id!r} disagrees with cap {cap_token!r} lattice")
+            for shot_id, shot in shot_map.items():
+                try:
+                    analysis_width, analysis_height = geometry.analysis_dimensions(
+                        shot["width"], shot["height"], shot["pixel_aspect_ratio"],
+                        cap["decimal_megapixels"],
+                    )
+                    canonical_aspect = (
+                        float(shot["width"]) * float(shot["pixel_aspect_ratio"])
+                    ) / float(shot["height"])
+                except (KeyError, TypeError, ValueError, ZeroDivisionError, geometry.GeometryFailure) as exc:
+                    _fail("candidate_geometry", f"candidate {candidate_id!r} cannot compute shot {shot_id!r} geometry: {exc}")
+                if (analysis_width, analysis_height) != (
+                    required.get("analysis_width"), required.get("analysis_height"),
+                ):
+                    _fail(
+                        "candidate_geometry",
+                        f"candidate {candidate_id!r} requires {required.get('analysis_width')}x{required.get('analysis_height')} "
+                        f"but shot {shot_id!r} computes {analysis_width}x{analysis_height}",
+                    )
+                if required.get("canonical_aspect_ratio") == "16:9" and not math.isclose(
+                    canonical_aspect, 16.0 / 9.0, rel_tol=0.0, abs_tol=1e-12,
+                ):
+                    _fail(
+                        "candidate_geometry",
+                        f"candidate {candidate_id!r} requires canonical 16:9 geometry but shot {shot_id!r} is {canonical_aspect!r}",
+                    )
+
+
 def _validate_final_coverage(
     corpus: Mapping[str, Any], shots: Sequence[str], caps: Sequence[str], providers: Sequence[Mapping[str, Any]], profile: str
 ) -> None:
@@ -383,13 +510,13 @@ def build_matrix(
         _fail("selection_shape", "selections must contain exactly the five explicit matrix axes")
 
     if protocol.get("protocol_id") == "whitewater-p25-v2":
-        measurable, unavailable, _ = _measurement_candidate_orders(protocol, candidate_entries)
+        measurable, unavailable, candidate_entry_map = _measurement_candidate_orders(protocol, candidate_entries)
         candidate_ids = _measurement_candidate_selection(
             selections["candidate_ids"], measurable, unavailable,
         )
         omitted_candidate_ids = unavailable
     else:
-        eligible, excluded, _ = _candidate_orders(protocol, candidate_entries)
+        eligible, excluded, candidate_entry_map = _candidate_orders(protocol, candidate_entries)
         candidate_ids = _candidate_selection(selections["candidate_ids"], eligible, excluded)
         omitted_candidate_ids = excluded
     shot_ids = _ordered_ids(selections["shot_ids"], _corpus_shot_order(corpus), "selections.shot_ids")
@@ -400,6 +527,15 @@ def build_matrix(
     cap_ids = _protocol_ids(protocol, "analysis_caps", "token")
     cap_tokens = _ordered_ids(selections["cap_tokens"], cap_ids, "selections.cap_tokens")
     providers, provider_loads = _provider_selection(protocol, selections["providers"], profile, environment)
+    corpus_shot_map = _corpus_shot_map(corpus)
+    _validate_candidate_constraints(
+        protocol,
+        candidate_ids,
+        candidate_entry_map,
+        {shot_id: corpus_shot_map[shot_id] for shot_id in shot_ids},
+        cap_tokens,
+        providers,
+    )
     _validate_provider_caps(protocol, providers, cap_tokens)
     _validate_final_coverage(corpus, shot_ids, cap_tokens, providers, profile)
 

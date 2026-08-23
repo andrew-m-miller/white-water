@@ -98,20 +98,51 @@ _EXPECTED_TENSOR_CONTRACT = {
     "output_direction": "image1_to_image2",
     "output_units": "unpadded_analysis_pixels",
 }
-_EXPECTED_PROVIDERS = [
+_EXPECTED_PROVIDERS_V1 = [
     {"token": "cpu", "environment": "el8-x86_64", "purpose": "correctness", "cap_tokens": ["mp0_5"]},
     {"token": "cuda", "environment": "el8-x86_64", "purpose": "selection",
      "cap_tokens": ["mp0_5", "mp1", "mp2", "mp4", "mp6", "mp8"]},
     {"token": "coreml", "environment": "macos-arm64", "purpose": "supporting",
      "cap_tokens": ["mp0_5", "mp1", "mp2"]},
 ]
-_EXPECTED_CAPS = [
+_EXPECTED_PROVIDERS_V2 = [
+    {"token": "cpu", "environment": "el8-x86_64", "purpose": "correctness", "cap_tokens": ["mp0_5", "mp0_331776"]},
+    {"token": "cuda", "environment": "el8-x86_64", "purpose": "selection",
+     "cap_tokens": ["mp0_5", "mp1", "mp2", "mp4", "mp6", "mp8", "mp0_331776"]},
+    {"token": "coreml", "environment": "macos-arm64", "purpose": "supporting",
+     "cap_tokens": ["mp0_5", "mp1", "mp2", "mp0_331776"]},
+]
+_EXPECTED_CAPS_V1 = [
     {"token": "mp0_5", "decimal_megapixels": 0.5},
     {"token": "mp1", "decimal_megapixels": 1.0},
     {"token": "mp2", "decimal_megapixels": 2.0},
     {"token": "mp4", "decimal_megapixels": 4.0},
     {"token": "mp6", "decimal_megapixels": 6.0},
     {"token": "mp8", "decimal_megapixels": 8.0},
+]
+_EXPECTED_CAPS_V2 = [
+    *_EXPECTED_CAPS_V1,
+    {
+        "token": "mp0_331776",
+        "decimal_megapixels": 0.331776,
+        "lattice": {
+            "analysis_width": 768,
+            "analysis_height": 432,
+            "canonical_aspect_ratio": "16:9",
+        },
+    },
+]
+_EXPECTED_CANDIDATE_CONSTRAINTS_V2 = [
+    {
+        "candidate_id": "neuflow-v2",
+        "providers": ["cpu", "cuda"],
+        "cap_tokens": ["mp0_331776"],
+        "required_geometry": {
+            "analysis_width": 768,
+            "analysis_height": 432,
+            "canonical_aspect_ratio": "16:9",
+        },
+    },
 ]
 _EXPECTED_CAP_ACCOUNTING = {
     "unit_pixels": 1000000,
@@ -563,6 +594,76 @@ def _expected_analysis_dimensions(source_width: int, source_height: int, pixel_a
     )
 
 
+def _candidate_constraint_map(protocol: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """Return v2's candidate-specific scheduling constraints by candidate id.
+
+    v1 intentionally has no such surface.  Callers that consume a hand-built protocol in
+    unit tests also get the unconstrained legacy behaviour when the v2 field is absent; the
+    checked-in v2 protocol/schema gate requires the frozen NeuFlow entry.
+    """
+
+    raw_constraints = protocol.get("candidate_constraints", [])
+    if not isinstance(raw_constraints, (list, tuple)):
+        return {}
+    result: dict[str, Mapping[str, Any]] = {}
+    for constraint in raw_constraints:
+        if isinstance(constraint, Mapping) and isinstance(constraint.get("candidate_id"), str):
+            result[constraint["candidate_id"]] = constraint
+    return result
+
+
+def _cap_map(protocol: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    caps = protocol.get("analysis_caps", [])
+    if not isinstance(caps, (list, tuple)):
+        return {}
+    return {
+        cap["token"]: cap
+        for cap in caps
+        if isinstance(cap, Mapping) and isinstance(cap.get("token"), str)
+    }
+
+
+def _candidate_constraint_geometry_ok(
+    constraint: Mapping[str, Any],
+    shot: Mapping[str, Any],
+    cap: Mapping[str, Any],
+) -> tuple[bool, str]:
+    """Check a constrained candidate against one computed source/cap geometry."""
+
+    required = constraint.get("required_geometry")
+    if not isinstance(required, Mapping):
+        return False, "candidate constraint has no required geometry"
+    lattice = cap.get("lattice")
+    if not isinstance(lattice, Mapping):
+        return False, "selected cap has no frozen lattice metadata"
+    for field in ("analysis_width", "analysis_height", "canonical_aspect_ratio"):
+        if lattice.get(field) != required.get(field):
+            return False, "candidate geometry disagrees with selected cap lattice"
+
+    try:
+        expected_width, expected_height = _expected_analysis_dimensions(
+            shot["width"], shot["height"], shot["pixel_aspect_ratio"], cap["decimal_megapixels"],
+        )
+    except (KeyError, TypeError, ValueError, geometry.GeometryFailure):
+        return False, "source geometry cannot be computed"
+    if (expected_width, expected_height) != (
+        required["analysis_width"], required["analysis_height"],
+    ):
+        return False, "computed analysis geometry is not the required fixed lattice"
+
+    try:
+        canonical_aspect = (
+            float(shot["width"]) * float(shot["pixel_aspect_ratio"])
+        ) / float(shot["height"])
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return False, "source aspect ratio cannot be computed"
+    if not math.isfinite(canonical_aspect) or required.get("canonical_aspect_ratio") == "16:9" and not math.isclose(
+        canonical_aspect, 16.0 / 9.0, rel_tol=0.0, abs_tol=1e-12,
+    ):
+        return False, "source geometry is not canonical 16:9"
+    return True, ""
+
+
 def validate_protocol_consistency(
     protocol: Mapping[str, Any],
     protocol_schema: Mapping[str, Any] | None = None,
@@ -605,14 +706,16 @@ def validate_protocol_consistency(
     caps = protocol["analysis_caps"]
     cap_ids = [cap["token"] for cap in caps]
     _unique(cap_ids, "$.analysis_caps", "analysis cap tokens")
-    _require(caps == _EXPECTED_CAPS, "$.analysis_caps", "cap tokens or numeric values changed")
+    expected_caps = _EXPECTED_CAPS_V2 if is_v2 else _EXPECTED_CAPS_V1
+    _require(caps == expected_caps, "$.analysis_caps", "cap tokens or numeric values changed")
     _require(protocol["cap_accounting"] == _EXPECTED_CAP_ACCOUNTING,
              "$.cap_accounting", "cap accounting contract changed")
 
     providers = protocol["providers"]
     provider_ids = [provider["token"] for provider in providers]
     _unique(provider_ids, "$.providers", "provider tokens")
-    _require(providers == _EXPECTED_PROVIDERS, "$.providers", "provider matrix changed")
+    expected_providers = _EXPECTED_PROVIDERS_V2 if is_v2 else _EXPECTED_PROVIDERS_V1
+    _require(providers == expected_providers, "$.providers", "provider matrix changed")
     provider_map = {provider["token"]: provider for provider in providers}
     _require(provider_map.get("cuda", {}).get("purpose") == "selection",
              "$.providers", "CUDA must be the selection provider")
@@ -620,6 +723,13 @@ def validate_protocol_consistency(
              "$.providers", "CPU must be the correctness provider")
     _require(provider_map.get("coreml", {}).get("purpose") == "supporting",
              "$.providers", "CoreML must remain supporting only")
+
+    if is_v2:
+        _require(
+            protocol.get("candidate_constraints") == _EXPECTED_CANDIDATE_CONSTRAINTS_V2,
+            "$.candidate_constraints",
+            "candidate capability constraints changed",
+        )
 
     conditioning = protocol["conditioning"]
     conditioning_ids = [entry["token"] for entry in conditioning]
@@ -657,6 +767,25 @@ def validate_protocol_consistency(
                 "measurement_exclusion_reason" in report_candidate_properties,
                 "$.report_schema.$defs.candidate.properties",
                 "v2 candidate measurement_exclusion_reason is required",
+            )
+            candidate_branches = report_candidate.get("oneOf", [])
+            _require(
+                any(
+                    "measurement_providers" in branch.get("required", [])
+                    for branch in candidate_branches
+                    if isinstance(branch, Mapping)
+                ),
+                "$.report_schema.$defs.candidate.oneOf",
+                "v2 measurable candidates must declare qualified providers",
+            )
+            measurement_provider_schema = _mapping(
+                report_candidate_properties.get("measurement_providers"),
+                "$.report_schema.$defs.candidate.properties.measurement_providers",
+            )
+            _require(
+                measurement_provider_schema.get("items", {}).get("enum") == ["cpu", "cuda", "coreml"],
+                "$.report_schema.$defs.candidate.properties.measurement_providers",
+                "candidate measurement provider values changed",
             )
         report_metrics = _mapping(report_defs.get("metrics"), "$.report_schema.$defs.metrics")
         report_metric_properties = _mapping(
@@ -884,6 +1013,7 @@ def validate_report_consistency(
     _unique(candidate_ids, "$.candidates", "candidate ids")
     candidate_map = {entry["candidate_id"]: entry for entry in candidate_entries}
     known_candidates = {entry["id"]: entry for entry in protocol["candidate_ids"]}
+    protocol_provider_tokens = {entry["token"] for entry in protocol["providers"]}
     for candidate_id, candidate in candidate_map.items():
         _require(candidate_id in known_candidates, "$.candidates", f"unknown candidate {candidate_id!r}")
         if is_v2:
@@ -924,6 +1054,15 @@ def validate_report_consistency(
                         f"$.candidates[{candidate_id}]",
                         f"measurable candidate needs {field}",
                     )
+                measurement_providers = candidate.get("measurement_providers")
+                _require(
+                    isinstance(measurement_providers, list)
+                    and bool(measurement_providers)
+                    and len(measurement_providers) == len(set(measurement_providers))
+                    and all(provider in protocol_provider_tokens for provider in measurement_providers),
+                    f"$.candidates[{candidate_id}].measurement_providers",
+                    "measurable candidate must list unique known qualified providers",
+                )
                 if candidate["status"] == "excluded":
                     for field in (
                         "license_verdicts",
@@ -1042,6 +1181,47 @@ def validate_report_consistency(
                      f"$.matrix.cap_tokens[{cap_index}]",
                      f"provider does not support selected cap {cap_token!r}")
         matrix_provider_loads.extend((provider_token, host_load) for host_load in host_loads)
+
+    # Candidate constraints are checked before expanding the Cartesian matrix.  In particular,
+    # a fixed-shape NeuFlow row must never be emitted and then marked as a runtime failure for a
+    # cap, provider, or source geometry that the graph cannot represent.
+    candidate_constraints = _candidate_constraint_map(protocol) if is_v2 else {}
+    for candidate_index, candidate_id in enumerate(matrix_candidate_ids):
+        candidate = candidate_map[candidate_id]
+        measurement_providers = candidate.get("measurement_providers")
+        if is_v2 and isinstance(measurement_providers, list):
+            for provider_token in matrix_provider_tokens:
+                _require(
+                    provider_token in measurement_providers,
+                    f"$.matrix.candidate_ids[{candidate_index}]",
+                    f"candidate {candidate_id!r} has no technical measurement evidence for provider {provider_token!r}",
+                )
+        constraint = candidate_constraints.get(candidate_id)
+        if constraint is None:
+            continue
+        allowed_providers = constraint.get("providers", [])
+        allowed_caps = constraint.get("cap_tokens", [])
+        for provider_token in matrix_provider_tokens:
+            _require(
+                provider_token in allowed_providers,
+                f"$.matrix.providers",
+                f"candidate {candidate_id!r} does not support provider {provider_token!r}",
+            )
+        for cap_index, cap_token in enumerate(matrix_cap_tokens):
+            _require(
+                cap_token in allowed_caps,
+                f"$.matrix.cap_tokens[{cap_index}]",
+                f"candidate {candidate_id!r} does not support cap {cap_token!r}",
+            )
+            cap = cap_map[cap_token]
+            for shot_index, shot_id in enumerate(matrix_shot_ids):
+                shot = corpus_shots[shot_id]
+                valid, reason = _candidate_constraint_geometry_ok(constraint, shot, cap)
+                _require(
+                    valid,
+                    f"$.matrix.shot_ids[{shot_index}]",
+                    f"candidate {candidate_id!r} cannot use shot {shot_id!r} at cap {cap_token!r}: {reason}",
+                )
 
     hardware = report["hardware"]
     selected_provider_tokens = set(matrix_provider_tokens)
