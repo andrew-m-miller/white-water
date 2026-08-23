@@ -220,6 +220,375 @@ def dense_metrics(predicted: Any, truth: Any, valid_mask: Any = None) -> dict[st
     }
 
 
+def _parse_coordinate(value: Any, path: str) -> float:
+    if isinstance(value, bool):
+        _fail("bool_value", f"{path} must be numeric, not bool")
+    if not isinstance(value, Real):
+        _fail("non_numeric", f"{path} must be a real number")
+    number = float(value)
+    if not math.isfinite(number):
+        _fail("nonfinite_value", f"{path} must be finite")
+    return number
+
+
+def _parse_numeric_grid(
+    grid: Any, label: str, channels: int | None = None
+) -> tuple[list[list[float | tuple[float, ...] | None]], tuple[int, int], int]:
+    """Parse a rectangular scalar, RGB, or flow grid without dropping bad cells."""
+
+    if not _is_sequence(grid) or not grid:
+        _fail("empty_grid", f"{label} must contain at least one row")
+    rows: list[list[float | tuple[float, ...] | None]] = []
+    width: int | None = None
+    inferred_channels = channels
+    for row_index, row in enumerate(grid):
+        if not _is_sequence(row) or not row:
+            _fail("ragged_shape", f"{label}[{row_index}] must be a non-empty row")
+        if width is None:
+            width = len(row)
+        elif len(row) != width:
+            _fail("ragged_shape", f"{label} rows have different widths")
+        parsed_row: list[float | tuple[float, ...] | None] = []
+        for column_index, cell in enumerate(row):
+            path = f"{label}[{row_index}][{column_index}]"
+            if cell is None:
+                parsed_row.append(None)
+                continue
+            if _is_sequence(cell):
+                if inferred_channels is None:
+                    inferred_channels = len(cell)
+                if len(cell) != inferred_channels or inferred_channels not in (2, 3):
+                    _fail("grid_shape", f"{path} has the wrong channel count")
+                components = []
+                for component_index, component in enumerate(cell):
+                    if isinstance(component, bool):
+                        _fail(
+                            "bool_value",
+                            f"{path}[{component_index}] must be numeric, not bool",
+                        )
+                    if not isinstance(component, Real):
+                        _fail(
+                            "non_numeric",
+                            f"{path}[{component_index}] must be a real number",
+                        )
+                    components.append(float(component))
+                parsed_row.append(tuple(components))
+                continue
+            if inferred_channels is None:
+                inferred_channels = 1
+            if inferred_channels != 1:
+                _fail("grid_shape", f"{path} must have {inferred_channels} components")
+            if isinstance(cell, bool):
+                _fail("bool_value", f"{path} must be numeric, not bool")
+            if not isinstance(cell, Real):
+                _fail("non_numeric", f"{path} must be a real number")
+            parsed_row.append(float(cell))
+        rows.append(parsed_row)
+    if inferred_channels is None:
+        _fail("missing_value", f"{label} contains no typed cells")
+    assert width is not None
+    return rows, (len(rows), width), inferred_channels
+
+
+def _parse_sample_coordinate(value: Any, path: str) -> float:
+    """Parse a coordinate while retaining the typed nonfinite failure at sampling time."""
+
+    if isinstance(value, bool):
+        _fail("bool_value", f"{path} must be numeric, not bool")
+    if not isinstance(value, Real):
+        _fail("non_numeric", f"{path} must be a real number")
+    number = float(value)
+    if not math.isfinite(number):
+        _fail("nonfinite_value", f"{path} must be finite")
+    return number
+
+
+def _sample_parsed_grid(
+    rows: list[list[float | tuple[float, ...] | None]],
+    shape: tuple[int, int],
+    channels: int,
+    x: Any,
+    y: Any,
+    label: str,
+) -> float | tuple[float, ...]:
+    """Bilinearly sample a bottom-row-origin grid at x-right/y-up coordinates."""
+
+    sample_x = _parse_sample_coordinate(x, f"{label}.x")
+    sample_y = _parse_sample_coordinate(y, f"{label}.y")
+    height, width = shape
+    if sample_x < 0.0 or sample_x > width - 1 or sample_y < 0.0 or sample_y > height - 1:
+        _fail("out_of_bounds", f"{label} coordinate ({sample_x}, {sample_y}) is outside grid")
+    left = math.floor(sample_x)
+    bottom = math.floor(sample_y)
+    right = min(left + 1, width - 1)
+    top = min(bottom + 1, height - 1)
+    x_fraction = sample_x - left
+    y_fraction = sample_y - bottom
+
+    corners = (
+        (rows[bottom][left], (1.0 - x_fraction) * (1.0 - y_fraction)),
+        (rows[bottom][right], x_fraction * (1.0 - y_fraction)),
+        (rows[top][left], (1.0 - x_fraction) * y_fraction),
+        (rows[top][right], x_fraction * y_fraction),
+    )
+    if channels == 1:
+        result = 0.0
+        for value, weight in corners:
+            if weight == 0.0:
+                continue
+            if value is None:
+                _fail("missing_value", f"{label} neighborhood contains a missing value")
+            if not math.isfinite(value):  # type: ignore[arg-type]
+                _fail("nonfinite_value", f"{label} neighborhood contains a nonfinite value")
+            result += float(value) * weight  # type: ignore[arg-type]
+        return result
+
+    result = [0.0] * channels
+    for vector, weight in corners:
+        if weight == 0.0:
+            continue
+        if vector is None:
+            _fail("missing_value", f"{label} neighborhood contains a missing value")
+        if any(not math.isfinite(component) for component in vector):  # type: ignore[union-attr]
+            _fail("nonfinite_value", f"{label} neighborhood contains a nonfinite value")
+        for component_index in range(channels):
+            result[component_index] += vector[component_index] * weight  # type: ignore[index]
+    return tuple(result)
+
+
+def bilinear_sample(grid: Any, x: Any, y: Any, channels: int | None = None) -> Any:
+    """Sample a scalar/RGB/flow grid with bottom-row-origin bilinear interpolation."""
+
+    rows, shape, inferred_channels = _parse_numeric_grid(grid, "grid", channels)
+    return _sample_parsed_grid(rows, shape, inferred_channels, x, y, "grid")
+
+
+def _parse_required_mask(mask: Any, shape: tuple[int, int], label: str) -> list[list[bool]]:
+    if mask is None:
+        _fail("mask_required", f"{label} is required")
+    parsed = _parse_mask(mask, shape)
+    assert parsed is not None
+    return parsed
+
+
+def _parse_points(points: Any, label: str) -> list[tuple[float | None, float | None] | None]:
+    if not _is_sequence(points) or not points:
+        _fail("empty_landmarks", f"{label} must contain at least one point")
+    parsed: list[tuple[float | None, float | None] | None] = []
+    for index, point in enumerate(points):
+        path = f"{label}[{index}]"
+        if point is None:
+            parsed.append(None)
+            continue
+        if not _is_sequence(point) or len(point) != 2:
+            _fail("point_shape", f"{path} must be a two-component point or None")
+        components: list[float | None] = []
+        for component_index, component in enumerate(point):
+            if component is None:
+                components.append(None)
+                continue
+            component_path = f"{path}[{component_index}]"
+            if isinstance(component, bool):
+                _fail("bool_value", f"{component_path} must be numeric, not bool")
+            if not isinstance(component, Real):
+                _fail("non_numeric", f"{component_path} must be a real number")
+            components.append(float(component))
+        parsed.append((components[0], components[1]))
+    return parsed
+
+
+def _parse_point_mask(mask: Any, count: int) -> list[bool]:
+    if mask is None:
+        _fail("mask_required", "landmark valid_mask is required")
+    if not _is_sequence(mask) or len(mask) != count:
+        _fail("mask_shape", "landmark valid_mask length does not match landmarks")
+    parsed = []
+    for index, value in enumerate(mask):
+        if not isinstance(value, bool):
+            _fail("mask_value", f"landmark valid_mask[{index}] must be bool")
+        parsed.append(value)
+    if not any(parsed):
+        _fail("empty_mask", "landmark valid_mask selects no points")
+    return parsed
+
+
+def _point_is_finite(point: tuple[float | None, float | None] | None) -> bool:
+    return (
+        point is not None
+        and point[0] is not None
+        and point[1] is not None
+        and math.isfinite(point[0])
+        and math.isfinite(point[1])
+    )
+
+
+def landmark_metrics(
+    flow: Any,
+    source_landmarks: Any,
+    target_landmarks: Any,
+    valid_mask: Any,
+) -> dict[str, float]:
+    """Measure landmark target error after sampling image1->image2 flow at each source point."""
+
+    parsed_flow, flow_shape, flow_channels = _parse_numeric_grid(flow, "flow", 2)
+    assert flow_channels == 2
+    sources = _parse_points(source_landmarks, "source_landmarks")
+    targets = _parse_points(target_landmarks, "target_landmarks")
+    if len(sources) != len(targets):
+        _fail("shape_mismatch", "source and target landmark counts differ")
+    mask = _parse_point_mask(valid_mask, len(sources))
+    errors = []
+    for index, (source, target) in enumerate(zip(sources, targets)):
+        if not mask[index]:
+            continue
+        if not _point_is_finite(source) or not _point_is_finite(target):
+            _fail("nonfinite_value", f"landmark {index} is not finite")
+        assert source is not None and target is not None
+        displacement = _sample_parsed_grid(
+            parsed_flow, flow_shape, 2, source[0], source[1], f"flow at landmark {index}"
+        )
+        assert isinstance(displacement, tuple)
+        predicted_x = source[0] + displacement[0]  # type: ignore[operator]
+        predicted_y = source[1] + displacement[1]  # type: ignore[operator]
+        errors.append(math.hypot(predicted_x - target[0], predicted_y - target[1]))  # type: ignore[operator]
+    if not errors:
+        _fail("empty_mask", "landmark valid_mask selects no measurable points")
+    return {
+        "landmark_median_error_px": linear_quantile(errors, 0.5),
+        "landmark_p95_error_px": linear_quantile(errors, 0.95),
+    }
+
+
+def _mean_rgb_residual(first: tuple[float, ...], second: tuple[float, ...]) -> float:
+    return sum(abs(a - b) for a, b in zip(first, second)) / len(first)
+
+
+def visible_warp_residual(
+    image1: Any, image2: Any, forward_flow: Any, visible_mask: Any
+) -> float:
+    """Return mean absolute RGB residual after forward-warping image1 into image2."""
+
+    parsed_image1, image1_shape, image1_channels = _parse_numeric_grid(image1, "image1", 3)
+    parsed_image2, image2_shape, image2_channels = _parse_numeric_grid(image2, "image2", 3)
+    parsed_flow, flow_shape, flow_channels = _parse_numeric_grid(forward_flow, "forward_flow", 2)
+    if image1_shape != flow_shape:
+        _fail("shape_mismatch", "image1 and forward_flow source shapes differ")
+    assert image1_channels == image2_channels == 3 and flow_channels == 2
+    mask = _parse_required_mask(visible_mask, flow_shape, "visible_mask")
+    residuals = []
+    for row in range(flow_shape[0]):
+        for column in range(flow_shape[1]):
+            if not mask[row][column]:
+                continue
+            source_rgb = _sample_parsed_grid(
+                parsed_image1, image1_shape, 3, column, row, "image1"
+            )
+            displacement = _sample_parsed_grid(
+                parsed_flow, flow_shape, 2, column, row, "forward_flow"
+            )
+            assert isinstance(source_rgb, tuple) and isinstance(displacement, tuple)
+            target_rgb = _sample_parsed_grid(
+                parsed_image2,
+                image2_shape,
+                3,
+                column + displacement[0],
+                row + displacement[1],
+                "image2 at forward coordinate",
+            )
+            assert isinstance(target_rgb, tuple)
+            residuals.append(_mean_rgb_residual(source_rgb, target_rgb))
+    if not residuals:
+        _fail("empty_mask", "visible_mask selects no pixels")
+    return sum(residuals) / len(residuals)
+
+
+def forward_backward_residual_px(
+    forward_flow: Any, backward_flow: Any, valid_mask: Any
+) -> float:
+    """Return mean norm(F(x)+B(x+F(x))) over the explicit source mask."""
+
+    parsed_forward, forward_shape, forward_channels = _parse_numeric_grid(forward_flow, "forward_flow", 2)
+    parsed_backward, backward_shape, backward_channels = _parse_numeric_grid(backward_flow, "backward_flow", 2)
+    assert forward_channels == backward_channels == 2
+    mask = _parse_required_mask(valid_mask, forward_shape, "valid_mask")
+    residuals = []
+    for row in range(forward_shape[0]):
+        for column in range(forward_shape[1]):
+            if not mask[row][column]:
+                continue
+            displacement = _sample_parsed_grid(
+                parsed_forward, forward_shape, 2, column, row, "forward_flow"
+            )
+            assert isinstance(displacement, tuple)
+            reverse = _sample_parsed_grid(
+                parsed_backward,
+                backward_shape,
+                2,
+                column + displacement[0],
+                row + displacement[1],
+                "backward_flow at forward coordinate",
+            )
+            assert isinstance(reverse, tuple)
+            residuals.append(
+                math.hypot(displacement[0] + reverse[0], displacement[1] + reverse[1])
+            )
+    if not residuals:
+        _fail("empty_mask", "valid_mask selects no pixels")
+    return sum(residuals) / len(residuals)
+
+
+def chain_drift_px(
+    flows: Any, truth_flow: Any, valid_mask: Any, link_count: Any
+) -> float:
+    """Measure composed chain displacement against analytic truth for one exact link count."""
+
+    if isinstance(link_count, bool) or not isinstance(link_count, int):
+        _fail("link_count", "link_count must be one of 1, 2, 4, or 8")
+    if link_count not in (1, 2, 4, 8):
+        _fail("link_count", "link_count must be one of 1, 2, 4, or 8")
+    if not _is_sequence(flows) or len(flows) != link_count:
+        _fail("link_count", "flows must contain exactly link_count links")
+    parsed_flows = []
+    flow_shapes = []
+    for index, flow in enumerate(flows):
+        parsed, shape, channels = _parse_numeric_grid(flow, f"flows[{index}]", 2)
+        assert channels == 2
+        parsed_flows.append(parsed)
+        flow_shapes.append(shape)
+    parsed_truth, truth_shape, truth_channels = _parse_numeric_grid(truth_flow, "truth_flow", 2)
+    assert truth_channels == 2
+    if flow_shapes[0] != truth_shape:
+        _fail("shape_mismatch", "first flow and truth_flow source shapes differ")
+    mask = _parse_required_mask(valid_mask, truth_shape, "valid_mask")
+    residuals = []
+    for row in range(truth_shape[0]):
+        for column in range(truth_shape[1]):
+            if not mask[row][column]:
+                continue
+            current_x = float(column)
+            current_y = float(row)
+            for index, (parsed, shape) in enumerate(zip(parsed_flows, flow_shapes)):
+                displacement = _sample_parsed_grid(
+                    parsed, shape, 2, current_x, current_y, f"flows[{index}] at advected coordinate"
+                )
+                assert isinstance(displacement, tuple)
+                current_x += displacement[0]
+                current_y += displacement[1]
+            truth = _sample_parsed_grid(
+                parsed_truth, truth_shape, 2, column, row, "truth_flow"
+            )
+            assert isinstance(truth, tuple)
+            residuals.append(
+                math.hypot(
+                    (current_x - column) - truth[0],
+                    (current_y - row) - truth[1],
+                )
+            )
+    if not residuals:
+        _fail("empty_mask", "valid_mask selects no pixels")
+    return sum(residuals) / len(residuals)
+
+
 def repeated_run_p99_delta_px(runs: Any) -> float:
     """Return p99 Euclidean delta from the first same-shaped run."""
 
@@ -364,9 +733,14 @@ def macro_aggregate(samples: Any) -> dict[str, Any]:
 
 __all__ = [
     "MetricFailure",
+    "bilinear_sample",
+    "chain_drift_px",
     "dense_metrics",
+    "forward_backward_residual_px",
+    "landmark_metrics",
     "linear_quantile",
     "macro_aggregate",
     "nonfinite_fraction",
     "repeated_run_p99_delta_px",
+    "visible_warp_residual",
 ]
