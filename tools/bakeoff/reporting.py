@@ -48,6 +48,9 @@ CSV_HEADER = (
 
 _SCORE_KEYS = {"synthetic_macro_score", "production_macro_score", "final_quality_score", "category_scores"}
 _IDENTITY_FIELDS = ("candidate_id", "shot_id", "conditioning_token", "cap_token", "provider", "host_load")
+_GENERATED_REPORT_KEYS = {
+    "schema_version", "protocol_id", "corpus_sha256", "matrix", "candidates", "results",
+}
 
 
 def _fail(kind: str, message: str) -> None:
@@ -193,6 +196,9 @@ def assemble_report(
 
     metadata = dict(_mapping(report_metadata, "report_metadata"))
     _is_json(metadata, "report_metadata")
+    generated = sorted(_GENERATED_REPORT_KEYS.intersection(metadata))
+    if generated:
+        _fail("metadata_shape", f"report_metadata contains generated field {generated[0]!r}")
     if not isinstance(corpus, Mapping) or not isinstance(protocol, Mapping):
         _fail("shape", "protocol and corpus must be objects")
     try:
@@ -266,20 +272,28 @@ def _scalar(value: Any) -> str:
     _fail("csv_scalar", f"CSV scalar has unsupported value {value!r}")
 
 
+def _csv_nested_mapping(result: Mapping[str, Any], field: str) -> Mapping[str, Any]:
+    value = result.get(field, {})
+    if not isinstance(value, Mapping):
+        _fail("result_shape", f"result.{field} must be an object")
+    return value
+
+
 def _csv_row(result: Mapping[str, Any]) -> list[str]:
-    failure = result.get("failure", {})
-    geometry = result.get("geometry", {})
-    timing = result.get("timing", {})
-    metrics = result.get("metrics", {})
-    resource = result.get("resource", {})
-    environment = result.get("environment", {})
+    _mapping(result, "result")
+    failure = _csv_nested_mapping(result, "failure")
+    geometry = _csv_nested_mapping(result, "geometry")
+    timing = _csv_nested_mapping(result, "timing")
+    metrics = _csv_nested_mapping(result, "metrics")
+    resource = _csv_nested_mapping(result, "resource")
+    environment = _csv_nested_mapping(result, "environment")
     row: dict[str, Any] = {
         **{field: result.get(field) for field in _IDENTITY_FIELDS},
         "status": result.get("status"),
-        "failure_type": failure.get("type") if isinstance(failure, Mapping) else None,
-        "failure_message": failure.get("message") if isinstance(failure, Mapping) else None,
-        "failure_retryable": failure.get("retryable") if isinstance(failure, Mapping) else None,
-        "failure_stage": failure.get("stage") if isinstance(failure, Mapping) else None,
+        "failure_type": failure.get("type"),
+        "failure_message": failure.get("message"),
+        "failure_retryable": failure.get("retryable"),
+        "failure_stage": failure.get("stage"),
         "category": result.get("category"), "source_target": result.get("source_target"),
     }
     for field in (
@@ -319,12 +333,17 @@ def _csv_row(result: Mapping[str, Any]) -> list[str]:
 def render_csv(report: Mapping[str, Any]) -> bytes:
     """Render report results with the frozen header and stable CSV quoting."""
 
-    _mapping(report, "report")
+    report_mapping = _mapping(report, "report")
+    results = report_mapping.get("results")
+    if not isinstance(results, (list, tuple)):
+        _fail("result_shape", "report.results must be a sequence")
     from io import StringIO
     output = StringIO(newline="")
     writer = csv.writer(output, delimiter=",", quotechar='"', lineterminator="\n")
     writer.writerow(CSV_HEADER)
-    for result in report.get("results", []):
+    for index, result in enumerate(results):
+        if not isinstance(result, Mapping):
+            _fail("result_shape", f"report.results[{index}] must be an object")
         writer.writerow(_csv_row(result))
     return output.getvalue().encode("utf-8")
 
@@ -391,7 +410,13 @@ def write_report_pair(
     *,
     replace: bool = False,
 ) -> None:
-    """Validate and publish JSON/CSV together using staged same-directory replacements."""
+    """Validate and stage both outputs, then publish each destination deterministically.
+
+    By default each staged file is installed with an atomic same-directory hard link,
+    so a destination created after the initial check cannot be clobbered. With replace
+    true, os.replace is used as explicitly requested. The two destinations are staged
+    together, but their publication is not jointly atomic.
+    """
 
     json_destination = Path(json_path)
     csv_destination = Path(csv_path)
@@ -410,10 +435,22 @@ def write_report_pair(
     try:
         json_temporary = _stage(json_destination, json_payload)
         csv_temporary = _stage(csv_destination, csv_payload)
-        os.replace(json_temporary, json_destination)
-        json_temporary = None
-        os.replace(csv_temporary, csv_destination)
-        csv_temporary = None
+        for temporary, destination in (
+            (json_temporary, json_destination),
+            (csv_temporary, csv_destination),
+        ):
+            if replace:
+                os.replace(temporary, destination)
+            else:
+                try:
+                    os.link(temporary, destination, follow_symlinks=False)
+                except FileExistsError:
+                    _fail("output_exists", f"output appeared during publication: {destination}")
+                os.unlink(temporary)
+            if temporary == json_temporary:
+                json_temporary = None
+            else:
+                csv_temporary = None
         for parent in {json_destination.parent, csv_destination.parent}:
             descriptor = os.open(str(parent), os.O_RDONLY)
             try:

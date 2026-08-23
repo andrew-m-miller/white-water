@@ -10,7 +10,9 @@ from pathlib import Path
 import stat
 import tempfile
 import unittest
+from unittest import mock
 
+from . import reporting
 from .matrix import CellKey, MatrixPlan
 from .reporting import (
     CSV_HEADER,
@@ -67,6 +69,17 @@ class ReportingTests(unittest.TestCase):
         resume = {"state": "complete", "cell": self.cell.as_dict(), "result": result}
         self.assertEqual(self.assembled([resume]), self.fixture)
 
+    def test_metadata_cannot_supply_generated_fields(self):
+        for field in ("schema_version", "protocol_id", "corpus_sha256", "matrix", "candidates", "results"):
+            with self.subTest(field=field):
+                metadata = {**self.metadata, field: self.fixture.get(field, 1)}
+                with self.assertRaises(ReportFailure) as context:
+                    assemble_report(
+                        self.protocol, self.corpus, self.report_schema, self.corpus_schema,
+                        metadata, self.fixture["candidates"], self.plan, self.fixture["results"],
+                    )
+                self.assertEqual(context.exception.kind, "metadata_shape")
+
     def test_csv_has_frozen_header_and_canonical_nested_columns(self):
         report = self.assembled()
         payload = render_csv(report)
@@ -77,6 +90,22 @@ class ReportingTests(unittest.TestCase):
         nested = rows[1][CSV_HEADER.index("steady_samples_ms_json")]
         self.assertEqual(json.loads(nested), report["results"][0]["timing"]["steady_samples_ms"])
         self.assertIn('"', payload.decode("utf-8"))
+
+    def test_csv_rejects_malformed_public_inputs_with_typed_failures(self):
+        report = self.assembled()
+        for malformed, kind in (
+            ({**report, "results": None}, "result_shape"),
+            ({**report, "results": [None]}, "result_shape"),
+            ({**report, "results": [{**report["results"][0], "geometry": []}]}, "result_shape"),
+            ({**report, "results": [{**report["results"][0], "timing": "bad"}]}, "result_shape"),
+            ({**report, "results": [{**report["results"][0], "metrics": 1}]}, "result_shape"),
+            ({**report, "results": [{**report["results"][0], "resource": False}]}, "result_shape"),
+            ({**report, "results": [{**report["results"][0], "environment": ["bad"]}]}, "result_shape"),
+        ):
+            with self.subTest(kind=kind, malformed=malformed.get("results")):
+                with self.assertRaises(ReportFailure) as context:
+                    render_csv(malformed)
+                self.assertEqual(context.exception.kind, kind)
 
     def test_deterministic_pair_bytes_and_modes(self):
         report = self.assembled()
@@ -166,6 +195,28 @@ class ReportingTests(unittest.TestCase):
                     self.report_schema, self.corpus, self.corpus_schema,
                 )
             self.assertEqual(context.exception.kind, "output_mode")
+
+    def test_no_clobber_collision_at_publication_preserves_competitor(self):
+        report = self.assembled()
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            json_path, csv_path = directory / "report.json", directory / "report.csv"
+            competitor = b"created by another writer"
+
+            def racing_link(source, destination, **kwargs):
+                Path(destination).write_bytes(competitor)
+                raise FileExistsError(destination)
+
+            with mock.patch.object(reporting.os, "link", side_effect=racing_link):
+                with self.assertRaises(ReportFailure) as context:
+                    write_report_pair(
+                        json_path, csv_path, report, self.protocol, self.report_schema,
+                        self.corpus, self.corpus_schema,
+                    )
+            self.assertEqual(context.exception.kind, "output_exists")
+            self.assertEqual(json_path.read_bytes(), competitor)
+            self.assertFalse(csv_path.exists())
+            self.assertEqual(list(directory.glob(".*.tmp")), [])
 
 
 if __name__ == "__main__":
