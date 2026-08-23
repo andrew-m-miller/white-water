@@ -16,6 +16,8 @@ EXPECTED_SOURCE_COMMIT = "204b5e3744461d90303b9ff82caa7a1bb56a2ca2"
 EXPECTED_CHECKPOINT_SHA256 = "76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e20f7995fcc019f"
 EXPECTED_CHECKPOINT_SIZE = 36195519
 EXPECTED_ENVIRONMENT_SHA256 = "b0bd2d907bdcdd4cd90e9ce532b98f22627d14f9372baeebb356993e78f21fe8"
+EXPECTED_ARTIFACT_SHA256 = "f12b8030f7432f044ef41a373ae7e7e5180f9cbfc692a1793758d881cea18c82"
+EXPECTED_ARTIFACT_SIZE = 66177652
 
 
 def main() -> int:
@@ -52,10 +54,31 @@ def main() -> int:
         raise ArtifactError("NeuFlow iteration contract changed")
     if contract["normalization_location"] != "graph" or contract["normalization_formula"] != "image / 255":
         raise ArtifactError("NeuFlow normalization contract changed")
-    if manifest["status"] not in {"provenance_pinned_export_pending", "excluded"}:
-        raise ArtifactError("P25-3F provenance gate unexpectedly assigned an export/host result")
-    if manifest["status"] == "provenance_pinned_export_pending" and manifest["validation"]["status"] != "pending":
+    if manifest["status"] not in {
+        "provenance_pinned_export_pending",
+        "export_validated",
+        "excluded",
+    }:
+        raise ArtifactError("P25-3F manifest has an unexpected status")
+    if (
+        manifest["status"] == "provenance_pinned_export_pending"
+        and manifest["validation"]["status"] != "pending"
+    ):
         raise ArtifactError("pending NeuFlow export must have pending numerical validation")
+    if manifest["status"] == "export_validated":
+        if manifest["validation"]["status"] != "passed":
+            raise ArtifactError("validated NeuFlow export must have passed numerical validation")
+        if manifest["export"]["sha256"] != EXPECTED_ARTIFACT_SHA256:
+            raise ArtifactError("validated NeuFlow artifact SHA256 changed")
+        if manifest["export"]["size_bytes"] != EXPECTED_ARTIFACT_SIZE:
+            raise ArtifactError("validated NeuFlow artifact size changed")
+        if manifest["validation"]["shapes"]["dynamic"] is not False:
+            raise ArtifactError("NeuFlow fixed-shape export must not claim dynamic support")
+    if manifest["status"] == "excluded":
+        if manifest["candidate"]["role"] != "excluded":
+            raise ArtifactError("excluded NeuFlow manifest must mark candidate.role=excluded")
+        if manifest["validation"]["status"] != "failed":
+            raise ArtifactError("excluded NeuFlow manifest must carry failed validation status")
 
     artifact_path = manifest_path.parent / manifest["export"]["artifact"]
     # The source checkout intentionally omits ignored ONNX payloads. If a local exporter has
