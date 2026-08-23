@@ -1,0 +1,434 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "whitewater://schema/phase2.5/artifact-v1",
+  "title": "White Water Phase 2.5 candidate artifact manifest v1",
+  "description": "Candidate-neutral provenance, tensor contract and exact exported artifact identity.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "schema_id",
+    "status",
+    "purpose",
+    "candidate",
+    "upstream",
+    "checkpoint",
+    "backbone",
+    "licenses",
+    "model",
+    "tensor_contract",
+    "export_environment",
+    "export",
+    "validation"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "schema_id": {"const": "whitewater-p25-artifact-v1"},
+    "status": {
+      "enum": [
+        "provenance_pinned_export_pending",
+        "export_validated",
+        "host_probe_pending",
+        "host_probe_cpu_cuda_passed",
+        "excluded"
+      ]
+    },
+    "purpose": {"type": "string", "minLength": 1},
+    "candidate": {"$ref": "#/$defs/candidate"},
+    "upstream": {"$ref": "#/$defs/source"},
+    "checkpoint": {"$ref": "#/$defs/checkpoint"},
+    "backbone": {"$ref": "#/$defs/backbone"},
+    "licenses": {"$ref": "#/$defs/licenses"},
+    "model": {"$ref": "#/$defs/model"},
+    "tensor_contract": {"$ref": "#/$defs/tensor_contract"},
+    "export_environment": {"$ref": "#/$defs/export_environment"},
+    "export": {"$ref": "#/$defs/export"},
+    "validation": {"$ref": "#/$defs/validation"},
+    "notes": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "nonnegative_number": {
+      "type": "number",
+      "minimum": 0
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+        "role": {"enum": ["shipping-candidate", "validation-baseline", "excluded"]},
+        "family": {"type": "string", "minLength": 1},
+        "notes": {"type": "string", "minLength": 1}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "license", "license_audit"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "commit": {"$ref": "#/$defs/commit"},
+        "license": {"type": "string", "minLength": 1},
+        "license_audit": {"type": "string", "minLength": 1},
+        "license_audit_date": {"type": "string", "minLength": 1}
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "revision", "url", "format", "size_bytes", "sha256"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "revision": {"$ref": "#/$defs/commit"},
+        "url": {"type": "string", "minLength": 1},
+        "format": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "license": {"type": "string", "minLength": 1},
+        "license_audit": {"type": "string", "minLength": 1}
+      }
+    },
+    "backbone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicable", "identity", "provenance", "license", "license_audit"],
+      "properties": {
+        "applicable": {"type": "boolean"},
+        "identity": {"type": ["string", "null"]},
+        "provenance": {"type": "string", "minLength": 1},
+        "repository": {"type": ["string", "null"]},
+        "revision": {"type": ["string", "null"]},
+        "checkpoint_sha256": {"type": ["string", "null"]},
+        "license": {"type": "string", "minLength": 1},
+        "license_audit": {"type": "string", "minLength": 1}
+      }
+    },
+    "license_surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "license",
+        "audit",
+        "commercial_use_permitted",
+        "redistribution_permitted"
+      ],
+      "properties": {
+        "license": {"type": "string", "minLength": 1},
+        "audit": {"type": "string", "minLength": 1},
+        "commercial_use_permitted": {"enum": ["yes", "no", "unknown"]},
+        "redistribution_permitted": {"enum": ["yes", "no", "unknown"]},
+        "source": {"type": "string", "minLength": 1},
+        "notes": {"type": "string", "minLength": 1}
+      }
+    },
+    "licenses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "checkpoint", "backbone"],
+      "properties": {
+        "code": {"$ref": "#/$defs/license_surface"},
+        "checkpoint": {"$ref": "#/$defs/license_surface"},
+        "backbone": {"$ref": "#/$defs/license_surface"}
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["variant", "config_source", "config"],
+      "properties": {
+        "variant": {"type": "string", "minLength": 1},
+        "config_source": {"type": "string", "minLength": 1},
+        "config": {"type": "object"}
+      }
+    },
+    "tensor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "dtype", "layout", "channels", "range"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "dtype": {"type": "string", "minLength": 1},
+        "layout": {"type": "string", "minLength": 1},
+        "channels": {
+          "type": ["string", "array"],
+          "items": {"type": "string", "minLength": 1}
+        },
+        "range": {
+          "type": "array",
+          "items": {"type": "number"},
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "tensor_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputs",
+        "output",
+        "normalization",
+        "normalization_location",
+        "normalization_formula",
+        "padding",
+        "batch",
+        "spatial_dimensions",
+        "iterations",
+        "confidence",
+        "graph_domains"
+      ],
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/tensor"}
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "dtype", "layout", "channels", "units", "direction"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "dtype": {"type": "string", "minLength": 1},
+            "layout": {"type": "string", "minLength": 1},
+            "channels": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {"type": "string", "minLength": 1}
+            },
+            "units": {"enum": ["input_pixels", "unpadded_analysis_pixels"]},
+            "direction": {"const": "image1_to_image2"},
+            "confidence": {"type": "boolean"}
+          }
+        },
+        "normalization": {
+          "type": ["string", "object"],
+          "oneOf": [
+            {"type": "string"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["location", "formula"],
+              "properties": {
+                "location": {"enum": ["graph", "caller", "none"]},
+                "formula": {"type": "string", "minLength": 1},
+                "input_range": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {"type": "number"}
+                },
+                "mean": {"type": "array", "items": {"type": "number"}},
+                "scale": {"type": "array", "items": {"type": "number"}},
+                "parameters": {"type": "object"}
+              }
+            }
+          ]
+        },
+        "normalization_location": {"enum": ["graph", "caller", "none"]},
+        "normalization_formula": {"type": "string", "minLength": 1},
+        "upstream_custom_py_input_scale": {"type": "number"},
+        "exported_forward_input_scale": {"type": "number"},
+        "padding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["multiple", "mode", "crop"],
+          "properties": {
+            "multiple": {"type": "integer", "minimum": 1},
+            "mode": {"type": "string", "minLength": 1},
+            "crop": {"type": "string", "minLength": 1}
+          }
+        },
+        "batch": {"const": 1},
+        "spatial_dimensions": {"type": "string", "minLength": 1},
+        "iterations": {"type": "string", "minLength": 1},
+        "confidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["present"],
+          "properties": {
+            "present": {"type": "boolean"},
+            "name": {"type": ["string", "null"]},
+            "dtype": {"type": ["string", "null"]},
+            "layout": {"type": ["string", "null"]}
+          }
+        },
+        "graph_domains": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "export_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "architecture",
+        "python",
+        "framework",
+        "exporter",
+        "runtime",
+        "provider",
+        "sha256"
+      ],
+      "properties": {
+        "platform": {"type": "string", "minLength": 1},
+        "architecture": {"type": "string", "minLength": 1},
+        "python": {"type": "string", "minLength": 1},
+        "framework": {"type": "string", "minLength": 1},
+        "exporter": {"type": "string", "minLength": 1},
+        "runtime": {"type": "string", "minLength": 1},
+        "provider": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "artifact",
+        "sha256",
+        "size_bytes",
+        "mode",
+        "export_environment_sha256"
+      ],
+      "properties": {
+        "platform": {"type": "string", "minLength": 1},
+        "artifact": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"]},
+        "size_bytes": {"type": ["integer", "null"], "minimum": 1},
+        "mode": {"const": "0644"},
+        "export_environment_sha256": {"$ref": "#/$defs/sha256"},
+        "export_environment": {"$ref": "#/$defs/export_environment"},
+        "notes": {"type": "string", "minLength": 1}
+      }
+    },
+    "export": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "script",
+        "opset",
+        "example_shape",
+        "artifact",
+        "sha256",
+        "size_bytes",
+        "mode",
+        "platform",
+        "export_environment_sha256",
+        "platform_artifacts"
+      ],
+      "properties": {
+        "script": {"type": "string", "minLength": 1},
+        "opset": {"type": "integer", "minimum": 1},
+        "example_shape": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {"type": "integer", "minimum": 1}
+        },
+        "artifact": {"type": "string", "minLength": 1},
+        "sha256": {"type": ["string", "null"]},
+        "size_bytes": {"type": ["integer", "null"], "minimum": 1},
+        "mode": {"const": "0644"},
+        "platform": {"type": "string", "minLength": 1},
+        "export_environment_sha256": {"$ref": "#/$defs/sha256"},
+        "platform_artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/artifact"}
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "observed"],
+      "properties": {
+        "status": {"enum": ["pending", "passed", "failed"]},
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["passed", "median_epe_px"],
+          "properties": {
+            "passed": {"type": "boolean"},
+            "median_epe_px": {"type": "number", "minimum": 0},
+            "max_epe_px": {"type": "number", "minimum": 0}
+          }
+        },
+        "directions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["forward", "reverse"],
+          "properties": {
+            "forward": {"$ref": "#/$defs/direction"},
+            "reverse": {"$ref": "#/$defs/direction"}
+          }
+        },
+        "shapes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dynamic", "example", "additional"],
+          "properties": {
+            "dynamic": {"type": "boolean"},
+            "example": {"$ref": "#/$defs/shape"},
+            "additional": {"$ref": "#/$defs/shape"}
+          }
+        },
+        "parity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["checked", "mean_abs", "p99_abs", "p999_abs", "max_abs"],
+          "properties": {
+            "checked": {"type": "boolean"},
+            "mean_abs": {"type": "number", "minimum": 0},
+            "p99_abs": {"type": "number", "minimum": 0},
+            "p999_abs": {"type": "number", "minimum": 0},
+            "max_abs": {"type": "number", "minimum": 0}
+          }
+        },
+        "observed": {"type": ["object", "null"]},
+        "seed": {"type": "integer"},
+        "translation_pixels": {"type": "number"},
+        "second_dynamic_shape": {"$ref": "#/$defs/shape"},
+        "identity_median_epe_max": {"type": "number", "minimum": 0},
+        "translation_x_fraction_min": {"type": "number"},
+        "translation_abs_y_max": {"type": "number", "minimum": 0},
+        "onnx_pytorch_mean_abs_max": {"type": "number", "minimum": 0},
+        "onnx_pytorch_p99_abs_max": {"type": "number", "minimum": 0},
+        "onnx_pytorch_p999_abs_max": {"type": "number", "minimum": 0},
+        "onnx_pytorch_max_abs_max": {"type": "number", "minimum": 0}
+      }
+    },
+    "direction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["median_dx_px", "median_dy_px", "expected_sign"],
+      "properties": {
+        "median_dx_px": {"type": "number"},
+        "median_dy_px": {"type": "number"},
+        "expected_sign": {"enum": ["positive_x", "negative_x", "positive_y", "negative_y"]}
+      }
+    },
+    "shape": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {"type": "integer", "minimum": 1}
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "description": "Negative cases exercised by models/artifact_tests.py",
+  "cases": [
+    {"id": "unknown-top-level-field", "kind": "manifest-schema"},
+    {"id": "unknown-nested-field", "kind": "manifest-schema"},
+    {"id": "incompatible-tensor-contract", "kind": "protocol-compatibility"},
+    {"id": "artifact-sha256-mismatch", "kind": "payload-identity"},
+    {"id": "artifact-size-mismatch", "kind": "payload-identity"},
+    {"id": "artifact-symlink", "kind": "payload-file-type"},
+    {"id": "artifact-non-regular", "kind": "payload-file-type"},
+    {"id": "artifact-mode-not-0644", "kind": "payload-permissions"}
+  ]
+}
