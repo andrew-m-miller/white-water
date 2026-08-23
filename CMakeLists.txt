@@ -142,6 +142,8 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.resume_tests)
   add_test(NAME bakeoff::coordinator
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.coordinator_tests)
+  add_test(NAME bakeoff::session
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.session_tests)
   add_test(NAME bakeoff::reporting
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.reporting_tests)
   add_test(NAME bakeoff::measurement
@@ -157,6 +159,8 @@ if(Python3_Interpreter_FOUND)
   set_tests_properties(bakeoff::resume
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::coordinator
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::session
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::reporting
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

@@ -183,6 +183,21 @@ def _validate_expected_identity(state: Mapping[str, Any], expected_identity: Map
         _fail("identity_mismatch", "resume identity differs from expected identity")
 
 
+def _validate_identity_before_plan(state: Any, expected_identity: Mapping[str, Any]) -> None:
+    """Reject a different run identity before comparing its plan cell expansion.
+
+    A changed matrix normally also changes the state entry cells.  Checking the identity first
+    keeps that case reportable as an identity mismatch rather than leaking an incidental cell
+    order/count error, while malformed state still receives the normal shape validation below.
+    """
+
+    if not isinstance(state, Mapping) or set(state) != _STATE_KEYS:
+        return
+    _validate_expected_identity(
+        {"identity": _validate_identity(state["identity"])}, expected_identity
+    )
+
+
 def _check_existing_file(path: Path, *, missing_ok: bool) -> None:
     try:
         info = path.lstat()
@@ -271,6 +286,7 @@ def _read_validated(path: Path, expected_identity: Mapping[str, Any], plan: Matr
         state = load_json(path)
     except (OSError, ValueError) as exc:
         raise ResumeFailure("invalid_json", str(exc)) from exc
+    _validate_identity_before_plan(state, expected_identity)
     validated, _ = _validate_state_shape(state, plan)
     _validate_expected_identity(validated, expected_identity)
     if recover and any(entry["state"] == "in_progress" for entry in validated["entries"]):
