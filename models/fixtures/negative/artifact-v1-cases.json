@@ -14,6 +14,7 @@
     {"id": "validation-parity-threshold", "kind": "validation-consistency"},
     {"id": "validation-forward-sign-mismatch", "kind": "validation-consistency"},
     {"id": "validation-reverse-sign-mismatch", "kind": "validation-consistency"},
+    {"id": "validation-direction-axis-mismatch", "kind": "validation-consistency"},
     {"id": "validation-status-incoherent", "kind": "validation-consistency"},
     {"id": "export-status-validation-incoherent", "kind": "export-consistency"},
     {"id": "host-status-validation-incoherent", "kind": "export-consistency"},

@@ -56,6 +56,7 @@ def main() -> int:
         "validation-parity-threshold",
         "validation-forward-sign-mismatch",
         "validation-reverse-sign-mismatch",
+        "validation-direction-axis-mismatch",
         "validation-status-incoherent",
         "export-status-validation-incoherent",
         "host-status-validation-incoherent",
@@ -143,6 +144,11 @@ def main() -> int:
     bad_reverse = copy.deepcopy(positive)
     bad_reverse["validation"]["directions"]["reverse"]["median_dx_px"] = 1
     expect_failure("validation-reverse-sign-mismatch", lambda: validate_manifest(bad_reverse))
+
+    bad_axis = copy.deepcopy(positive)
+    bad_axis["validation"]["directions"]["reverse"]["expected_sign"] = "negative_y"
+    bad_axis["validation"]["directions"]["reverse"]["median_dy_px"] = -1
+    expect_failure("validation direction axis mismatch", lambda: validate_manifest(bad_axis))
 
     bad_status = copy.deepcopy(positive)
     bad_status["validation"]["status"] = "pending"

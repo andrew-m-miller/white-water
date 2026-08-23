@@ -296,7 +296,11 @@ def _validate_numerical_validation(manifest: Mapping[str, Any]) -> None:
             raise ArtifactError(f"{name} direction evidence contradicts expected {sign}")
         if sign.startswith("negative_") and component >= 0:
             raise ArtifactError(f"{name} direction evidence contradicts expected {sign}")
-    if directions["forward"]["expected_sign"] == directions["reverse"]["expected_sign"]:
+    forward_sign = directions["forward"]["expected_sign"]
+    reverse_sign = directions["reverse"]["expected_sign"]
+    if forward_sign[-1] != reverse_sign[-1]:
+        raise ArtifactError("forward and reverse direction evidence must use the same axis")
+    if forward_sign.startswith("positive_") == reverse_sign.startswith("positive_"):
         raise ArtifactError("forward and reverse direction evidence must have opposite signs")
 
 
