@@ -10,11 +10,11 @@ export from quietly acquiring weaker hash or permission semantics than SEA-RAFT.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import stat
-import sys
 from typing import Any, Mapping
 
 
@@ -25,15 +25,23 @@ EXPECTED_MODE = 0o644
 _HEX64 = set("0123456789abcdef")
 
 # The protocol validator is the dependency-free JSON Schema implementation already used by
-# the air-gapped bake-off gate.  Import it by path so this module also works when an exporter
-# is invoked from a checkout whose current working directory is not the repository root.
-sys.path.insert(0, str(ROOT / "tools" / "bakeoff"))
-from validator import (  # type: ignore  # pylint: disable=wrong-import-position
-    ValidationError,
-    canonical_sha256,
-    load_json,
-    validate,
+# the air-gapped bake-off gate.  Load it under a private, unique name so this module also works
+# when an exporter is invoked from an arbitrary current directory without shadowing another
+# interpreter-global ``validator`` module.
+_VALIDATOR_PATH = ROOT / "tools" / "bakeoff" / "validator.py"
+_VALIDATOR_SPEC = importlib.util.spec_from_file_location(
+    "_whitewater_p25_bakeoff_validator",
+    _VALIDATOR_PATH,
 )
+if _VALIDATOR_SPEC is None or _VALIDATOR_SPEC.loader is None:  # pragma: no cover
+    raise ImportError(f"could not load bake-off validator: {_VALIDATOR_PATH}")
+_VALIDATOR_MODULE = importlib.util.module_from_spec(_VALIDATOR_SPEC)
+_VALIDATOR_SPEC.loader.exec_module(_VALIDATOR_MODULE)
+
+ValidationError = _VALIDATOR_MODULE.ValidationError
+canonical_sha256 = _VALIDATOR_MODULE.canonical_sha256
+load_json = _VALIDATOR_MODULE.load_json
+validate = _VALIDATOR_MODULE.validate
 
 
 class ArtifactError(ValueError):

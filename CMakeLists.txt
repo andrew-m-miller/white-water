@@ -126,6 +126,9 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME models::artifact_framework
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/artifact_tests.py")
+  add_test(NAME models::artifact_imports
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/artifact_import_tests.py")
   add_test(NAME bakeoff::protocol_schema
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/tools/bakeoff/schema_tests.py")
