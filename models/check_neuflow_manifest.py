@@ -11,6 +11,11 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - package import path
     from .artifact_workflow import ArtifactError, load_manifest, validate_artifact  # type: ignore
 
+try:
+    from .exclusion_contract import ExclusionReason
+except ImportError:  # Direct script imports keep the dependency-light checker runnable.
+    from exclusion_contract import ExclusionReason
+
 
 EXPECTED_SOURCE_COMMIT = "204b5e3744461d90303b9ff82caa7a1bb56a2ca2"
 EXPECTED_CHECKPOINT_SHA256 = "76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e20f7995fcc019f"
@@ -18,6 +23,8 @@ EXPECTED_CHECKPOINT_SIZE = 36195519
 EXPECTED_ENVIRONMENT_SHA256 = "b0bd2d907bdcdd4cd90e9ce532b98f22627d14f9372baeebb356993e78f21fe8"
 EXPECTED_ARTIFACT_SHA256 = "f12b8030f7432f044ef41a373ae7e7e5180f9cbfc692a1793758d881cea18c82"
 EXPECTED_ARTIFACT_SIZE = 66177652
+CHECKPOINT_EXCLUSION_REASON = ExclusionReason.CHECKPOINT_LICENSE_TERMS_UNKNOWN.value
+EXPORT_FAILURE_EXCLUSION_REASON = ExclusionReason.EXPORT_OR_OPERATOR_FAILURE.value
 
 
 def main() -> int:
@@ -77,25 +84,23 @@ def main() -> int:
     if manifest["status"] == "excluded":
         if manifest["candidate"]["role"] != "excluded":
             raise ArtifactError("excluded NeuFlow manifest must mark candidate.role=excluded")
-        admission_exclusion = "admission_status=excluded_checkpoint_license_terms_unknown" in manifest.get(
-            "notes", []
-        )
-        if admission_exclusion and manifest["validation"]["status"] != "passed":
-            raise ArtifactError("license-excluded NeuFlow manifest must preserve passed numerical validation")
-        if not admission_exclusion and manifest["validation"]["status"] != "failed":
-            raise ArtifactError("technical NeuFlow exclusion must carry failed validation status")
-        observed = manifest["validation"].get("observed")
-        if admission_exclusion:
+        reason_code = manifest["exclusion"]["reason_code"]
+        if reason_code == CHECKPOINT_EXCLUSION_REASON:
+            if manifest["validation"]["status"] != "passed":
+                raise ArtifactError("license-excluded NeuFlow manifest must preserve passed numerical validation")
             if manifest["licenses"]["checkpoint"]["commercial_use_permitted"] != "unknown":
                 raise ArtifactError("NeuFlow checkpoint admission exclusion lost its commercial-use evidence")
             if manifest["licenses"]["checkpoint"]["redistribution_permitted"] != "unknown":
                 raise ArtifactError("NeuFlow checkpoint admission exclusion lost its redistribution evidence")
-            if not isinstance(observed, dict) or observed.get("numerical_status") != "passed":
-                raise ArtifactError("NeuFlow admission exclusion must preserve passed numerical evidence")
             if manifest["export"]["sha256"] != EXPECTED_ARTIFACT_SHA256:
                 raise ArtifactError("NeuFlow excluded export SHA256 changed")
             if manifest["export"]["size_bytes"] != EXPECTED_ARTIFACT_SIZE:
                 raise ArtifactError("NeuFlow excluded export size changed")
+        elif reason_code == EXPORT_FAILURE_EXCLUSION_REASON:
+            if manifest["validation"]["status"] != "failed":
+                raise ArtifactError("technical NeuFlow exclusion must carry failed validation status")
+        else:  # Shared contract validation should make this unreachable.
+            raise ArtifactError(f"unsupported NeuFlow exclusion reason: {reason_code}")
     checkpoint_terms_unknown = (
         manifest["licenses"]["checkpoint"]["commercial_use_permitted"] == "unknown"
         or manifest["licenses"]["checkpoint"]["redistribution_permitted"] == "unknown"
@@ -109,11 +114,10 @@ def main() -> int:
     if (
         checkpoint_terms_unknown
         and manifest["status"] == "excluded"
-        and isinstance(manifest["validation"].get("observed"), dict)
-        and manifest["validation"]["observed"].get("numerical_status") == "passed"
-        and "admission_status=excluded_checkpoint_license_terms_unknown" not in manifest.get("notes", [])
+        and manifest["validation"]["status"] == "passed"
+        and manifest["exclusion"]["reason_code"] != CHECKPOINT_EXCLUSION_REASON
     ):
-        raise ArtifactError("numerically validated NeuFlow exclusion lacks its checkpoint-license admission reason")
+        raise ArtifactError("numerically validated NeuFlow exclusion has the wrong checkpoint-license reason")
 
     artifact_path = manifest_path.parent / manifest["export"]["artifact"]
     # The source checkout intentionally omits ignored ONNX payloads. If a local exporter has

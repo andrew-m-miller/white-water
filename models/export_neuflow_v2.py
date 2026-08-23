@@ -43,14 +43,19 @@ except ModuleNotFoundError:  # pragma: no cover - package import path
         write_manifest,
     )
 
+try:
+    from .exclusion_contract import ExclusionReason
+except ImportError:  # Direct script imports keep the dependency-light exporter runnable.
+    from exclusion_contract import ExclusionReason
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_MANIFEST = SCRIPT_DIR / "neuflow-v2.json"
 EXPECTED_SOURCE_COMMIT = "204b5e3744461d90303b9ff82caa7a1bb56a2ca2"
 EXPECTED_CHECKPOINT_SHA256 = "76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e20f7995fcc019f"
 EXPECTED_CHECKPOINT_SIZE = 36195519
-CHECKPOINT_ADMISSION_NOTE = "admission_status=excluded_checkpoint_license_terms_unknown"
-CHECKPOINT_ADMISSION_REASON = "checkpoint_license_terms_unknown"
+CHECKPOINT_EXCLUSION_REASON = ExclusionReason.CHECKPOINT_LICENSE_TERMS_UNKNOWN.value
+EXPORT_FAILURE_EXCLUSION_REASON = ExclusionReason.EXPORT_OR_OPERATOR_FAILURE.value
 
 
 def require(condition: bool, message: str) -> None:
@@ -501,8 +506,7 @@ def update_manifest(
     if (
         manifest["status"] == "excluded"
         and isinstance(previous_observed, dict)
-        and previous_observed.get("numerical_status") == "passed"
-        and previous_observed.get("admission_status") == "excluded"
+        and manifest.get("exclusion", {}).get("reason_code") == CHECKPOINT_EXCLUSION_REASON
         and not checkpoint_terms_unknown
     ):
         raise ArtifactError(
@@ -524,6 +528,7 @@ def update_manifest(
                 "failure_type=",
                 "failure_detail=",
                 "artifact_identity=",
+                "admission_status=",
             )
         )
     ]
@@ -548,14 +553,14 @@ def update_manifest(
     if checkpoint_terms_unknown:
         manifest["status"] = "excluded"
         manifest["candidate"]["role"] = "excluded"
+        manifest["exclusion"] = {"reason_code": CHECKPOINT_EXCLUSION_REASON}
         observed["numerical_status"] = "passed"
-        observed["admission_status"] = "excluded"
-        observed["admission_reason"] = CHECKPOINT_ADMISSION_REASON
-        if CHECKPOINT_ADMISSION_NOTE not in manifest["notes"]:
-            manifest["notes"].append(CHECKPOINT_ADMISSION_NOTE)
+        observed.pop("admission_status", None)
+        observed.pop("admission_reason", None)
     else:
         manifest["status"] = "export_validated"
         manifest["candidate"]["role"] = "shipping-candidate"
+        manifest.pop("exclusion", None)
     result_note = "export_result=exact_fixed_shape_export_and_cpu_parity_passed"
     if result_note not in manifest["notes"]:
         manifest["notes"].append(result_note)
@@ -571,8 +576,7 @@ def record_failure(
     if (
         manifest["status"] == "excluded"
         and isinstance(observed, dict)
-        and observed.get("numerical_status") == "passed"
-        and observed.get("admission_status") == "excluded"
+        and manifest.get("exclusion", {}).get("reason_code") == CHECKPOINT_EXCLUSION_REASON
     ):
         raise ArtifactError(
             "refusing to overwrite a numerically validated excluded NeuFlow manifest; "
@@ -591,6 +595,7 @@ def record_failure(
         detail = detail[:597] + "..."
     manifest["status"] = "excluded"
     manifest["candidate"]["role"] = "excluded"
+    manifest["exclusion"] = {"reason_code": EXPORT_FAILURE_EXCLUSION_REASON}
     validation = dict(manifest["validation"])
     validation["status"] = "failed"
     validation["observed"] = {
@@ -609,6 +614,7 @@ def record_failure(
                 "failure_type=",
                 "failure_detail=",
                 "artifact_identity=",
+                "admission_status=",
             )
         )
     ]

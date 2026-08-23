@@ -23,6 +23,7 @@ EXPORTER_PATH = ROOT / "models" / "export_neuflow_v2.py"
 REQUIREMENTS_PATH = ROOT / "models" / "requirements-neuflow-export.txt"
 sys.path.insert(0, str(EXPORTER_PATH.parent))
 import check_neuflow_manifest as checker  # noqa: E402
+from exclusion_contract import ExclusionReason  # noqa: E402
 import export_neuflow_v2 as exporter  # noqa: E402
 
 
@@ -109,6 +110,8 @@ def _test_numerically_validated_failure_is_immutable(manifest) -> None:
     if (
         manifest["status"] != "excluded"
         or manifest["candidate"]["role"] != "excluded"
+        or manifest["exclusion"]["reason_code"]
+        != ExclusionReason.CHECKPOINT_LICENSE_TERMS_UNKNOWN.value
         or manifest["validation"]["observed"].get("numerical_status") != "passed"
     ):
         raise AssertionError("negative validated-failure test requires the current excluded admission record")
@@ -151,6 +154,15 @@ def _test_numerically_validated_failure_is_immutable(manifest) -> None:
             raise AssertionError("typed failure stage was not retained")
         if recorded["export"]["sha256"] is not None or recorded["export"]["size_bytes"] is not None:
             raise AssertionError("excluded pending export acquired an artifact identity")
+        if recorded["exclusion"]["reason_code"] != ExclusionReason.EXPORT_OR_OPERATOR_FAILURE.value:
+            raise AssertionError("technical export failure did not acquire its typed exclusion reason")
+        old_argv = sys.argv
+        sys.argv = ["check_neuflow_manifest.py", str(destination)]
+        try:
+            if checker.main() != 0:
+                raise AssertionError("NeuFlow checker rejected technical failure output")
+        finally:
+            sys.argv = old_argv
 
 
 def _test_update_manifest_preserves_checkpoint_admission(manifest) -> None:
@@ -184,19 +196,16 @@ def _test_update_manifest_preserves_checkpoint_admission(manifest) -> None:
         recorded_observed = recorded["validation"]["observed"]
         if recorded["status"] != "excluded" or recorded["candidate"]["role"] != "excluded":
             raise AssertionError("passing export promoted a checkpoint-admission exclusion")
+        if recorded["exclusion"]["reason_code"] != ExclusionReason.CHECKPOINT_LICENSE_TERMS_UNKNOWN.value:
+            raise AssertionError("exporter did not emit the typed checkpoint exclusion reason")
         if recorded["validation"]["status"] != "passed":
             raise AssertionError("checkpoint-admission exclusion lost numerical pass status")
         if recorded_observed.get("numerical_status") != "passed":
             raise AssertionError("exporter did not preserve numerical pass evidence")
-        if recorded_observed.get("admission_status") != "excluded":
-            raise AssertionError("exporter did not record excluded admission status")
-        if recorded_observed.get("admission_reason") != "checkpoint_license_terms_unknown":
-            raise AssertionError("exporter did not record the checkpoint terms admission reason")
-        if (
-            "admission_status=excluded_checkpoint_license_terms_unknown"
-            not in recorded["notes"]
-        ):
-            raise AssertionError("exporter did not retain the checker admission note")
+        if any(field in recorded_observed for field in ("admission_status", "admission_reason")):
+            raise AssertionError("exporter retained legacy observed admission fields")
+        if any(note.startswith("admission_status=") for note in recorded["notes"]):
+            raise AssertionError("exporter retained the legacy free-text admission sentinel")
 
         # Exercise the candidate-specific checker as well as the shared manifest gate. The
         # synthetic payload has the same contract as a real export, so only its expected hash
@@ -251,13 +260,17 @@ def main() -> int:
         raise AssertionError("unknown checkpoint terms must leave NeuFlow admission explicitly excluded")
     if manifest["candidate"]["role"] != "excluded":
         raise AssertionError("checkpoint-license exclusion must mark candidate.role=excluded")
-    if "admission_status=excluded_checkpoint_license_terms_unknown" not in manifest.get("notes", []):
-        raise AssertionError("checkpoint-license exclusion lacks an explicit admission note")
+    if manifest.get("exclusion", {}).get("reason_code") != ExclusionReason.CHECKPOINT_LICENSE_TERMS_UNKNOWN.value:
+        raise AssertionError("checkpoint-license exclusion lacks its typed reason")
     observed = manifest["validation"].get("observed")
     if manifest["validation"]["status"] != "passed" or not isinstance(observed, dict):
         raise AssertionError("checkpoint-license exclusion must preserve passed numerical status")
     if observed.get("numerical_status") != "passed":
         raise AssertionError("checkpoint-license exclusion must preserve numerical pass evidence")
+    if any(field in observed for field in ("admission_status", "admission_reason")):
+        raise AssertionError("checked-in manifest retains legacy observed admission fields")
+    if any(note.startswith("admission_status=") for note in manifest.get("notes", [])):
+        raise AssertionError("checked-in manifest retains the legacy free-text admission sentinel")
 
     source = EXPORTER_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(EXPORTER_PATH))

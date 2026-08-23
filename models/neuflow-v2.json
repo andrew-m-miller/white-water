@@ -189,8 +189,6 @@
     "status": "passed",
     "observed": {
       "numerical_status": "passed",
-      "admission_status": "excluded",
-      "admission_reason": "checkpoint_license_terms_unknown",
       "environment": {
         "platform": "macOS-26.6.2-arm64-arm-64bit",
         "python": "3.9.6",
@@ -275,6 +273,9 @@
       "max_abs": 2.2649765014648438e-05
     }
   },
+  "exclusion": {
+    "reason_code": "checkpoint_license_terms_unknown"
+  },
   "notes": [
     "export_status=validated_exact_fixed_shape_cpu",
     "shape_support=432x768_is_the_validated_first_export_shape_only;_fixed_shape_support_is_not_source_model_proof_and_dynamic_or_other_shape_support_is_unverified",
@@ -285,7 +286,6 @@
     "artifact_policy=no_large_ONNX_payload_committed",
     "license_checkpoint_verdict=unknown_pending_checkpoint_specific_terms_review",
     "license_backbone_verdict=unknown_not_applicable_no_external_backbone_artifact",
-    "admission_status=excluded_checkpoint_license_terms_unknown",
     "qualification_status=excluded_from_shipping_pending_checkpoint_license_review;_numerical_export_passed",
     "export_result=exact_fixed_shape_export_and_cpu_parity_passed"
   ]
