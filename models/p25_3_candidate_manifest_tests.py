@@ -100,13 +100,12 @@ def check_original_raft() -> None:
         "RAFT checkpoint redistribution terms were guessed",
     )
     _require(manifest["status"] == "excluded", "RAFT numerical export must remain excluded")
-    _require(manifest["validation"]["status"] == "pending", "RAFT validation status changed")
+    _require(manifest["validation"]["status"] == "passed", "RAFT numerical validation status changed")
     _require(manifest["export"]["sha256"] == RAFT_ARTIFACT_SHA256, "RAFT export hash changed")
     _require(manifest["export"]["size_bytes"] == RAFT_ARTIFACT_SIZE, "RAFT export size changed")
     _require(
-        manifest["validation"]["observed"]["reason_type"]
-        == "checkpoint_terms_unresolved",
-        "RAFT exclusion reason must remain typed",
+        manifest["exclusion"]["reason_code"] == "checkpoint_license_terms_unknown",
+        "RAFT exclusion must remain checkpoint-terms scoped",
     )
     _require(
         manifest["validation"]["observed"]["checkpoint_archive_sha256"] == RAFT_ARCHIVE_SHA256,

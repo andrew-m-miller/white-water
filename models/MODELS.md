@@ -309,7 +309,8 @@ and the author-linked `models/raft-things.pth` archive member by its URL, 21,108
 size, and SHA256 `fcfa4125d6418f4de95d84aec20a3c5f4e205101715a79f193243c186ac9a7e1`.
 The official README and `download_models.sh` do not state checkpoint commercial-use or
 redistribution terms, so that surface remains `unknown`; the numerical export below is
-recorded as `excluded`/admission `pending` and makes no licence or shipping claim.
+recorded as numerically `passed` but top-level `excluded` with a typed checkpoint-terms reason,
+and makes no licence or shipping claim.
 
 ### P25-3D original RAFT baseline export — 2026-08-23
 

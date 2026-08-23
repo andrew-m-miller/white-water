@@ -2,6 +2,9 @@
   "schema_version": 1,
   "schema_id": "whitewater-p25-artifact-v1",
   "status": "excluded",
+  "exclusion": {
+    "reason_code": "checkpoint_license_terms_unknown"
+  },
   "purpose": "P25-3D original RAFT validation baseline; never a shipping candidate",
   "candidate": {
     "id": "raft-original",
@@ -173,7 +176,7 @@
     ]
   },
   "validation": {
-    "status": "pending",
+    "status": "passed",
     "seed": 20260823,
     "translation_pixels": 4,
     "second_dynamic_shape": [
@@ -190,8 +193,6 @@
     "onnx_pytorch_p999_abs_max": 0.5,
     "onnx_pytorch_max_abs_max": 4.0,
     "observed": {
-      "typed_status": "excluded",
-      "reason_type": "checkpoint_terms_unresolved",
       "numerical_gates": "passed",
       "source_commit_locally_verified": true,
       "checkpoint_locally_verified": true,

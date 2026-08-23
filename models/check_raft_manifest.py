@@ -50,8 +50,10 @@ def main() -> int:
         raise ArtifactError("original RAFT checkpoint redistribution verdict must remain unknown")
     if manifest["status"] != "excluded":
         raise ArtifactError("D2 original RAFT baseline must remain explicitly excluded")
-    if manifest["validation"]["status"] != "pending":
-        raise ArtifactError("D2 original RAFT admission status must remain pending")
+    if manifest["validation"]["status"] != "passed":
+        raise ArtifactError("D2 original RAFT numerical validation must remain passed")
+    if manifest["exclusion"]["reason_code"] != "checkpoint_license_terms_unknown":
+        raise ArtifactError("D2 original RAFT exclusion must remain checkpoint-terms scoped")
     export = manifest["export"]
     if export["sha256"] != EXPECTED_ARTIFACT_SHA256:
         raise ArtifactError("D2 original RAFT export SHA256 changed")
@@ -66,8 +68,6 @@ def main() -> int:
     observed = manifest["validation"]["observed"]
     if observed["numerical_gates"] != "passed":
         raise ArtifactError("D2 original RAFT numerical gates are not recorded as passed")
-    if observed["reason_type"] != "checkpoint_terms_unresolved":
-        raise ArtifactError("D2 original RAFT exclusion reason is not typed")
     if observed["provider_validation"]["requested"] != "CPUExecutionProvider":
         raise ArtifactError("D2 original RAFT provider validation did not use CPU")
     if observed["provider_validation"]["passed"] is not True:

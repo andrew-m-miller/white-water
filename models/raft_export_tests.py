@@ -190,6 +190,48 @@ def _check_default_download_is_temporary() -> None:
         assert output.read_bytes() == b"checkpoint"
 
 
+def _check_success_manifest_update() -> None:
+    """Ensure the numerical-success exporter path writes the shared exclusion contract."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-raft-success-record-") as directory:
+        root = Path(directory)
+        manifest_path = root / "generated.json"
+        output = root / "generated.onnx"
+        generated = copy.deepcopy(load_manifest(MANIFEST))
+        manifest_path.write_text(json.dumps(generated, indent=2) + "\n", encoding="utf-8")
+        manifest_path.chmod(0o644)
+        output.write_bytes(b"deterministic-export-fixture")
+        output.chmod(0o644)
+
+        observed = copy.deepcopy(generated["validation"]["observed"])
+        metrics = observed.pop("metrics")
+        observed.update(
+            {
+                "identity_median_epe": metrics["identity_median_epe"],
+                "forward_median": metrics["forward_median"],
+                "reverse_median": metrics["reverse_median"],
+                "onnx_pytorch_mean_abs": metrics["onnx_pytorch_mean_abs"],
+                "onnx_pytorch_p99_abs": metrics["onnx_pytorch_p99_abs"],
+                "onnx_pytorch_p999_abs": metrics["onnx_pytorch_p999_abs"],
+                "onnx_pytorch_max_abs": metrics["onnx_pytorch_max_abs"],
+                "second_dynamic_shape": generated["validation"]["shapes"]["additional"],
+            }
+        )
+        export_raft.update_manifest(
+            manifest_path,
+            generated,
+            output,
+            observed,
+            "macos-arm64",
+        )
+        recorded = load_manifest(manifest_path)
+        assert recorded["status"] == "excluded"
+        assert recorded["candidate"]["role"] == "validation-baseline"
+        assert recorded["exclusion"]["reason_code"] == "checkpoint_license_terms_unknown"
+        assert recorded["validation"]["status"] == "passed"
+        assert "reason_type" not in recorded["validation"]["observed"]
+
+
 def main() -> int:
     manifest = load_manifest(MANIFEST)
     assert manifest["export"]["script"] == "models/export_raft.py"
@@ -199,11 +241,16 @@ def main() -> int:
         "policy": "caller-replication-crop",
     }
     assert manifest["status"] == "excluded"
+    assert manifest["candidate"]["role"] == "validation-baseline"
+    assert manifest["exclusion"]["reason_code"] == "checkpoint_license_terms_unknown"
+    assert manifest["validation"]["status"] == "passed"
     assert manifest["validation"]["observed"]["numerical_gates"] == "passed"
+    assert "reason_type" not in manifest["validation"]["observed"]
 
     _check_advertised_io_contract()
     _check_download_archive_semantics()
     _check_default_download_is_temporary()
+    _check_success_manifest_update()
 
     payload = b"deterministic-raft-checkpoint-fixture"
     with tempfile.TemporaryDirectory(prefix="whitewater-raft-acquisition-") as directory:
@@ -293,6 +340,7 @@ def main() -> int:
 
         pending = copy.deepcopy(manifest)
         pending["status"] = "provenance_pinned_export_pending"
+        pending.pop("exclusion")
         pending["export"]["sha256"] = None
         pending["export"]["size_bytes"] = None
         for entry in pending["export"]["platform_artifacts"]:
@@ -301,8 +349,7 @@ def main() -> int:
         pending["validation"] = {
             "status": "pending",
             "observed": {
-                "typed_status": "provenance_pinned_export_pending",
-                "reason_type": "test_fixture",
+                "fixture": "provenance_pinned_export_pending",
             },
         }
         pending_path = root / "pending.json"
@@ -328,10 +375,13 @@ def main() -> int:
         assert provenance_failure.returncode != 0
         failed = load_manifest(pending_path)
         assert failed["status"] == "excluded"
+        assert failed["candidate"]["role"] == "validation-baseline"
+        assert failed["exclusion"]["reason_code"] == "export_or_operator_failure"
         assert failed["validation"]["status"] == "failed"
         assert failed["validation"]["observed"]["stage"] == "provenance"
         assert failed["validation"]["observed"]["source_commit_verified"] is False
         assert failed["validation"]["observed"]["checkpoint_verified"] is False
+        assert "reason_type" not in failed["validation"]["observed"]
 
         (source / "untracked.py").unlink()
         tracked.write_text("dirty\n", encoding="utf-8")

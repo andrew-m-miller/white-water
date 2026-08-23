@@ -543,10 +543,10 @@ def _record_generic_validation(
         "p999_abs": observed["onnx_pytorch_p999_abs"],
         "max_abs": observed["onnx_pytorch_max_abs"],
     }
-    validation["status"] = "pending" if admission_pending else "passed"
+    # Numerical qualification and admission are separate decisions.  An artifact can pass all
+    # numerical gates while remaining excluded because its checkpoint terms are unresolved.
+    validation["status"] = "passed"
     validation["observed"] = {
-        "typed_status": "excluded" if admission_pending else "numerically_validated",
-        "reason_type": "checkpoint_terms_unresolved" if admission_pending else "none",
         "numerical_gates": "passed",
         "source_commit_locally_verified": True,
         "checkpoint_locally_verified": True,
@@ -578,7 +578,7 @@ def update_manifest(
     platform_id: str,
 ) -> None:
     # The baseline has unknown checkpoint commercial/redistribution terms. Record all numerical
-    # evidence and exact bytes, but keep admission explicitly excluded/pending.
+    # evidence and exact bytes, but keep admission explicitly excluded.
     _record_generic_validation(manifest, observed, admission_pending=True)
     env_observed = observed["environment"]
     environment = {
@@ -598,6 +598,7 @@ def update_manifest(
         environment=environment,
     )
     manifest["status"] = "excluded"
+    manifest["exclusion"] = {"reason_code": "checkpoint_license_terms_unknown"}
     manifest["notes"] = [
         note
         for note in manifest.get("notes", [])
@@ -651,11 +652,10 @@ def record_failure(
             f"with a {stage} failure: {path}"
         )
     manifest["status"] = "excluded"
+    manifest["exclusion"] = {"reason_code": "export_or_operator_failure"}
     manifest["validation"] = {
         "status": "failed",
         "observed": {
-            "typed_status": "excluded",
-            "reason_type": "export_or_operator_failure",
             "stage": stage,
             "failure": message,
             "source_commit_verified": source_verified,
