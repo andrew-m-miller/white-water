@@ -168,6 +168,19 @@ def _validate_result(result: Any, cell: CellKey) -> dict[str, Any]:
     return result
 
 
+def _record(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a fresh public wrapper for one already-validated complete entry."""
+
+    # Copy the top-level objects so callers cannot mutate the state mapping held by a caller or
+    # the in-memory transition result.  Nested values are JSON data and are not shared with the
+    # persisted file.
+    return {
+        "cell": dict(entry["cell"]),
+        "state": "complete",
+        "result": dict(entry["result"]),
+    }
+
+
 def _completed_records(state: Mapping[str, Any], plan: MatrixPlan) -> list[dict[str, Any]]:
     entries = state["entries"]
     incomplete = [
@@ -180,14 +193,9 @@ def _completed_records(state: Mapping[str, Any], plan: MatrixPlan) -> list[dict[
         raise IncompleteFailure(f"cell {index} is not complete: {cell!r}")
 
     records: list[dict[str, Any]] = []
-    for index, (cell, entry) in enumerate(zip(plan.cells, entries)):
-        result = _validate_result(entry["result"], cell)
-        # Return fresh top-level objects so a caller cannot mutate the loaded state structure.
-        records.append({
-            "cell": dict(entry["cell"]),
-            "state": "complete",
-            "result": dict(result),
-        })
+    for cell, entry in zip(plan.cells, entries):
+        _validate_result(entry["result"], cell)
+        records.append(_record(entry))
     return records
 
 
@@ -217,8 +225,15 @@ class RunCoordinator:
         """
 
         state = load_state(self.state_path, self.expected_identity, self.plan)
+        records: list[dict[str, Any] | None] = [None] * len(self.plan.cells)
         for index, cell in enumerate(self.plan.cells):
-            if state["entries"][index]["state"] == "complete":
+            entry = state["entries"][index]
+            if entry["state"] == "complete":
+                # ``load_state`` checks only JSON shape and finiteness.  Existing complete
+                # records therefore need their coordinator-level semantic check exactly once
+                # during this invocation.
+                _validate_result(entry["result"], cell)
+                records[index] = _record(entry)
                 continue
             # load_state recovers interrupted work, so a non-complete entry here must be pending.
             state = mark_in_progress(
@@ -233,8 +248,11 @@ class RunCoordinator:
                 cell,
                 validated,
             )
-        # Read the persisted state through the public recovery seam before exposing records.
-        return self.completed_records()
+            records[index] = _record(state["entries"][index])
+        # Every plan cell is either an existing complete record or was completed above.  Avoid a
+        # trailing load/semantic-validation pass: the transition writes are already durable and
+        # the wrappers are fresh copies of the validated records.
+        return [record for record in records if record is not None]
 
     def completed_records(self) -> list[dict[str, Any]]:
         """Return complete resume records in MatrixPlan order, or raise ``IncompleteFailure``."""

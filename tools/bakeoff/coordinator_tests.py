@@ -7,8 +7,10 @@ import json
 from pathlib import Path
 import tempfile
 from types import MappingProxyType
+from unittest.mock import patch
 import unittest
 
+from . import coordinator as coordinator_module
 from .coordinator import CoordinatorFailure, IncompleteFailure, RunCoordinator
 from .matrix import CellKey, MatrixPlan
 from .resume import create_state, load_state, mark_complete, mark_in_progress
@@ -53,6 +55,16 @@ def _new_state(directory: str) -> Path:
 
 
 class CoordinatorTests(unittest.TestCase):
+    def _count_validations(self):
+        calls = []
+        original = coordinator_module._validate_result
+
+        def count(result, cell):
+            calls.append(cell)
+            return original(result, cell)
+
+        return calls, count
+
     def test_pending_cells_run_in_exact_plan_order_and_records_are_ordered(self):
         with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
             path = _new_state(directory)
@@ -69,6 +81,43 @@ class CoordinatorTests(unittest.TestCase):
             self.assertEqual(seen, list(CELLS))
             self.assertEqual([record["cell"] for record in records], [cell.as_dict() for cell in CELLS])
             self.assertEqual([record["result"]["marker"] for record in records], [1, 2, 3])
+
+    def test_run_semantically_validates_each_fresh_result_once(self):
+        with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
+            path = _new_state(directory)
+            calls, count = self._count_validations()
+            with patch.object(coordinator_module, "_validate_result", side_effect=count):
+                RunCoordinator(path, IDENTITY, PLAN, lambda cell: _result(cell)).run()
+            self.assertEqual(calls, list(CELLS))
+
+    def test_resumed_run_validates_existing_and_fresh_results_once_each(self):
+        with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
+            path = _new_state(directory)
+            mark_in_progress(path, IDENTITY, PLAN, CELLS[0])
+            mark_complete(path, IDENTITY, PLAN, CELLS[0], _result(CELLS[0]))
+            calls, count = self._count_validations()
+            with patch.object(coordinator_module, "_validate_result", side_effect=count):
+                records = RunCoordinator(path, IDENTITY, PLAN, lambda cell: _result(cell)).run()
+            self.assertEqual(calls, list(CELLS))
+            self.assertEqual([record["cell"] for record in records], [cell.as_dict() for cell in CELLS])
+
+    def test_public_completed_record_paths_validate_each_persisted_result_once(self):
+        with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
+            path = _new_state(directory)
+            for cell in CELLS:
+                mark_in_progress(path, IDENTITY, PLAN, cell)
+                mark_complete(path, IDENTITY, PLAN, cell, _result(cell))
+
+            for read_records in (
+                lambda: RunCoordinator(path, IDENTITY, PLAN, lambda cell: _result(cell)).completed_records(),
+                lambda: coordinator_module.completed_records(path, IDENTITY, PLAN),
+            ):
+                with self.subTest(path=read_records):
+                    calls, count = self._count_validations()
+                    with patch.object(coordinator_module, "_validate_result", side_effect=count):
+                        records = read_records()
+                    self.assertEqual(calls, list(CELLS))
+                    self.assertEqual(len(records), len(CELLS))
 
     def test_interruption_leaves_cell_in_progress_and_next_invocation_recovers(self):
         with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
