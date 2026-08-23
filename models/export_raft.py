@@ -329,7 +329,7 @@ def _validate_advertised_io(session, manifest: dict[str, Any]) -> dict[str, Any]
         require(item.type == "tensor(float)", f"{item.name} is advertised as {item.type}, expected float32")
         shape = _metadata_shape(item)
         require(
-            len(shape) == 4 and (shape[1] in (3, None) or isinstance(shape[1], str)),
+            len(shape) == 4 and type(shape[1]) is int and shape[1] == 3,
             f"{item.name} is not NCHW with three channels: {shape}",
         )
         require(isinstance(shape[2], str) and isinstance(shape[3], str), f"{item.name} spatial axes are not dynamic: {shape}")
@@ -337,7 +337,7 @@ def _validate_advertised_io(session, manifest: dict[str, Any]) -> dict[str, Any]
     require(output.type == "tensor(float)", f"flow is advertised as {output.type}, expected float32")
     output_shape = _metadata_shape(output)
     require(
-        len(output_shape) == 4 and (output_shape[1] in (2, None) or isinstance(output_shape[1], str)),
+        len(output_shape) == 4 and type(output_shape[1]) is int and output_shape[1] == 2,
         f"flow is not NCHW with two channels: {output_shape}",
     )
     require(isinstance(output_shape[2], str) and isinstance(output_shape[3], str), f"flow spatial axes are not dynamic: {output_shape}")

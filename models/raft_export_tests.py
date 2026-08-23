@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import copy
+import io
 import json
+import os
 from pathlib import Path
 import stat
 import subprocess
@@ -23,6 +26,36 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "models" / "raft-original.json"
 
 
+class _FakeTensorInfo:
+    def __init__(self, name: str, tensor_type: str, shape: list[object]):
+        self.name = name
+        self.type = tensor_type
+        self.shape = shape
+
+
+class _FakeOrtSession:
+    def __init__(self, inputs: list[_FakeTensorInfo], outputs: list[_FakeTensorInfo]):
+        self._inputs = inputs
+        self._outputs = outputs
+
+    def get_inputs(self) -> list[_FakeTensorInfo]:
+        return self._inputs
+
+    def get_outputs(self) -> list[_FakeTensorInfo]:
+        return self._outputs
+
+
+class _FakeDownloadResponse:
+    def __init__(self, payload: bytes):
+        self._stream = io.BytesIO(payload)
+
+    def __enter__(self) -> io.BytesIO:
+        return self._stream
+
+    def __exit__(self, *args: object) -> None:
+        self._stream.close()
+
+
 def _sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -35,6 +68,128 @@ def _expect_failure(callback) -> None:
     raise AssertionError("expected acquisition failure")
 
 
+def _check_advertised_io_contract() -> None:
+    """Reject symbolic channel dimensions while allowing dynamic batch/spatial axes."""
+
+    def session(input_channels: object = 3, output_channels: object = 2) -> _FakeOrtSession:
+        return _FakeOrtSession(
+            [
+                _FakeTensorInfo("image1", "tensor(float)", [None, input_channels, "height", "width"]),
+                _FakeTensorInfo("image2", "tensor(float)", [None, 3, "height", "width"]),
+            ],
+            [_FakeTensorInfo("flow", "tensor(float)", [None, output_channels, "height", "width"])],
+        )
+
+    advertised = export_raft._validate_advertised_io(session(), {})
+    assert advertised["inputs"][0]["shape"] == [None, 3, "height", "width"]
+    assert advertised["outputs"][0]["shape"] == [None, 2, "height", "width"]
+
+    for channels in ("channels", None, 4):
+        _expect_runtime_failure(
+            lambda channels=channels: export_raft._validate_advertised_io(
+                session(input_channels=channels), {}
+            )
+        )
+    for channels in ("channels", None, 3):
+        _expect_runtime_failure(
+            lambda channels=channels: export_raft._validate_advertised_io(
+                session(output_channels=channels), {}
+            )
+        )
+
+
+def _check_download_archive_semantics() -> None:
+    """Exercise explicit archive-copy safety without contacting the pinned URL."""
+
+    payload = b"deterministic-raft-checkpoint-fixture"
+    with tempfile.TemporaryDirectory(prefix="whitewater-raft-download-") as directory:
+        root = Path(directory)
+        archive_source = root / "source.zip"
+        with zipfile.ZipFile(archive_source, "w", compression=zipfile.ZIP_STORED) as zipped:
+            zipped.writestr(fetch_raft_checkpoint.MEMBER_NAME, payload)
+        archive_bytes = archive_source.read_bytes()
+        archive_sha256 = _sha256(archive_bytes)
+        retained = root / "retained.zip"
+        calls: list[str] = []
+        previous_urlopen = fetch_raft_checkpoint.urllib.request.urlopen
+
+        def fake_urlopen(url: str):
+            calls.append(url)
+            return _FakeDownloadResponse(archive_bytes)
+
+        fetch_raft_checkpoint.urllib.request.urlopen = fake_urlopen
+        try:
+            fetch_raft_checkpoint.download_archive(retained, expected_sha256=archive_sha256)
+            assert retained.read_bytes() == archive_bytes
+            assert stat.S_IMODE(retained.stat().st_mode) == 0o644
+            first_call_count = len(calls)
+
+            # An exact, verified retained copy is idempotent and does not need another network
+            # request, which is useful when an operator reruns acquisition on an airgapped box.
+            fetch_raft_checkpoint.download_archive(retained, expected_sha256=archive_sha256)
+            assert len(calls) == first_call_count
+
+            retained.write_bytes(b"do-not-clobber")
+            retained.chmod(0o644)
+            before = retained.read_bytes()
+            _expect_failure(
+                lambda: fetch_raft_checkpoint.download_archive(
+                    retained, expected_sha256=archive_sha256
+                )
+            )
+            assert retained.read_bytes() == before
+            assert len(calls) == first_call_count
+        finally:
+            fetch_raft_checkpoint.urllib.request.urlopen = previous_urlopen
+
+
+def _check_default_download_is_temporary() -> None:
+    """Ensure the default --download flow never leaves cwd/models.zip behind."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-raft-download-main-") as directory:
+        root = Path(directory)
+        output = root / "raft-things.pth"
+        seen: dict[str, Path] = {}
+        previous_parse_args = fetch_raft_checkpoint.parse_args
+        previous_download_archive = fetch_raft_checkpoint.download_archive
+        previous_extract = fetch_raft_checkpoint.extract_verified_member
+        previous_cwd = Path.cwd()
+
+        def fake_download(path: Path) -> None:
+            seen["archive"] = path
+            path.write_bytes(b"archive")
+            path.chmod(0o644)
+
+        def fake_extract(archive: Path, destination: Path) -> None:
+            seen["extracted_archive"] = archive
+            destination.write_bytes(b"checkpoint")
+            destination.chmod(0o644)
+
+        fetch_raft_checkpoint.parse_args = lambda: argparse.Namespace(
+            archive=None,
+            archive_copy=None,
+            download=True,
+            output=output,
+        )
+        fetch_raft_checkpoint.download_archive = fake_download
+        fetch_raft_checkpoint.extract_verified_member = fake_extract
+        os.chdir(root)
+        try:
+            assert fetch_raft_checkpoint.main() == 0
+        finally:
+            os.chdir(previous_cwd)
+            fetch_raft_checkpoint.parse_args = previous_parse_args
+            fetch_raft_checkpoint.download_archive = previous_download_archive
+            fetch_raft_checkpoint.extract_verified_member = previous_extract
+
+        temporary_archive = seen["archive"]
+        assert temporary_archive == seen["extracted_archive"]
+        assert temporary_archive != root / "models.zip"
+        assert not temporary_archive.exists()
+        assert not (root / "models.zip").exists()
+        assert output.read_bytes() == b"checkpoint"
+
+
 def main() -> int:
     manifest = load_manifest(MANIFEST)
     assert manifest["export"]["script"] == "models/export_raft.py"
@@ -45,6 +200,10 @@ def main() -> int:
     }
     assert manifest["status"] == "excluded"
     assert manifest["validation"]["observed"]["numerical_gates"] == "passed"
+
+    _check_advertised_io_contract()
+    _check_download_archive_semantics()
+    _check_default_download_is_temporary()
 
     payload = b"deterministic-raft-checkpoint-fixture"
     with tempfile.TemporaryDirectory(prefix="whitewater-raft-acquisition-") as directory:

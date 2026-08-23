@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 from pathlib import Path
 import stat
 import tempfile
@@ -133,11 +134,32 @@ def extract_verified_member(
         temporary.unlink(missing_ok=True)
 
 
-def download_archive(output_path: Path) -> None:
-    """Download only the pinned URL into a mode-0644 temporary archive."""
+def _path_exists_without_following_symlink(path: Path) -> bool:
+    """Return whether a path exists, including a dangling symlink."""
+
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def download_archive(output_path: Path, *, expected_sha256: str = ARCHIVE_SHA256) -> None:
+    """Download the pinned archive without silently replacing an existing copy.
+
+    An existing mode-0644 file is accepted only when it is the exact verified archive.  This
+    makes an explicit ``--archive-copy`` idempotent while preserving a different file rather
+    than clobbering it.  The link-at-publish step also keeps that no-clobber property if another
+    process creates the destination after the initial check.
+    """
 
     output_path = output_path.absolute()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if _path_exists_without_following_symlink(output_path):
+        verify_archive(output_path, expected_sha256=expected_sha256)
+        return
+
     with tempfile.NamedTemporaryFile(
         prefix=output_path.name + ".", suffix=".tmp", dir=output_path.parent, delete=False
     ) as stream:
@@ -147,8 +169,16 @@ def download_archive(output_path: Path) -> None:
                 stream.write(chunk)
     try:
         temporary.chmod(EXPECTED_MODE)
-        verify_archive(temporary)
-        temporary.replace(output_path)
+        verify_archive(temporary, expected_sha256=expected_sha256)
+        try:
+            # ``os.link`` publishes without replacing a destination that appeared during the
+            # download.  The temporary and destination are in the same directory, so this is
+            # atomic on the filesystems supported by the exporter.
+            os.link(temporary, output_path)
+        except FileExistsError:
+            # A concurrent publisher may have won the race.  Treat an exact copy as the same
+            # idempotent result and reject any other bytes or mode.
+            verify_archive(output_path, expected_sha256=expected_sha256)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -173,11 +203,35 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.archive is not None and args.archive_copy is not None:
+        raise ArtifactError("--archive-copy is only valid with --download")
+
     archive = args.archive
     if args.download:
-        target = (args.archive_copy or Path.cwd() / "models.zip").absolute()
-        download_archive(target)
-        archive = target
+        if args.archive_copy is not None:
+            archive = args.archive_copy.absolute()
+            download_archive(archive)
+            extract_verified_member(archive, args.output)
+            print(f"archive:     {archive}")
+        else:
+            # A downloaded archive is an implementation detail unless the caller explicitly
+            # asks for --archive-copy.  Keep it outside cwd and remove it after extraction so a
+            # routine acquisition cannot leave a large, mutable models.zip behind.
+            with tempfile.TemporaryDirectory(prefix="whitewater-raft-archive-") as directory:
+                archive = Path(directory) / "models.zip"
+                download_archive(archive)
+                extract_verified_member(archive, args.output)
+                print(f"archive:     {archive} (temporary; removed after extraction)")
+            archive = None
+
+    if args.download:
+        # The download branches above perform extraction and print the archive provenance while
+        # the temporary path (if any) still exists.  The common member output is printed here.
+        print(f"archive_sha: {ARCHIVE_SHA256}")
+        print(f"member:      {args.output.absolute()}")
+        print(f"member_sha:  {MEMBER_SHA256}")
+        return 0
+
     assert archive is not None
     extract_verified_member(archive.absolute(), args.output)
     print(f"archive:     {archive.absolute()}")
