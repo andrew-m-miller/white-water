@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import csv
 import json
 import os
@@ -22,7 +23,7 @@ from .reporting import (
     render_json,
     write_report_pair,
 )
-from .validator import validate_report_consistency
+from .validator import canonical_sha256, validate_report_consistency
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -62,6 +63,56 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(report, self.fixture)
         validate_report_consistency(
             report, self.protocol, self.report_schema, self.corpus, self.corpus_schema
+        )
+
+    def test_v2_assembly_validates_measurable_shipping_excluded_candidate(self):
+        protocol = _load("bakeoff/protocol-v2.json")
+        report_fixture = _load("bakeoff/fixtures/positive/report-v2.json")
+        report_schema = _load("bakeoff/report-v2.schema.json")
+        candidate_entries = copy.deepcopy(report_fixture["candidates"])
+        evaluation_candidate = copy.deepcopy(candidate_entries[0])
+        evaluation_candidate.update({
+            "candidate_id": "waft-twins",
+            "status": "excluded",
+            "measurement_status": "measurable",
+            "exclusion_reason": {"type": "license_unknown", "message": "assembly fixture"},
+        })
+        evaluation_candidate["license_verdicts"]["checkpoint"] = "unknown"
+        evaluation_candidate["redistribution_permitted"]["checkpoint"] = "not_permitted"
+        candidate_entries.append(evaluation_candidate)
+        cell = CellKey(
+            "waft-twins", "syn-identity", "native-clamp01-v1", "mp0_5", "cpu", "not_applicable"
+        )
+        selector = {
+            "candidate_ids": ["waft-twins"],
+            "shot_ids": ["syn-identity"],
+            "conditioning_tokens": ["native-clamp01-v1"],
+            "cap_tokens": ["mp0_5"],
+            "providers": [{"token": "cpu", "host_loads": ["not_applicable"]}],
+        }
+        selector["matrix_sha256"] = canonical_sha256(selector)
+        plan = MatrixPlan(selector, (cell,), ())
+        result = copy.deepcopy(report_fixture["results"][0])
+        result["candidate_id"] = "waft-twins"
+        generated = {
+            "schema_version", "protocol_id", "corpus_sha256", "matrix",
+            "candidates", "results", "summary",
+        }
+        metadata = {key: value for key, value in report_fixture.items() if key not in generated}
+
+        report = assemble_report(
+            protocol, self.corpus, report_schema, self.corpus_schema,
+            metadata, candidate_entries, plan, [result],
+        )
+
+        self.assertEqual(report["schema_version"], 2)
+        self.assertEqual(report["protocol_id"], "whitewater-p25-v2")
+        self.assertEqual(report["candidates"][1]["status"], "excluded")
+        self.assertEqual(report["candidates"][1]["measurement_status"], "measurable")
+        self.assertEqual(report["candidates"][1]["license_verdicts"]["checkpoint"], "unknown")
+        self.assertEqual(report["candidates"][1]["redistribution_permitted"]["checkpoint"], "not_permitted")
+        validate_report_consistency(
+            report, protocol, report_schema, self.corpus, self.corpus_schema,
         )
 
     def test_results_normalize_to_plan_order_and_resume_records_are_supported(self):

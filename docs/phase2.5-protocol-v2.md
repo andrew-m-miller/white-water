@@ -15,6 +15,15 @@ unknown. The correction changes report admission semantics, so it gets a new pro
 reports exist yet, but retaining v1 files and adding v2 is the safest compatibility boundary for
 tools that already consume the frozen v1 schema.
 
+The public validator defaults to this active v2 protocol, for example:
+
+```bash
+python3 tools/bakeoff/validate.py report.json --kind report --corpus corpus-v1.json
+```
+
+Historical v1 reports remain supported by selecting the frozen v1 bundle explicitly with
+`--protocol bakeoff/protocol-v1.json`.
+
 ## Two candidate decisions
 
 Every v2 report candidate has both fields:

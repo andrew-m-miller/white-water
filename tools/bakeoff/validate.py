@@ -39,7 +39,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("document", type=Path, help="protocol, corpus or report JSON document")
     parser.add_argument("--kind", choices=("protocol", "corpus", "report"), required=True)
-    parser.add_argument("--protocol", type=Path, default=root / "bakeoff/protocol-v1.json")
+    parser.add_argument(
+        "--protocol",
+        type=Path,
+        default=root / "bakeoff/protocol-v2.json",
+        help="protocol JSON (defaults to the active v2 amendment; pass protocol-v1.json for legacy reports)",
+    )
     parser.add_argument("--corpus", type=Path, help="corpus JSON used to resolve report shot ids")
     parser.add_argument("--schema", type=Path, help="override the selected schema path")
     args = parser.parse_args(argv)
