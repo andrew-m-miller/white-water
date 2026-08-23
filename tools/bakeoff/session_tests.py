@@ -134,8 +134,22 @@ class SessionTests(unittest.TestCase):
                 resumed_seen.append(cell)
                 return self._result_for(cell)
 
-            report = self._run(directory, selections=selections, executor=resume)
+            resumed_metadata = copy.deepcopy(self.metadata)
+            resumed_metadata.update({
+                "report_id": "p25-resumed-report",
+                "started_utc": "2026-08-23T10:00:00Z",
+                "completed_utc": "2026-08-23T10:01:00Z",
+                "warnings": ["recovered after interruption"],
+            })
+            report = self._run(
+                directory,
+                selections=selections,
+                metadata=resumed_metadata,
+                executor=resume,
+            )
             self.assertEqual(resumed_seen, [plan.cells[1]])
+            self.assertEqual(report["report_id"], "p25-resumed-report")
+            self.assertEqual(report["warnings"], ["recovered after interruption"])
             self.assertEqual(
                 [result["conditioning_token"] for result in report["results"]],
                 [cell.conditioning for cell in plan.cells],
@@ -144,7 +158,8 @@ class SessionTests(unittest.TestCase):
     def test_changed_selection_metadata_and_candidate_reject_existing_state(self):
         cases = (
             ("selection", {**self.selections, "conditioning_tokens": ["signed-log-v1"]}, self.metadata, self.candidates, "identity_mismatch"),
-            ("metadata", self.selections, {**self.metadata, "runner": {**self.metadata["runner"], "version": "changed"}}, self.candidates, "identity_mismatch"),
+            ("runner", self.selections, {**self.metadata, "runner": {**self.metadata["runner"], "version": "changed"}}, self.candidates, "identity_mismatch"),
+            ("hardware", self.selections, {**self.metadata, "hardware": {**self.metadata["hardware"], "driver": "changed"}}, self.candidates, "identity_mismatch"),
             ("candidate", self.selections, self.metadata, [{**self.candidates[0], "artifact_sha256": "9" * 64}], "identity_mismatch"),
         )
         for label, selections, metadata, candidates, expected_kind in cases:

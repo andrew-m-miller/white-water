@@ -8,6 +8,7 @@ caller supplies one executor callback for each planned cell.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -40,19 +41,34 @@ def _canonical_hash(value: Any, path: str) -> str:
         raise SessionFailure("identity_json", f"{path} is not a finite JSON value: {exc}") from exc
 
 
+def _validate_json(value: Any, path: str) -> None:
+    """Validate JSON metadata without making it part of the resume identity."""
+
+    try:
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, OverflowError, RecursionError, UnicodeError) as exc:
+        raise SessionFailure("identity_json", f"{path} is not a finite JSON value: {exc}") from exc
+
+
 def _metadata_identity(report_metadata: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(report_metadata, Mapping):
         _fail("metadata_shape", "report_metadata must be an object")
     for field in ("runner", "hardware"):
         if field not in report_metadata or not isinstance(report_metadata[field], Mapping):
             _fail("metadata_shape", f"report_metadata.{field} must be an object")
-    metadata_hash = _canonical_hash(report_metadata, "report_metadata")
-    # Keep the material environment records visible in state identity while also binding every
-    # supplied metadata field (timestamps, report id, warnings, and any future frozen metadata).
+    # Validate the complete metadata document, but bind only the frozen execution environment.
+    # Report IDs, timestamps, warnings, and other publication details may legitimately change
+    # while recovering an interrupted run.
+    _validate_json(report_metadata, "report_metadata")
     return {
         "runner": dict(report_metadata["runner"]),
         "hardware": dict(report_metadata["hardware"]),
-        "report_metadata_sha256": metadata_hash,
     }
 
 
