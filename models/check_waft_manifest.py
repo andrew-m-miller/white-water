@@ -13,6 +13,8 @@ from pathlib import Path
 import sys
 import importlib.util
 
+from exclusion_contract import validate_exclusion_contract
+
 VALIDATOR_PATH = Path(__file__).resolve().parents[1] / "tools" / "bakeoff" / "validator.py"
 VALIDATOR_SPEC = importlib.util.spec_from_file_location("_whitewater_waft_validator", VALIDATOR_PATH)
 if VALIDATOR_SPEC is None or VALIDATOR_SPEC.loader is None:  # pragma: no cover
@@ -38,6 +40,7 @@ def main() -> int:
     manifest = VALIDATOR.load_json(MANIFEST)
     schema = VALIDATOR.load_json(SCHEMA)
     VALIDATOR.validate(manifest, schema)
+    validate_exclusion_contract(manifest)
     require(manifest["candidate"]["id"] == "waft-twins", "unexpected WAFT candidate id")
     require(
         manifest["status"] == "excluded",
@@ -115,9 +118,7 @@ def main() -> int:
         "strict checkpoint-loading evidence changed",
     )
     require(
-        manifest["exclusion"]["reasons"] == [
-            "checkpoint_terms_unavailable",
-        ],
+        manifest["exclusion"]["reason_code"] == "checkpoint_license_terms_unknown",
         "WAFT exclusion must be terms-scoped after checkpoint identity resolution",
     )
     require(manifest["exclusion"]["decision"] == "not_eligible_for_p25_bakeoff_or_shipping",

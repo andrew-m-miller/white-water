@@ -44,6 +44,7 @@
     "export_environment": {"$ref": "#/$defs/export_environment"},
     "export": {"$ref": "#/$defs/export"},
     "validation": {"$ref": "#/$defs/validation"},
+    "exclusion": {"$ref": "#/$defs/exclusion"},
     "notes": {"type": "array", "items": {"type": "string", "minLength": 1}}
   },
   "$defs": {
@@ -138,6 +139,19 @@
         "code": {"$ref": "#/$defs/license_surface"},
         "checkpoint": {"$ref": "#/$defs/license_surface"},
         "backbone": {"$ref": "#/$defs/license_surface"}
+      }
+    },
+    "exclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason_code"],
+      "properties": {
+        "reason_code": {
+          "enum": [
+            "checkpoint_license_terms_unknown",
+            "export_or_operator_failure"
+          ]
+        }
       }
     },
     "model": {

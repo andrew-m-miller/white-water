@@ -204,19 +204,13 @@
     "exclusion": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reasons", "decision", "next_evidence_required"],
+      "required": ["reason_code", "decision", "next_evidence_required"],
       "properties": {
-        "reasons": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "enum": [
-              "checkpoint_identity_unavailable",
-              "checkpoint_terms_unavailable",
-              "backbone_identity_unavailable",
-              "backbone_terms_unavailable"
-            ]
-          }
+        "reason_code": {
+          "enum": [
+            "checkpoint_license_terms_unknown",
+            "export_or_operator_failure"
+          ]
         },
         "decision": {"const": "not_eligible_for_p25_bakeoff_or_shipping"},
         "next_evidence_required": {

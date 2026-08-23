@@ -106,9 +106,7 @@
     }
   },
   "exclusion": {
-    "reasons": [
-      "checkpoint_terms_unavailable"
-    ],
+    "reason_code": "checkpoint_license_terms_unknown",
     "decision": "not_eligible_for_p25_bakeoff_or_shipping",
     "next_evidence_required": [
       "Checkpoint terms that separately state commercial use and redistribution permissions for the exact zero-shot member, including required notices."

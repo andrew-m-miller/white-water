@@ -240,6 +240,51 @@ def main() -> int:
     bad_export_status["status"] = "provenance_pinned_export_pending"
     expect_failure("export status/hash incoherence", lambda: validate_manifest(bad_export_status))
 
+    excluded_passed_missing_reason = copy.deepcopy(positive)
+    excluded_passed_missing_reason["status"] = "excluded"
+    excluded_passed_missing_reason["candidate"]["role"] = "excluded"
+    expect_failure(
+        "excluded passed manifest missing typed reason",
+        lambda: validate_manifest(excluded_passed_missing_reason),
+    )
+
+    note_is_not_reason = copy.deepcopy(excluded_passed_missing_reason)
+    note_is_not_reason["notes"] = [
+        "admission_status=excluded_checkpoint_license_terms_unknown",
+    ]
+    expect_failure(
+        "free-text note is not an exclusion reason",
+        lambda: validate_manifest(note_is_not_reason),
+    )
+
+    excluded_passed = copy.deepcopy(excluded_passed_missing_reason)
+    excluded_passed["exclusion"] = {
+        "reason_code": "checkpoint_license_terms_unknown",
+    }
+    validate_manifest(excluded_passed)
+
+    excluded_failed = copy.deepcopy(excluded_passed_missing_reason)
+    excluded_failed["validation"]["status"] = "failed"
+    excluded_failed["validation"]["observed"] = {
+        "failure_stage": "onnx_export",
+        "failure_type": "RuntimeError",
+    }
+    excluded_failed["exclusion"] = {"reason_code": "export_or_operator_failure"}
+    validate_manifest(excluded_failed)
+
+    unknown_reason = copy.deepcopy(excluded_passed_missing_reason)
+    unknown_reason["exclusion"] = {"reason_code": "checkpoint_terms_unavailable"}
+    expect_failure("unknown exclusion reason code", lambda: validate_manifest(unknown_reason))
+
+    nonexcluded_with_reason = copy.deepcopy(positive)
+    nonexcluded_with_reason["exclusion"] = {
+        "reason_code": "checkpoint_license_terms_unknown",
+    }
+    expect_failure(
+        "non-excluded manifest carries exclusion",
+        lambda: validate_manifest(nonexcluded_with_reason),
+    )
+
     with tempfile.TemporaryDirectory(prefix="whitewater-artifact-tests-") as temporary:
         directory = Path(temporary)
         artifact = directory / "valid.bin"
