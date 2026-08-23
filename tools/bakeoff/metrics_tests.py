@@ -41,7 +41,7 @@ def test_dense_and_mask() -> None:
     truth = [[(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]]
     metrics = dense_metrics(predicted, truth)
     assert metrics == {
-        "endpoint_error_px": 1.0,
+        "endpoint_error_px": 4.0 / 3.0,
         "fraction_le_1px": 2.0 / 3.0,
         "fraction_le_3px": 1.0,
         "nonfinite_fraction": 0.25,
@@ -66,6 +66,11 @@ def test_dense_and_mask() -> None:
     inclusive = dense_metrics([[(1.0, 0.0), (3.0, 0.0)]], [[(0.0, 0.0), (0.0, 0.0)]])
     assert inclusive["fraction_le_1px"] == 0.5
     assert inclusive["fraction_le_3px"] == 1.0
+    discriminating = dense_metrics(
+        [[(0.0, 0.0), (0.0, 0.0), (3.0, 0.0)]],
+        [[(0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]],
+    )
+    assert discriminating["endpoint_error_px"] == 1.0
 
 
 def test_shape_and_empty_failures() -> None:

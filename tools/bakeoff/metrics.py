@@ -187,7 +187,7 @@ def nonfinite_fraction(predicted: Any, truth: Any, valid_mask: Any = None) -> fl
 
 
 def dense_metrics(predicted: Any, truth: Any, valid_mask: Any = None) -> dict[str, float]:
-    """Compute dense endpoint median, inclusive accuracy fractions, and invalid fraction."""
+    """Compute mean dense endpoint error, inclusive accuracy fractions, and invalid fraction."""
 
     parsed_predicted, parsed_truth, mask, shape = _parse_pair(predicted, truth, valid_mask)
     errors: list[float] = []
@@ -213,7 +213,7 @@ def dense_metrics(predicted: Any, truth: Any, valid_mask: Any = None) -> dict[st
     if not errors:
         _fail("no_valid_slots", "dense metrics have no finite selected flow slots")
     return {
-        "endpoint_error_px": linear_quantile(errors, 0.5),
+        "endpoint_error_px": sum(errors) / len(errors),
         "fraction_le_1px": sum(error <= 1.0 for error in errors) / len(errors),
         "fraction_le_3px": sum(error <= 3.0 for error in errors) / len(errors),
         "nonfinite_fraction": invalid / selected,
