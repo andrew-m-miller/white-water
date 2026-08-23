@@ -104,9 +104,13 @@ def _test_provenance_invariants(manifest) -> None:
             )
 
 
-def _test_validated_failure_is_immutable(manifest) -> None:
-    if manifest["status"] != "export_validated":
-        raise AssertionError("negative validated-failure test requires the current export record")
+def _test_numerically_validated_failure_is_immutable(manifest) -> None:
+    if (
+        manifest["status"] != "excluded"
+        or manifest["candidate"]["role"] != "excluded"
+        or manifest["validation"]["observed"].get("numerical_status") != "passed"
+    ):
+        raise AssertionError("negative validated-failure test requires the current excluded admission record")
     validated_copy = copy.deepcopy(manifest)
     with tempfile.TemporaryDirectory(prefix="neuflow-failure-contract-") as directory:
         destination = Path(directory) / "manifest.json"
@@ -119,8 +123,8 @@ def _test_validated_failure_is_immutable(manifest) -> None:
         )
         if destination.exists():
             raise AssertionError("record_failure wrote over a validated manifest")
-    if validated_copy["status"] != "export_validated":
-        raise AssertionError("record_failure mutated the validated manifest in memory")
+    if validated_copy["status"] != "excluded":
+        raise AssertionError("record_failure mutated the excluded manifest in memory")
     if validated_copy["export"]["sha256"] is None:
         raise AssertionError("validated export identity was cleared by a rejected failure")
 
@@ -152,6 +156,17 @@ def main() -> int:
     manifest = load_manifest(MANIFEST_PATH)
     if manifest["status"] not in {"provenance_pinned_export_pending", "export_validated", "excluded"}:
         raise AssertionError(f"unexpected NeuFlow manifest status: {manifest['status']}")
+    if manifest["status"] != "excluded":
+        raise AssertionError("unknown checkpoint terms must leave NeuFlow admission explicitly excluded")
+    if manifest["candidate"]["role"] != "excluded":
+        raise AssertionError("checkpoint-license exclusion must mark candidate.role=excluded")
+    if "admission_status=excluded_checkpoint_license_terms_unknown" not in manifest.get("notes", []):
+        raise AssertionError("checkpoint-license exclusion lacks an explicit admission note")
+    observed = manifest["validation"].get("observed")
+    if manifest["validation"]["status"] != "passed" or not isinstance(observed, dict):
+        raise AssertionError("checkpoint-license exclusion must preserve passed numerical status")
+    if observed.get("numerical_status") != "passed":
+        raise AssertionError("checkpoint-license exclusion must preserve numerical pass evidence")
 
     source = EXPORTER_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(EXPORTER_PATH))
@@ -179,7 +194,7 @@ def main() -> int:
             raise AssertionError(f"missing pinned export dependency: {pin}")
 
     _test_provenance_invariants(manifest)
-    _test_validated_failure_is_immutable(manifest)
+    _test_numerically_validated_failure_is_immutable(manifest)
 
     artifact_path = MANIFEST_PATH.parent / manifest["export"]["artifact"]
     if artifact_path.exists():

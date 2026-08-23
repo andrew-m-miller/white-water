@@ -477,6 +477,17 @@ def update_manifest(
     observed: dict[str, Any],
     platform_id: str,
 ) -> None:
+    previous_observed = manifest.get("validation", {}).get("observed")
+    if (
+        manifest["status"] == "excluded"
+        and isinstance(previous_observed, dict)
+        and previous_observed.get("numerical_status") == "passed"
+        and previous_observed.get("admission_status") == "excluded"
+    ):
+        raise ArtifactError(
+            "refusing to promote a numerically validated excluded NeuFlow manifest; "
+            "copy a fresh pending manifest before updating export identity"
+        )
     # Record the numerical evidence once; update_platform_export below only records bytes and
     # environment identity.
     _record_validation(manifest, observed)
@@ -525,6 +536,17 @@ def record_failure(
 ) -> None:
     """Record a typed reproducible exclusion without inventing an artifact identity."""
 
+    observed = manifest.get("validation", {}).get("observed")
+    if (
+        manifest["status"] == "excluded"
+        and isinstance(observed, dict)
+        and observed.get("numerical_status") == "passed"
+        and observed.get("admission_status") == "excluded"
+    ):
+        raise ArtifactError(
+            "refusing to overwrite a numerically validated excluded NeuFlow manifest; "
+            "copy a fresh pending manifest before recording a new export failure"
+        )
     if manifest["status"] not in {
         "provenance_pinned_export_pending",
         "excluded",

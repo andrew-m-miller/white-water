@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "schema_id": "whitewater-p25-artifact-v1",
-  "status": "export_validated",
+  "status": "excluded",
   "purpose": "P25-3F NeuFlow v2 reproducible export and fast-candidate qualification",
   "candidate": {
     "id": "neuflow-v2",
-    "role": "shipping-candidate",
+    "role": "excluded",
     "family": "NeuFlow v2",
     "notes": "Stateless pairwise candidate; no OFX choice index is assigned in P25-3F"
   },
@@ -188,6 +188,9 @@
   "validation": {
     "status": "passed",
     "observed": {
+      "numerical_status": "passed",
+      "admission_status": "excluded",
+      "admission_reason": "checkpoint_license_terms_unknown",
       "environment": {
         "platform": "macOS-26.6.2-arm64-arm-64bit",
         "python": "3.9.6",
@@ -282,7 +285,8 @@
     "artifact_policy=no_large_ONNX_payload_committed",
     "license_checkpoint_verdict=unknown_pending_checkpoint_specific_terms_review",
     "license_backbone_verdict=unknown_not_applicable_no_external_backbone_artifact",
-    "qualification_status=export_and_local_cpu_validation_passed;_fast_selection_pending_bakeoff_and_checkpoint_license_review",
+    "admission_status=excluded_checkpoint_license_terms_unknown",
+    "qualification_status=excluded_from_shipping_pending_checkpoint_license_review;_numerical_export_passed",
     "export_result=exact_fixed_shape_export_and_cpu_parity_passed"
   ]
 }
