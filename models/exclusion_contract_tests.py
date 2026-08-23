@@ -4,16 +4,11 @@
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
 
 from exclusion_contract import (  # type: ignore  # pylint: disable=wrong-import-position
     ExclusionContractError,
     validate_exclusion_contract,
 )
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def expect_failure(label: str, manifest: dict) -> None:
@@ -57,12 +52,18 @@ def main() -> int:
     }
     validate_exclusion_contract(technical)
 
-    waft = json.loads((ROOT / "models" / "waft-twins.json").read_text(encoding="utf-8"))
-    validate_exclusion_contract(waft)
-    old_waft = copy.deepcopy(waft)
-    old_waft["exclusion"].pop("reason_code")
-    old_waft["exclusion"]["reasons"] = ["checkpoint_terms_unavailable"]
-    expect_failure("WAFT legacy reasons array", old_waft)
+    # Keep this shared test independent of candidate worktrees.  The WAFT-specific checker
+    # covers the real provenance record and its migration from the legacy reasons array.
+    waft_shaped = {
+        "status": "excluded",
+        "candidate": {"id": "waft-twins"},
+        "exclusion": {"reason_code": "checkpoint_license_terms_unknown"},
+    }
+    validate_exclusion_contract(waft_shaped)
+    legacy_shaped = copy.deepcopy(waft_shaped)
+    legacy_shaped["exclusion"].pop("reason_code")
+    legacy_shaped["exclusion"]["reasons"] = ["checkpoint_terms_unavailable"]
+    expect_failure("legacy reasons array", legacy_shaped)
 
     print("shared exclusion contract tests: PASS")
     return 0
