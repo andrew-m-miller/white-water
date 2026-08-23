@@ -1,0 +1,798 @@
+#!/usr/bin/env python3
+"""Deterministic Phase 2.5 synthetic corpus and analytic-truth generator.
+
+The generator is intentionally standard-library-only.  It can be used in two modes:
+
+* metadata-only (the default), which is cheap and includes the exact FHD/UHD cases;
+* frame emission, which writes dependency-free RGB PFM sequences and a JSON analytic
+  truth sidecar for each case.
+
+The metadata paths use ``generated://`` so the corpus never pretends that generated
+frames are production footage.  A runner adapter can map that URI to the emitted
+directory without changing the frozen corpus schema.
+"""
+
+from __future__ import annotations
+
+from array import array
+from dataclasses import dataclass
+import json
+import math
+from pathlib import Path
+from typing import Any, Iterable, Iterator, Mapping, Sequence
+
+if __package__ in (None, ""):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from padding import pad_rows  # type: ignore
+else:
+    from .padding import pad_rows
+
+COORDINATE_CONVENTION = (
+    "x right, y up; full-resolution real-pixel coordinates at pixel centres; "
+    "row zero is the bottom row in PFM and row-major buffers; pair displacement "
+    "is image1-to-image2"
+)
+
+REQUIRED_SYNTHETIC_CASES = (
+    "identity",
+    "translation-x-positive",
+    "translation-x-negative",
+    "translation-y-positive",
+    "translation-y-negative",
+    "affine",
+    "spatial",
+    "border",
+    "occlusion-reveal",
+    "blur",
+    "noise",
+    "hdr-scene-linear",
+    "log-input",
+    "odd-size",
+    "asymmetric-padding",
+    "par-0_5",
+    "par-2",
+    "chain-1",
+    "chain-2",
+    "chain-4",
+    "chain-8",
+    "fhd-1920x1080-par1",
+    "uhd-3840x2160-par1",
+)
+
+
+@dataclass(frozen=True)
+class SyntheticCase:
+    case_id: str
+    category: str
+    width: int
+    height: int
+    pixel_aspect_ratio: float = 1.0
+    encoding: str = "scene-linear"
+    channels: str = "RGB"
+    bit_depth: str = "float"
+    first_frame: int = 0
+    last_frame: int = 8
+    reference_frame: int = 4
+    chain_length: int | None = None
+    seed: int = 1
+    parameters: Mapping[str, Any] | None = None
+
+    @property
+    def frame_numbers(self) -> range:
+        return range(self.first_frame, self.last_frame + 1)
+
+    @property
+    def path_token(self) -> str:
+        return self.case_id
+
+
+@dataclass(frozen=True)
+class PairTruth:
+    """Typed truth for one source-frame coordinate and its target correspondence.
+
+    ``status`` is ``foreground`` or ``background`` only when a visible layer has a
+    visible correspondence in the target.  ``occluded`` and ``revealed`` identify a
+    layer mismatch and therefore carry no dense displacement.  The separate
+    ``same_coordinate_transition`` records the useful fixed-coordinate mask change,
+    even when the moving layer itself has a valid correspondence elsewhere.  Pair
+    status and fixed-coordinate transition use opposite visibility directions:
+    source background -> target foreground is pair ``occluded``, while fixed
+    foreground -> background is ``revealed``.
+    """
+
+    status: str
+    source_layer: str
+    target_layer: str
+    source_coordinate: tuple[float, float]
+    target_coordinate: tuple[float, float]
+    displacement: tuple[float, float] | None
+    same_coordinate_transition: str
+
+    @property
+    def has_dense_truth(self) -> bool:
+        return self.displacement is not None
+
+    @property
+    def no_dense_truth(self) -> bool:
+        return self.displacement is None
+
+
+class TruthUnavailable(ValueError):
+    """Raised when a caller asks the dense helper for an occluded/revealed sample."""
+
+    def __init__(self, truth: PairTruth):
+        self.truth = truth
+        super().__init__(
+            f"{truth.status} sample has no dense displacement truth "
+            f"({truth.source_layer}->{truth.target_layer})"
+        )
+
+
+def _case(
+    case_id: str,
+    category: str,
+    width: int,
+    height: int,
+    *,
+    par: float = 1.0,
+    encoding: str = "scene-linear",
+    channels: str = "RGB",
+    bit_depth: str = "float",
+    first: int = 0,
+    last: int = 8,
+    reference: int = 4,
+    chain_length: int | None = None,
+    seed: int = 1,
+    parameters: Mapping[str, Any] | None = None,
+) -> SyntheticCase:
+    return SyntheticCase(
+        case_id,
+        category,
+        width,
+        height,
+        par,
+        encoding,
+        channels,
+        bit_depth,
+        first,
+        last,
+        reference,
+        chain_length,
+        seed,
+        parameters,
+    )
+
+
+def all_cases() -> tuple[SyntheticCase, ...]:
+    """Return the exact frozen required-case set in protocol order."""
+
+    return (
+        _case("identity", "identity", 64, 48, seed=11),
+        _case("translation-x-positive", "translation-x", 65, 49, seed=13,
+              parameters={"shift_x_per_link": 1.25}),
+        _case("translation-x-negative", "translation-x", 65, 49, seed=17,
+              parameters={"shift_x_per_link": -1.25}),
+        _case("translation-y-positive", "translation-y", 65, 49, seed=19,
+              parameters={"shift_y_per_link": 1.5}),
+        _case("translation-y-negative", "translation-y", 65, 49, seed=23,
+              parameters={"shift_y_per_link": -1.5}),
+        _case("affine", "affine-spatial", 80, 64, seed=29,
+              parameters={"field": "affine", "scale_x_per_link": 0.012,
+                          "scale_y_per_link": -0.009, "shear_xy_per_link": 0.006,
+                          "shear_yx_per_link": -0.004}),
+        _case("spatial", "affine-spatial", 80, 64, seed=31,
+              parameters={"field": "sinusoidal", "amplitude": 3.0}),
+        _case("border", "border", 80, 64, seed=37,
+              parameters={"shift_x_per_link": 6.0, "shift_y_per_link": 4.0,
+                          "edge": "replicate"}),
+        _case("occlusion-reveal", "occlusion-reveal", 96, 64, seed=41,
+              parameters={"foreground": "moving_rectangle", "visible_mask": "analytic"}),
+        _case("blur", "blur", 96, 64, seed=43,
+              parameters={"kernel": "three_sample_motion", "radius": 1.0}),
+        _case("noise", "noise", 96, 64, seed=4701,
+              parameters={"distribution": "uniform", "amplitude": 0.025,
+                          "seed": 4701}),
+        _case("hdr-scene-linear", "hdr-log", 96, 64, seed=53,
+              parameters={"range": "0..16", "encoding": "scene-linear"}),
+        _case("log-input", "hdr-log", 96, 64, encoding="log", seed=59,
+              parameters={"range": "log1p(0..16)", "encoding": "log"}),
+        _case("odd-size", "odd-padding", 67, 53, seed=61,
+              parameters={"extent": "odd"}),
+        _case("asymmetric-padding", "odd-padding", 67, 53, seed=67,
+              parameters={
+                  "padding": {
+                      "left": 1,
+                      "right": 3,
+                      "bottom": 2,
+                      "top": 2,
+                      "policy": "caller-replication-crop",
+                      "multiple": 8,
+                  },
+              }),
+        _case("par-0_5", "par", 80, 64, par=0.5, channels="RGBA",
+              bit_depth="half", seed=71, parameters={"par": 0.5}),
+        _case("par-2", "par", 80, 64, par=2.0, channels="RGBA",
+              bit_depth="half", seed=73, parameters={"par": 2.0}),
+        _case("chain-1", "chain", 96, 64, first=0, last=16, reference=8,
+              chain_length=1, seed=79, parameters={"links": 1, "shift_x_per_link": 1.25}),
+        _case("chain-2", "chain", 96, 64, first=0, last=16, reference=8,
+              chain_length=2, seed=83, parameters={"links": 2, "shift_x_per_link": 1.25}),
+        _case("chain-4", "chain", 96, 64, first=0, last=16, reference=8,
+              chain_length=4, seed=89, parameters={"links": 4, "shift_x_per_link": 1.25}),
+        _case("chain-8", "chain", 96, 64, first=0, last=16, reference=8,
+              chain_length=8, seed=97, parameters={"links": 8, "shift_x_per_link": 1.25}),
+        _case("fhd-1920x1080-par1", "identity", 1920, 1080, seed=101,
+              parameters={"target": "fhd"}),
+        _case("uhd-3840x2160-par1", "identity", 3840, 2160, seed=103,
+              parameters={"target": "uhd"}),
+    )
+
+
+def case_map() -> dict[str, SyntheticCase]:
+    cases = all_cases()
+    result = {case.case_id: case for case in cases}
+    if tuple(result) != REQUIRED_SYNTHETIC_CASES:
+        raise AssertionError("synthetic case order diverges from protocol-v1")
+    return result
+
+
+def _case_for(case_or_id: SyntheticCase | str) -> SyntheticCase:
+    if isinstance(case_or_id, SyntheticCase):
+        return case_or_id
+    try:
+        return case_map()[case_or_id]
+    except KeyError as exc:
+        raise KeyError(f"unknown synthetic case: {case_or_id}") from exc
+
+
+def _base_pixel(case: SyntheticCase, x: float, y: float) -> tuple[float, float, float]:
+    """A deterministic, high-frequency-enough RGB plate."""
+
+    seed = float(case.seed)
+    red = 0.5 + 0.23 * math.sin((x + seed * 0.31) * 0.19) + 0.11 * math.cos((y - seed) * 0.13)
+    green = 0.5 + 0.21 * math.cos((x - seed * 0.17) * 0.11) + 0.13 * math.sin((y + seed) * 0.23)
+    blue = 0.5 + 0.17 * math.sin((x + y + seed) * 0.07) + 0.16 * math.cos((x - y) * 0.17)
+    return red, green, blue
+
+
+def _clamp_coordinate(value: float, limit: int) -> float:
+    return min(float(limit - 1), max(0.0, value))
+
+
+def _sample_base(case: SyntheticCase, x: float, y: float) -> tuple[float, float, float]:
+    x = _clamp_coordinate(x, case.width)
+    y = _clamp_coordinate(y, case.height)
+    x0, y0 = math.floor(x), math.floor(y)
+    x1, y1 = min(case.width - 1, x0 + 1), min(case.height - 1, y0 + 1)
+    fx, fy = x - x0, y - y0
+    p00 = _base_pixel(case, x0, y0)
+    p10 = _base_pixel(case, x1, y0)
+    p01 = _base_pixel(case, x0, y1)
+    p11 = _base_pixel(case, x1, y1)
+    return tuple(
+        (p00[channel] + (p10[channel] - p00[channel]) * fx) * (1.0 - fy)
+        + (p01[channel] + (p11[channel] - p01[channel]) * fx) * fy
+        for channel in range(3)
+    )
+
+
+def _translation_motion(case: SyntheticCase, frame: int) -> tuple[float, float]:
+    """Return the common-plate translation used by non-field cases."""
+
+    dt = frame - case.reference_frame
+    if case.case_id == "translation-x-positive":
+        return 1.25 * dt, 0.0
+    if case.case_id == "translation-x-negative":
+        return -1.25 * dt, 0.0
+    if case.case_id == "translation-y-positive":
+        return 0.0, 1.5 * dt
+    if case.case_id == "translation-y-negative":
+        return 0.0, -1.5 * dt
+    if case.case_id == "border":
+        return 6.0 * dt, 4.0 * dt
+    if case.case_id.startswith("chain-"):
+        return 1.25 * dt, 0.0
+    if case.case_id in {"odd-size", "asymmetric-padding", "par-0_5", "par-2"}:
+        return 0.75 * dt, -0.5 * dt
+    if case.case_id == "blur":
+        return 1.5 * dt, 0.25 * dt
+    if case.case_id in {"occlusion-reveal", "noise", "hdr-scene-linear", "log-input"}:
+        return 1.0 * dt, 0.5 * dt
+    return 0.0, 0.0
+
+
+def _affine_parameters(case: SyntheticCase, frame: int) -> tuple[float, float, float, float, float, float]:
+    """Return an invertible centered affine map for one frame.
+
+    The generated image samples the common plate at the inverse of this map.  Keeping
+    the matrix small and explicit makes the analytic field exact instead of treating a
+    displacement value evaluated at the output coordinate as a warp inverse.
+    """
+
+    dt = float(frame - case.reference_frame)
+    return (
+        1.0 + 0.012 * dt,
+        0.006 * dt,
+        -0.004 * dt,
+        1.0 - 0.009 * dt,
+        1.0 * dt,
+        -0.75 * dt,
+    )
+
+
+def _spatial_shear(y: float) -> float:
+    """A bounded spatial field with a closed-form inverse."""
+
+    return 2.25 * math.sin(y * 0.13) + 0.75 * math.cos(y * 0.07)
+
+
+def _forward_coordinate(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float, float]:
+    """Map a common-plate coordinate into the requested frame."""
+
+    if case.case_id == "affine":
+        a, b, c, d, tx, ty = _affine_parameters(case, frame)
+        center_x = (case.width - 1) * 0.5
+        center_y = (case.height - 1) * 0.5
+        centered_x = x - center_x
+        centered_y = y - center_y
+        return (
+            center_x + a * centered_x + b * centered_y + tx,
+            center_y + c * centered_x + d * centered_y + ty,
+        )
+    if case.case_id == "spatial":
+        dt = float(frame - case.reference_frame)
+        # A horizontal shear depending only on y is spatially varying but exactly
+        # invertible: the output y is unchanged, so the inverse uses that y directly.
+        return x + dt * _spatial_shear(y), y
+    dx, dy = _translation_motion(case, frame)
+    return x + dx, y + dy
+
+
+def _inverse_coordinate(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float, float]:
+    """Map a frame coordinate back to the common plate exactly."""
+
+    if case.case_id == "affine":
+        a, b, c, d, tx, ty = _affine_parameters(case, frame)
+        determinant = a * d - b * c
+        if abs(determinant) <= 1.0e-12:
+            raise AssertionError("synthetic affine transform is not invertible")
+        center_x = (case.width - 1) * 0.5
+        center_y = (case.height - 1) * 0.5
+        shifted_x = x - center_x - tx
+        shifted_y = y - center_y - ty
+        return (
+            center_x + (d * shifted_x - b * shifted_y) / determinant,
+            center_y + (-c * shifted_x + a * shifted_y) / determinant,
+        )
+    if case.case_id == "spatial":
+        dt = float(frame - case.reference_frame)
+        return x - dt * _spatial_shear(y), y
+    dx, dy = _translation_motion(case, frame)
+    return x - dx, y - dy
+
+
+def frame_source_coordinate(
+    case_or_id: SyntheticCase | str,
+    frame: int,
+    x: float,
+    y: float,
+) -> tuple[float, float]:
+    """Return the common-plate coordinate sampled for one generated pixel."""
+
+    case = _case_for(case_or_id)
+    return _inverse_coordinate(case, frame, x, y)
+
+
+def _motion(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float, float]:
+    """Return the displacement of a common-plate point in one frame."""
+
+    mapped_x, mapped_y = _forward_coordinate(case, frame, x, y)
+    return mapped_x - x, mapped_y - y
+
+
+def _foreground_coordinate(
+    case: SyntheticCase,
+    from_frame: int,
+    to_frame: int,
+    x: float,
+    y: float,
+) -> tuple[float, float]:
+    """Map a visible foreground point between two frames."""
+
+    delta = float(to_frame - from_frame)
+    return x + 3.0 * delta, y - 1.0 * delta
+
+
+def _layer_at(case: SyntheticCase, frame: int, x: float, y: float) -> str:
+    if case.case_id == "occlusion-reveal" and visibility_at(case, frame, x, y):
+        return "foreground"
+    return "background"
+
+
+def _pair_transition(source_layer: str, target_layer: str) -> str:
+    """Classify visibility for a source-domain layer correspondence.
+
+    A background point whose target location is covered by foreground is occluded.
+    Conversely, a foreground point whose target location is background is revealed
+    as background becomes visible.  This direction is intentionally different from
+    a fixed-coordinate mask transition.
+    """
+
+    if source_layer == target_layer:
+        return "stable"
+    return "occluded" if source_layer == "background" else "revealed"
+
+
+def _fixed_coordinate_transition(source_layer: str, target_layer: str) -> str:
+    """Classify visibility at one unchanged image coordinate."""
+
+    if source_layer == target_layer:
+        return "stable"
+    return "revealed" if source_layer == "foreground" else "occluded"
+
+
+def analytic_pair_truth(
+    case_or_id: SyntheticCase | str,
+    from_frame: int,
+    to_frame: int,
+    x: float,
+    y: float,
+) -> PairTruth:
+    """Return typed pair truth, including layer visibility and dense availability.
+
+    Coordinates are in ``from_frame``.  A visible foreground point follows the
+    foreground layer map; background points follow the common background map.  If
+    that correspondence lands on the other visible layer, the result is marked
+    ``occluded`` or ``revealed`` and has no displacement.  Callers that need only a
+    dense field should use :func:`analytic_displacement`, which rejects that outcome.
+    """
+
+    case = _case_for(case_or_id)
+    source_layer = _layer_at(case, from_frame, x, y)
+    if source_layer == "foreground":
+        target_x, target_y = _foreground_coordinate(case, from_frame, to_frame, x, y)
+    else:
+        source_x, source_y = _inverse_coordinate(case, from_frame, x, y)
+        target_x, target_y = _forward_coordinate(case, to_frame, source_x, source_y)
+    target_layer = _layer_at(case, to_frame, target_x, target_y)
+    status = _pair_transition(source_layer, target_layer)
+    displacement = None if status != "stable" else (target_x - x, target_y - y)
+    same_coordinate_transition = _fixed_coordinate_transition(
+        _layer_at(case, from_frame, x, y),
+        _layer_at(case, to_frame, x, y),
+    )
+    return PairTruth(
+        status if status != "stable" else source_layer,
+        source_layer,
+        target_layer,
+        (x, y),
+        (target_x, target_y),
+        displacement,
+        same_coordinate_transition,
+    )
+
+
+def analytic_pair_coordinate(
+    case_or_id: SyntheticCase | str,
+    from_frame: int,
+    to_frame: int,
+    x: float,
+    y: float,
+) -> tuple[float, float]:
+    """Map a coordinate only when its typed pair truth has a dense correspondence."""
+
+    truth = analytic_pair_truth(case_or_id, from_frame, to_frame, x, y)
+    if truth.no_dense_truth:
+        raise TruthUnavailable(truth)
+    return truth.target_coordinate
+
+
+def analytic_displacement(
+    case_or_id: SyntheticCase | str,
+    from_frame: int,
+    to_frame: int,
+    x: float,
+    y: float,
+) -> tuple[float, float]:
+    """Return deterministic dense truth in source-pixel units.
+
+    Frames are inverse-warped samples of one common plate.  The exact pair field first
+    inverts the source-frame map, then applies the target-frame map, so affine and
+    spatial truth are in the same coordinate system as the generated images.  For the
+    occlusion case, use :func:`analytic_pair_truth` to inspect layer status; this helper
+    raises :class:`TruthUnavailable` instead of returning background motion for a
+    foreground or visibility-mismatch sample.
+    """
+
+    truth = analytic_pair_truth(case_or_id, from_frame, to_frame, x, y)
+    if truth.no_dense_truth:
+        raise TruthUnavailable(truth)
+    assert truth.displacement is not None
+    return truth.displacement
+
+
+def _noise(case: SyntheticCase, frame: int, x: int, y: int) -> float:
+    # A deterministic integer hash avoids dependence on Python's randomized hash().
+    value = (case.seed * 1103515245 + frame * 12345 + x * 2654435761 + y * 40503) & 0xFFFFFFFF
+    value ^= value >> 16
+    return (value / 4294967295.0 - 0.5) * 0.05
+
+
+def foreground_rect(case_or_id: SyntheticCase | str, frame: int) -> tuple[float, float, float, float]:
+    """Return the moving foreground rectangle as ``(left, right, bottom, top)``."""
+
+    case = _case_for(case_or_id)
+    if case.case_id != "occlusion-reveal":
+        raise ValueError("foreground rectangles are defined only for occlusion-reveal")
+    dt = frame - case.reference_frame
+    # The background moves (1 px right, .5 px up) per frame while this foreground
+    # moves (3 px right, 1 px down) per frame.  Their relative motion is what creates
+    # both reveal and occlusion instead of a mask painted on a co-moving plate.
+    left = 25.0 + dt * 3.0
+    right = left + 18.0
+    bottom = 18.0 - dt * 1.0
+    top = bottom + 20.0
+    return left, right, bottom, top
+
+
+def visibility_at(case_or_id: SyntheticCase | str, frame: int, x: float, y: float) -> bool:
+    """Return analytic foreground visibility at a frame coordinate."""
+
+    left, right, bottom, top = foreground_rect(case_or_id, frame)
+    return left <= x < right and bottom <= y < top
+
+
+def foreground_displacement(
+    case_or_id: SyntheticCase | str,
+    from_frame: int,
+    to_frame: int,
+) -> tuple[float, float]:
+    """Return the foreground rectangle displacement in output coordinates."""
+
+    case = _case_for(case_or_id)
+    if case.case_id != "occlusion-reveal":
+        raise ValueError("foreground displacement is defined only for occlusion-reveal")
+    delta = float(to_frame - from_frame)
+    return 3.0 * delta, -1.0 * delta
+
+
+def _foreground(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float, float, float] | None:
+    if visibility_at(case, frame, x, y):
+        return (0.92, 0.17, 0.08)
+    return None
+
+
+def frame_rows(case_or_id: SyntheticCase | str, frame: int) -> Iterator[tuple[tuple[float, float, float], ...]]:
+    """Yield one bottom-left row of a deterministic RGB PFM frame."""
+
+    case = _case_for(case_or_id)
+    if frame not in case.frame_numbers:
+        raise ValueError(f"frame {frame} is outside {case.case_id} range")
+    for y in range(case.height):
+        row: list[tuple[float, float, float]] = []
+        for x in range(case.width):
+            source_x, source_y = _inverse_coordinate(case, frame, float(x), float(y))
+            if case.case_id == "blur":
+                samples = [
+                    _sample_base(case, source_x + offset, source_y)
+                    for offset in (-1.0, 0.0, 1.0)
+                ]
+                rgb = tuple(sum(sample[channel] for sample in samples) / 3.0 for channel in range(3))
+            else:
+                rgb = _sample_base(case, source_x, source_y)
+            foreground = _foreground(case, frame, x, y) if case.case_id == "occlusion-reveal" else None
+            if foreground is not None:
+                rgb = foreground
+            if case.case_id == "noise":
+                amount = _noise(case, frame, x, y)
+                rgb = tuple(channel + amount for channel in rgb)
+            if case.case_id == "hdr-scene-linear":
+                rgb = tuple(channel * 16.0 for channel in rgb)
+            elif case.case_id == "log-input":
+                rgb = tuple(math.log1p(max(0.0, channel) * 16.0) / math.log(17.0) for channel in rgb)
+            row.append(rgb)
+        yield tuple(row)
+
+
+def generate_frame(case_or_id: SyntheticCase | str, frame: int) -> tuple[tuple[tuple[float, float, float], ...], ...]:
+    return tuple(frame_rows(case_or_id, frame))
+
+
+def truth_document(case_or_id: SyntheticCase | str) -> dict[str, Any]:
+    case = _case_for(case_or_id)
+    document: dict[str, Any] = {
+        "schema_version": 1,
+        "case_id": case.case_id,
+        "coordinate_convention": COORDINATE_CONVENTION,
+        "reference_frame": case.reference_frame,
+        "frame_range": {"first": case.first_frame, "last": case.last_frame},
+        "pair_field": (
+            "analytic_pair_truth(...).displacement when status is foreground or "
+            "background; otherwise no dense truth"
+        ),
+        "motion": {
+            "case": case.case_id,
+            "analytic": True,
+            "parameters": dict(case.parameters or {}),
+        },
+    }
+    if case.chain_length is not None:
+        document["chain"] = {
+            "length": case.chain_length,
+            "per_link": "1.25 px right",
+            "truth": "sum of link fields equals analytic_displacement",
+        }
+    if case.case_id == "occlusion-reveal":
+        document["pair_truth"] = {
+            "api": "analytic_pair_truth(case, from_frame, to_frame, x, y)",
+            "dense_statuses": ["foreground", "background"],
+            "non_dense_statuses": ["occluded", "revealed"],
+            "non_dense_displacement": None,
+            "source_pair_semantics": (
+                "background mapped into target foreground is occluded; foreground "
+                "mapped into target background is revealed"
+            ),
+            "fixed_coordinate_semantics": (
+                "foreground leaving to background is revealed; background entering "
+                "foreground is occluded"
+            ),
+            "same_coordinate_transition": (
+                "stable, occluded, or revealed visibility transition at the queried "
+                "coordinate; this is separate from moving-layer correspondence"
+            ),
+        }
+        document["visibility"] = {
+            "kind": "analytic_rectangles",
+            "value": "1 when left <= x < right and bottom <= y < top, else 0",
+            "frames": [
+                {
+                    "frame": frame,
+                    "left": foreground_rect(case, frame)[0],
+                    "right": foreground_rect(case, frame)[1],
+                    "bottom": foreground_rect(case, frame)[2],
+                    "top": foreground_rect(case, frame)[3],
+                }
+                for frame in case.frame_numbers
+            ],
+            "foreground_per_frame": {"dx": 3.0, "dy": -1.0},
+            "background_per_frame": {"dx": 1.0, "dy": 0.5},
+            "coordinate_convention": COORDINATE_CONVENTION,
+        }
+    if case.case_id == "asymmetric-padding":
+        requested = dict((case.parameters or {}).get("padding", {}))
+        source_rows = tuple(tuple(0 for _ in range(case.width)) for _ in range(case.height))
+        padded = pad_rows(
+            source_rows,
+            left=requested["left"],
+            right=requested["right"],
+            bottom=requested["bottom"],
+            top=requested["top"],
+            policy=requested["policy"],
+            multiple=requested["multiple"],
+        )
+        assert padded.width % requested["multiple"] == 0
+        assert padded.height % requested["multiple"] == 0
+        document["padding"] = {
+            "policy": padded.policy,
+            "comparison_seam": "padding.pad_rows(policy=manifest.declared_policy)",
+            "requested": requested,
+            "actual": {
+                "left": padded.pad_left,
+                "right": padded.pad_right,
+                "bottom": padded.pad_bottom,
+                "top": padded.pad_top,
+            },
+            "padded_width": padded.width,
+            "padded_height": padded.height,
+        }
+    return document
+
+
+def synthetic_shot(case_or_id: SyntheticCase | str) -> dict[str, Any]:
+    case = _case_for(case_or_id)
+    shot: dict[str, Any] = {
+        "id": "syn-" + case.case_id,
+        "case_id": case.case_id,
+        "path_pattern": f"generated://{case.path_token}/frame.%04d.pfm",
+        "first_frame": case.first_frame,
+        "last_frame": case.last_frame,
+        "reference_frame": case.reference_frame,
+        "width": case.width,
+        "height": case.height,
+        "pixel_aspect_ratio": case.pixel_aspect_ratio,
+        "encoding": case.encoding,
+        "channels": case.channels,
+        "bit_depth": case.bit_depth,
+        "categories": [case.category],
+        "truth": {
+            "kind": "analytic",
+            "definition": "frame-indexed analytic displacement field; see truth sidecar",
+            "path": f"generated://{case.path_token}/truth.json",
+            "coordinate_convention": COORDINATE_CONVENTION,
+        },
+    }
+    if case.chain_length is not None:
+        shot["chain_length"] = case.chain_length
+    if case.parameters is not None:
+        shot["generator_parameters"] = dict(case.parameters)
+    return shot
+
+
+def synthetic_partition() -> dict[str, Any]:
+    return {
+        "id": "synthetic",
+        "kind": "synthetic",
+        "description": "Deterministic generated PFM cases with analytic displacement truth.",
+        "generator": "whitewater-synthetic-v1",
+        "shots": [synthetic_shot(case) for case in all_cases()],
+    }
+
+
+def write_pfm(path: Path, rows: Iterable[Sequence[Sequence[float]]], width: int, height: int) -> None:
+    """Write an RGB little-endian PFM without retaining the whole frame."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as stream:
+        stream.write(f"PF\n{width} {height}\n-1.0\n".encode("ascii"))
+        row_count = 0
+        for row in rows:
+            if len(row) != width:
+                raise ValueError("synthetic row has the wrong width")
+            encoded = array("f")
+            for pixel in row:
+                if len(pixel) != 3:
+                    raise ValueError("synthetic PFM output is RGB")
+                encoded.extend(float(channel) for channel in pixel)
+            stream.write(encoded.tobytes())
+            row_count += 1
+        if row_count != height:
+            raise ValueError("synthetic frame has the wrong height")
+
+
+def write_case_frames(case_or_id: SyntheticCase | str, output_dir: Path, *, include_large: bool = False) -> None:
+    """Emit PFM frames and analytic truth for one case.
+
+    FHD/UHD output is opt-in because a metadata-only corpus must stay cheap to
+    generate and review.  The exact same lazy generator is used when those targets
+    are requested.
+    """
+
+    case = _case_for(case_or_id)
+    # Keep both frozen performance targets metadata-only by default.  FHD is already
+    # roughly two million pixels and nine RGB PFM frames are a sizeable fixture; the
+    # explicit flag is the opt-in for either target.
+    if case.width * case.height >= 1_000_000 and not include_large:
+        return
+    case_dir = output_dir / case.path_token
+    case_dir.mkdir(parents=True, exist_ok=True)
+    for frame in case.frame_numbers:
+        write_pfm(case_dir / f"frame.{frame:04d}.pfm", frame_rows(case, frame), case.width, case.height)
+    (case_dir / "truth.json").write_text(
+        json.dumps(truth_document(case), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+__all__ = [
+    "COORDINATE_CONVENTION",
+    "REQUIRED_SYNTHETIC_CASES",
+    "SyntheticCase",
+    "PairTruth",
+    "TruthUnavailable",
+    "all_cases",
+    "case_map",
+    "analytic_pair_coordinate",
+    "analytic_pair_truth",
+    "analytic_displacement",
+    "frame_source_coordinate",
+    "foreground_rect",
+    "visibility_at",
+    "foreground_displacement",
+    "frame_rows",
+    "generate_frame",
+    "truth_document",
+    "synthetic_shot",
+    "synthetic_partition",
+    "write_pfm",
+    "write_case_frames",
+]
