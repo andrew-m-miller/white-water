@@ -123,6 +123,13 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/check_searaft_manifest.py"
       "${CMAKE_SOURCE_DIR}/models/sea-raft-m.json")
+  add_test(NAME models::raft_manifest
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/check_raft_manifest.py"
+      "${CMAKE_SOURCE_DIR}/models/raft-original.json")
+  add_test(NAME models::p25_3_candidate_manifests
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/p25_3_candidate_manifest_tests.py")
   add_test(NAME models::artifact_framework
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/artifact_tests.py")

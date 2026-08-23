@@ -26,10 +26,11 @@ host run, the probe gains a pinned export script and manifest containing the ups
 checkpoint URL and SHA256, tensor contract, exported ONNX SHA256, and synthetic translation
 validation.
 
-**No licence in this document has been audited.** Repository statements are leads, not
-approval. Before anything goes to a client, re-verify the exact code revision, checkpoint,
-and any backbone weights actually shipped, then record the verdict here with a date and the
-checkpoint SHA256.
+The P25-3D audit below is the first revision-bound audit in this document. It covers only the
+exact SEA-RAFT source/checkpoint surfaces and the original-RAFT source surface named there;
+the other candidates remain unaudited. Before anything goes to a client, re-verify the exact
+code revision, checkpoint, and any backbone weights actually shipped, then record the verdict
+with a date and checkpoint SHA256.
 
 Deployment posture changes which of these obligations actually bind — see **Deployment
 posture** below. The short version: not distributing the plugin relaxes a lot, but it does
@@ -288,6 +289,27 @@ manifest files are now required to be regular mode-`0644` files, and CI checks t
 staged and extracted-package copies as well as their size and SHA256.
 
 The artifact remains ignored by git and must be staged from a qualified build input.
+
+### P25-3D provenance and licence audit — 2026-08-23
+
+`models/sea-raft-m.json` now records a revision-bound audit without changing its measured
+tensor contract, export hash/size, or Phase 0B validation values. The official SEA-RAFT
+`LICENSE` at commit
+[`9137517ba24e628442aec097d3afe71d03503b75`](https://github.com/princeton-vl/SEA-RAFT/tree/9137517ba24e628442aec097d3afe71d03503b75)
+is BSD-3-Clause. The exact checkpoint model card at Hugging Face revision
+[`ea21e467a7076978b251e09d55751fcce166c2f8`](https://huggingface.co/MemorySlices/Tartan-C-T-TSKH-spring540x960-M/tree/ea21e467a7076978b251e09d55751fcce166c2f8)
+declares `bsd-3-clause` for the 78,778,760-byte file recorded in the manifest. The exporter
+disables torchvision pretrained initialization and strictly loads the complete checkpoint,
+so no separate backbone checkpoint is carried; the manifest marks that surface
+not-applicable and does not infer a framework licence.
+
+`models/raft-original.json` pins the official original-RAFT source at commit
+[`2888e15a51fa41140771d3f498ed8023cff098d1`](https://github.com/princeton-vl/RAFT/tree/2888e15a51fa41140771d3f498ed8023cff098d1)
+and the author-linked `models/raft-things.pth` archive member by its URL, 21,108,000-byte
+size, and SHA256 `fcfa4125d6418f4de95d84aec20a3c5f4e205101715a79f193243c186ac9a7e1`.
+The official README and `download_models.sh` do not state checkpoint commercial-use or
+redistribution terms, so that surface remains `unknown` and the manifest is explicitly
+`provenance_pinned_export_pending`; no licence conclusion or ONNX artifact is claimed.
 
 ```bash
 python3.10 -m venv /path/to/searaft-export-env
