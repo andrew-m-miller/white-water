@@ -85,12 +85,18 @@ def _v2_protocol() -> dict:
 
 def _v2_candidates() -> list[dict[str, object]]:
     return [
-        {"candidate_id": "candidate-a", "status": "eligible", "measurement_status": "measurable"},
+        {
+            "candidate_id": "candidate-a",
+            "status": "eligible",
+            "measurement_status": "measurable",
+            "measurement_providers": ["cpu", "cuda"],
+        },
         # Shipping-excluded but technically qualified: valid evaluation input.
         {
             "candidate_id": "candidate-b",
             "status": "excluded",
             "measurement_status": "measurable",
+            "measurement_providers": ["cpu", "cuda"],
             "exclusion_reason": {"type": "license_unknown", "message": "shipping-only exclusion"},
         },
         {
@@ -198,6 +204,24 @@ def test_v2_measurement_admission_is_independent_of_shipping_status() -> None:
         lambda: build_matrix(
             _v2_protocol(), _corpus(), shipping_unavailable,
             _selections(candidate_ids=["candidate-b"]), "final", "el8-x86_64",
+        ),
+    )
+    ordinary_missing_provider = _v2_candidates()
+    ordinary_missing_provider[1].pop("measurement_providers")
+    _failure(
+        "measurement_provider",
+        lambda: build_matrix(
+            _v2_protocol(), _corpus(), ordinary_missing_provider,
+            _selections(candidate_ids=["candidate-a"]), "final", "el8-x86_64",
+        ),
+    )
+    unavailable_with_provider = _v2_candidates()
+    unavailable_with_provider[2]["measurement_providers"] = ["cpu"]
+    _failure(
+        "measurement_provider",
+        lambda: build_matrix(
+            _v2_protocol(), _corpus(), unavailable_with_provider,
+            _selections(candidate_ids=["candidate-a"]), "final", "el8-x86_64",
         ),
     )
     baseline_protocol = _v2_protocol()

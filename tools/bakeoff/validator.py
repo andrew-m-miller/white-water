@@ -778,6 +778,15 @@ def validate_protocol_consistency(
                 "$.report_schema.$defs.candidate.oneOf",
                 "v2 measurable candidates must declare qualified providers",
             )
+            _require(
+                any(
+                    branch.get("not") == {"required": ["measurement_providers"]}
+                    for branch in candidate_branches
+                    if isinstance(branch, Mapping)
+                ),
+                "$.report_schema.$defs.candidate.oneOf",
+                "v2 unavailable candidates must not declare provider evidence",
+            )
             measurement_provider_schema = _mapping(
                 report_candidate_properties.get("measurement_providers"),
                 "$.report_schema.$defs.candidate.properties.measurement_providers",
@@ -1029,6 +1038,11 @@ def validate_report_consistency(
                     "measurement_exclusion_reason" in candidate,
                     f"$.candidates[{candidate_id}]",
                     "unavailable candidate needs a typed measurement exclusion reason",
+                )
+                _require(
+                    "measurement_providers" not in candidate,
+                    f"$.candidates[{candidate_id}].measurement_providers",
+                    "unavailable candidate must not carry provider measurement evidence",
                 )
             else:
                 _require(

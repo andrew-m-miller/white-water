@@ -201,7 +201,8 @@
             "status": {"const": "excluded"},
             "measurement_status": {"const": "unavailable"}
           },
-          "required": ["exclusion_reason", "measurement_exclusion_reason"]
+          "required": ["exclusion_reason", "measurement_exclusion_reason"],
+          "not": {"required": ["measurement_providers"]}
         }
       ]
     },

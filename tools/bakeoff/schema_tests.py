@@ -202,6 +202,7 @@ def main() -> int:
             "message": "measurement unavailability fixture",
         },
     })
+    unavailable_candidate.pop("measurement_providers")
     unavailable_in_matrix["candidates"].append(unavailable_candidate)
     unavailable_report = copy.deepcopy(unavailable_in_matrix)
     unavailable_report["matrix"]["candidate_ids"] = ["sea-raft-m"]
@@ -211,6 +212,14 @@ def main() -> int:
     unavailable_report["results"][0]["candidate_id"] = "sea-raft-m"
     validate_report_consistency(
         unavailable_report, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+    )
+    unavailable_with_provider = copy.deepcopy(unavailable_report)
+    unavailable_with_provider["candidates"][1]["measurement_providers"] = ["cpu"]
+    expect_failure(
+        "v2 unavailable candidate cannot carry provider evidence",
+        lambda: validate_report_consistency(
+            unavailable_with_provider, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
     )
     set_matrix(
         unavailable_in_matrix,

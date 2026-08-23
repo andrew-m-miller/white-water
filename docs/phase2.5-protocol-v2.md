@@ -68,7 +68,8 @@ qualified WAFT may use the shared lattice under the ordinary provider/cap rules.
 
 Provider support is potential capability, not qualification evidence. A measurable v2 report
 candidate must list its `measurement_providers`; the planner requires every selected provider to
-appear there.
+appear there. An `unavailable` candidate must omit `measurement_providers` entirely, so a
+technical exclusion cannot carry contradictory positive measurement evidence.
 The checked-in NeuFlow evidence remains CPU-only, so no NeuFlow CUDA row is schedulable until a
 returned report candidate explicitly carries `measurement_providers: ["cuda"]` (or includes it
 alongside CPU). This field must never be filled merely because the protocol allows CUDA.

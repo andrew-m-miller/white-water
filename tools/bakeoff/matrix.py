@@ -285,6 +285,68 @@ def _measurement_candidate_orders(
     return measurable, unavailable, entries
 
 
+def _validate_v2_measurement_evidence(
+    protocol: Mapping[str, Any],
+    candidate_entries: Mapping[str, Mapping[str, Any]],
+    selected_candidate_ids: Sequence[str] = (),
+    selected_provider_tokens: Sequence[str] = (),
+) -> None:
+    """Validate v2 provider evidence before any selected cells are expanded.
+
+    The checked-in v2 report contract is the only protocol that carries provider-specific
+    measurement evidence.  Small non-v2 unit fixtures intentionally retain the older
+    shipping-only candidate shape.
+    """
+
+    if protocol.get("protocol_id") != "whitewater-p25-v2":
+        return
+
+    provider_tokens = _protocol_ids(protocol, "providers", "token")
+    known_provider_tokens = set(provider_tokens)
+    raw_constraints = protocol.get("candidate_constraints", [])
+    constrained_candidate_ids = {
+        constraint.get("candidate_id")
+        for constraint in raw_constraints
+        if isinstance(constraint, Mapping) and isinstance(constraint.get("candidate_id"), str)
+    } if _is_sequence(raw_constraints) else set()
+
+    for candidate_id, entry in candidate_entries.items():
+        measurement_status = entry.get("measurement_status")
+        if measurement_status == "measurable":
+            measurement_providers = entry.get("measurement_providers")
+            if not isinstance(measurement_providers, list) or not measurement_providers:
+                kind = "provider_unavailable" if candidate_id in constrained_candidate_ids else "measurement_provider"
+                _fail(kind, f"candidate {candidate_id!r} must list measurable providers")
+            if _has_duplicates(measurement_providers):
+                _fail("measurement_provider", f"candidate {candidate_id!r} has duplicate measurement providers")
+            unknown = [
+                provider for provider in measurement_providers
+                if not isinstance(provider, str) or provider not in known_provider_tokens
+            ]
+            if unknown:
+                _fail(
+                    "measurement_provider",
+                    f"candidate {candidate_id!r} has unknown measurement provider {unknown[0]!r}",
+                )
+        elif measurement_status == "unavailable":
+            if "measurement_providers" in entry:
+                _fail(
+                    "measurement_provider",
+                    f"unavailable candidate {candidate_id!r} must not carry provider measurement evidence",
+                )
+        else:
+            _fail("measurement_status", f"candidate {candidate_id!r} has invalid measurement_status")
+
+    for candidate_id in selected_candidate_ids:
+        measurement_providers = candidate_entries[candidate_id]["measurement_providers"]
+        for provider_token in selected_provider_tokens:
+            if provider_token not in measurement_providers:
+                _fail(
+                    "provider_unavailable",
+                    f"candidate {candidate_id!r} is not technically measurable on provider {provider_token!r}",
+                )
+
+
 def _provider_selection(
     protocol: Mapping[str, Any], requested: Any, profile: str, environment: str
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
@@ -527,6 +589,12 @@ def build_matrix(
     cap_ids = _protocol_ids(protocol, "analysis_caps", "token")
     cap_tokens = _ordered_ids(selections["cap_tokens"], cap_ids, "selections.cap_tokens")
     providers, provider_loads = _provider_selection(protocol, selections["providers"], profile, environment)
+    _validate_v2_measurement_evidence(
+        protocol,
+        candidate_entry_map,
+        candidate_ids,
+        [provider["token"] for provider in providers],
+    )
     corpus_shot_map = _corpus_shot_map(corpus)
     _validate_candidate_constraints(
         protocol,
