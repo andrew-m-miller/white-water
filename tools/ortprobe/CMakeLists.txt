@@ -51,14 +51,25 @@ add_custom_command(TARGET WhiteWaterOrtProbe POST_BUILD
 # cmake/OnnxRuntime.cmake has passed. Keep the model outside the executable: unlike the tiny
 # Add graph, SEA-RAFT is a real network and must remain an auditable file with its manifest.
 if(WHITEWATER_SEA_RAFT_MODEL)
-  add_custom_command(TARGET WhiteWaterOrtProbe POST_BUILD
+  set(ort_staged_model "${ort_bundle_models}/sea-raft-m-opset17.onnx")
+  set(ort_staged_manifest "${ort_bundle_models}/sea-raft-m.json")
+  add_custom_command(
+    OUTPUT "${ort_staged_model}" "${ort_staged_manifest}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${ort_bundle_models}"
-    COMMAND "${CMAKE_COMMAND}" -E copy
-            "${WHITEWATER_SEA_RAFT_MODEL}" "${ort_bundle_models}/sea-raft-m-opset17.onnx"
-    COMMAND "${CMAKE_COMMAND}" -E copy
-            "${WHITEWATER_SEA_RAFT_MANIFEST}" "${ort_bundle_models}/sea-raft-m.json"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${WHITEWATER_SEA_RAFT_MODEL}" "${ort_staged_model}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${WHITEWATER_SEA_RAFT_MANIFEST}" "${ort_staged_manifest}"
+    COMMAND "${CMAKE_COMMAND}" -E touch
+            "${ort_staged_model}" "${ort_staged_manifest}"
+    DEPENDS
+      WhiteWaterOrtProbe
+      "${WHITEWATER_SEA_RAFT_MODEL}"
+      "${WHITEWATER_SEA_RAFT_MANIFEST}"
     COMMENT "Staging verified SEA-RAFT M model and manifest into Contents/Resources/models"
     VERBATIM)
+  add_custom_target(WhiteWaterOrtProbeModelStage ALL
+    DEPENDS "${ort_staged_model}" "${ort_staged_manifest}")
 else()
   message(STATUS
     "ORT probe model staging: skipped (set WHITEWATER_SEA_RAFT_MODEL to add SEA-RAFT M)")
