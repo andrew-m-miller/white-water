@@ -58,6 +58,23 @@ EXPECTED_ARCHIVE_SHA256 = "4be6101b271f58ec49866da5cf609fd17e86e9cae2483f70630ef
 EXPECTED_MEMBER = "models/raft-things.pth"
 
 
+class ExportFailure(RuntimeError):
+    """A failure annotated with the last completed exporter stage."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        stage: str,
+        source_verified: bool = False,
+        checkpoint_verified: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.stage = stage
+        self.source_verified = source_verified
+        self.checkpoint_verified = checkpoint_verified
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
@@ -89,44 +106,80 @@ def checked_out_commit(upstream: Path) -> str:
 def verify_provenance(manifest: dict[str, Any], upstream: Path, checkpoint: Path) -> None:
     """Verify the exact official source checkout and extracted checkpoint bytes."""
 
-    require(manifest["candidate"]["id"] == "raft-original", "manifest is not the original RAFT candidate")
-    require(
-        manifest["model"]["config"] == {
-            "small": False,
-            "iters": 12,
-            "mixed_precision": False,
-            "alternate_corr": False,
-            "checkpoint_name": "raft-things.pth",
-        },
-        "original RAFT exporter requires the pinned full model with exactly 12 iterations",
-    )
-    require(
-        manifest["tensor_contract"]["padding"] == {
-            "multiple": 8,
-            "policy": "caller-replication-crop",
-        },
-        "original RAFT exporter requires the declared caller replication-pad/crop policy",
-    )
-    require((upstream / ".git").exists(), f"not a git checkout: {upstream}")
-    actual_commit = checked_out_commit(upstream)
-    expected_commit = manifest["upstream"]["commit"]
-    require(
-        actual_commit == expected_commit == EXPECTED_SOURCE_COMMIT,
-        f"RAFT checkout is {actual_commit}, expected {expected_commit}",
-    )
+    source_verified = False
+    checkpoint_verified = False
+    try:
+        require(manifest["candidate"]["id"] == "raft-original", "manifest is not the original RAFT candidate")
+        require(
+            manifest["model"]["config"] == {
+                "small": False,
+                "iters": 12,
+                "mixed_precision": False,
+                "alternate_corr": False,
+                "checkpoint_name": "raft-things.pth",
+            },
+            "original RAFT exporter requires the pinned full model with exactly 12 iterations",
+        )
+        require(
+            manifest["tensor_contract"]["padding"] == {
+                "multiple": 8,
+                "policy": "caller-replication-crop",
+            },
+            "original RAFT exporter requires the declared caller replication-pad/crop policy",
+        )
+        require((upstream / ".git").exists(), f"not a git checkout: {upstream}")
+        actual_commit = checked_out_commit(upstream)
+        expected_commit = manifest["upstream"]["commit"]
+        require(
+            actual_commit == expected_commit == EXPECTED_SOURCE_COMMIT,
+            f"RAFT checkout is {actual_commit}, expected {expected_commit}",
+        )
+        source_verified = True
 
-    require_regular_mode(checkpoint, "RAFT checkpoint")
-    expected_size = manifest["checkpoint"]["size_bytes"]
-    require(
-        checkpoint.stat().st_size == expected_size == EXPECTED_CHECKPOINT_SIZE,
-        f"checkpoint is {checkpoint.stat().st_size} bytes, expected {expected_size}",
-    )
-    actual_hash = sha256_file(checkpoint)
-    expected_hash = manifest["checkpoint"]["sha256"]
-    require(
-        actual_hash == expected_hash == EXPECTED_CHECKPOINT_SHA256,
-        f"checkpoint SHA256 is {actual_hash}, expected {expected_hash}",
-    )
+        require_regular_mode(checkpoint, "RAFT checkpoint")
+        expected_size = manifest["checkpoint"]["size_bytes"]
+        require(
+            checkpoint.stat().st_size == expected_size == EXPECTED_CHECKPOINT_SIZE,
+            f"checkpoint is {checkpoint.stat().st_size} bytes, expected {expected_size}",
+        )
+        actual_hash = sha256_file(checkpoint)
+        expected_hash = manifest["checkpoint"]["sha256"]
+        require(
+            actual_hash == expected_hash == EXPECTED_CHECKPOINT_SHA256,
+            f"checkpoint SHA256 is {actual_hash}, expected {expected_hash}",
+        )
+        checkpoint_verified = True
+    except ExportFailure:
+        raise
+    except (ArtifactError, RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        raise ExportFailure(
+            str(exc),
+            stage="provenance",
+            source_verified=source_verified,
+            checkpoint_verified=checkpoint_verified,
+        ) from exc
+
+
+def run_stage(
+    stage: str,
+    callback,
+    *,
+    source_verified: bool,
+    checkpoint_verified: bool,
+):
+    """Annotate expected stage failures without inventing provenance claims."""
+
+    try:
+        return callback()
+    except ExportFailure:
+        raise
+    except (ArtifactError, RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        raise ExportFailure(
+            str(exc),
+            stage=stage,
+            source_verified=source_verified,
+            checkpoint_verified=checkpoint_verified,
+        ) from exc
 
 
 def load_model(manifest: dict[str, Any], upstream: Path, checkpoint: Path, device: str):
@@ -559,22 +612,58 @@ def update_manifest(
     write_manifest(path, manifest)
 
 
-def record_failure(path: Path, manifest: dict[str, Any], message: str) -> None:
-    """Record a typed exporter/operator failure without claiming an artifact."""
+def has_numerical_result(manifest: dict[str, Any]) -> bool:
+    """Return true when a manifest already carries an exact, numerically checked artifact."""
 
+    export = manifest.get("export", {})
+    validation = manifest.get("validation", {})
+    observed = validation.get("observed") or {}
+    parity = validation.get("parity") or {}
+    numerical_fields_present = all(
+        key in validation for key in ("identity", "directions", "shapes", "parity")
+    )
+    return bool(
+        export.get("sha256")
+        and export.get("size_bytes")
+        and (
+            observed.get("numerical_gates") == "passed"
+            or validation.get("status") == "passed"
+            or numerical_fields_present
+        )
+        and parity.get("checked") is True
+    )
+
+
+def record_failure(
+    path: Path,
+    manifest: dict[str, Any],
+    message: str,
+    *,
+    stage: str,
+    source_verified: bool,
+    checkpoint_verified: bool,
+) -> None:
+    """Record a typed exporter/operator failure without inventing verification claims."""
+
+    if has_numerical_result(manifest):
+        raise ArtifactError(
+            "refusing to replace an existing numerically validated result and artifact identity "
+            f"with a {stage} failure: {path}"
+        )
     manifest["status"] = "excluded"
     manifest["validation"] = {
         "status": "failed",
         "observed": {
             "typed_status": "excluded",
             "reason_type": "export_or_operator_failure",
+            "stage": stage,
             "failure": message,
-            "source_commit_locally_verified": True,
-            "checkpoint_locally_verified": True,
+            "source_commit_verified": source_verified,
+            "checkpoint_verified": checkpoint_verified,
         },
     }
     manifest["notes"] = list(manifest.get("notes", [])) + [
-        f"D2 exporter/operator failure recorded without qualification: {message}"
+        f"D2 exporter/operator failure recorded at {stage} without qualification: {message}"
     ]
     write_manifest(path, manifest)
 
@@ -620,17 +709,42 @@ def main() -> int:
     )
     output = (args.output or (args.manifest.parent / manifest["export"]["artifact"])).absolute()
     output.parent.mkdir(parents=True, exist_ok=True)
-    model = load_model(manifest, upstream, checkpoint, args.device)
-    wrapper = make_wrapper(model, manifest["model"]["config"]["iters"])
+    model = run_stage(
+        "model_load",
+        lambda: load_model(manifest, upstream, checkpoint, args.device),
+        source_verified=True,
+        checkpoint_verified=True,
+    )
+    wrapper = run_stage(
+        "wrapper_setup",
+        lambda: make_wrapper(model, manifest["model"]["config"]["iters"]),
+        source_verified=True,
+        checkpoint_verified=True,
+    )
     with tempfile.NamedTemporaryFile(
         prefix=output.name + ".candidate.", suffix=".onnx", dir=output.parent, delete=False
     ) as stream:
         candidate = Path(stream.name)
     candidate.unlink()
     try:
-        export_onnx(wrapper, manifest, candidate, args.device)
-        observed = validate_export(wrapper, manifest, candidate, args.device, provider)
-        publish_file(candidate, output)
+        run_stage(
+            "onnx_export",
+            lambda: export_onnx(wrapper, manifest, candidate, args.device),
+            source_verified=True,
+            checkpoint_verified=True,
+        )
+        observed = run_stage(
+            "operator_validation",
+            lambda: validate_export(wrapper, manifest, candidate, args.device, provider),
+            source_verified=True,
+            checkpoint_verified=True,
+        )
+        run_stage(
+            "artifact_publish",
+            lambda: publish_file(candidate, output),
+            source_verified=True,
+            checkpoint_verified=True,
+        )
     finally:
         candidate.unlink(missing_ok=True)
     artifact_hash = sha256_file(output)
@@ -647,14 +761,40 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (ArtifactError, RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+    except ExportFailure as exc:
         # A failed run never publishes its candidate. With --update-manifest, retain a typed
         # exclusion record so an unsupported operator or provider is a visible result.
         try:
             parsed = parse_args()
             if parsed.update_manifest:
                 failed_manifest = load_manifest(parsed.manifest)
-                record_failure(parsed.manifest, failed_manifest, str(exc))
+                record_failure(
+                    parsed.manifest,
+                    failed_manifest,
+                    str(exc),
+                    stage=exc.stage,
+                    source_verified=exc.source_verified,
+                    checkpoint_verified=exc.checkpoint_verified,
+                )
+        except Exception:  # pragma: no cover - preserve the original export error
+            pass
+        print(f"export_raft.py: error: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    except (ArtifactError, RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        # Unexpected failures do not carry provenance claims.  A validated manifest is still
+        # protected by record_failure's identity guard if --update-manifest was requested.
+        try:
+            parsed = parse_args()
+            if parsed.update_manifest:
+                failed_manifest = load_manifest(parsed.manifest)
+                record_failure(
+                    parsed.manifest,
+                    failed_manifest,
+                    str(exc),
+                    stage="unknown",
+                    source_verified=False,
+                    checkpoint_verified=False,
+                )
         except Exception:  # pragma: no cover - preserve the original export error
             pass
         print(f"export_raft.py: error: {exc}", file=sys.stderr)

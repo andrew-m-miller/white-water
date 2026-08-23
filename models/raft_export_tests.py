@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import hashlib
+import copy
+import json
 from pathlib import Path
 import stat
 import subprocess
+import sys
 import tempfile
 import warnings
 import zipfile
@@ -128,9 +131,100 @@ def main() -> int:
         assert export_raft.checked_out_commit(source)
         (source / "untracked.py").write_text("untracked\n", encoding="utf-8")
         _expect_runtime_failure(lambda: export_raft.checked_out_commit(source))
+
+        pending = copy.deepcopy(manifest)
+        pending["status"] = "provenance_pinned_export_pending"
+        pending["export"]["sha256"] = None
+        pending["export"]["size_bytes"] = None
+        for entry in pending["export"]["platform_artifacts"]:
+            entry["sha256"] = None
+            entry["size_bytes"] = None
+        pending["validation"] = {
+            "status": "pending",
+            "observed": {
+                "typed_status": "provenance_pinned_export_pending",
+                "reason_type": "test_fixture",
+            },
+        }
+        pending_path = root / "pending.json"
+        pending_path.write_text(json.dumps(pending, indent=2) + "\n", encoding="utf-8")
+        pending_path.chmod(0o644)
+        provenance_failure = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "models" / "export_raft.py"),
+                "--upstream",
+                str(source),
+                "--checkpoint",
+                str(root / "missing-checkpoint.pth"),
+                "--manifest",
+                str(pending_path),
+                "--verify-provenance-only",
+                "--update-manifest",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert provenance_failure.returncode != 0
+        failed = load_manifest(pending_path)
+        assert failed["status"] == "excluded"
+        assert failed["validation"]["status"] == "failed"
+        assert failed["validation"]["observed"]["stage"] == "provenance"
+        assert failed["validation"]["observed"]["source_commit_verified"] is False
+        assert failed["validation"]["observed"]["checkpoint_verified"] is False
+
         (source / "untracked.py").unlink()
         tracked.write_text("dirty\n", encoding="utf-8")
         _expect_runtime_failure(lambda: export_raft.checked_out_commit(source))
+
+        validated_rerun_path = root / "validated-rerun.json"
+        validated_rerun_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        validated_rerun_path.chmod(0o644)
+        validated_rerun_before = validated_rerun_path.read_bytes()
+        later_failure = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "models" / "export_raft.py"),
+                "--upstream",
+                str(source),
+                "--checkpoint",
+                str(root / "missing-checkpoint.pth"),
+                "--manifest",
+                str(validated_rerun_path),
+                "--verify-provenance-only",
+                "--update-manifest",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert later_failure.returncode != 0
+        assert validated_rerun_path.read_bytes() == validated_rerun_before
+        preserved_rerun = load_manifest(validated_rerun_path)
+        assert preserved_rerun["export"]["sha256"] == manifest["export"]["sha256"]
+        assert preserved_rerun["validation"]["observed"]["numerical_gates"] == "passed"
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-raft-failure-guard-") as directory:
+        validated_path = Path(directory) / "validated.json"
+        validated_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        validated_path.chmod(0o644)
+        validated_before = validated_path.read_bytes()
+        _expect_failure(
+            lambda: export_raft.record_failure(
+                validated_path,
+                load_manifest(validated_path),
+                "simulated later operator failure",
+                stage="operator_validation",
+                source_verified=True,
+                checkpoint_verified=True,
+            )
+        )
+        assert validated_path.read_bytes() == validated_before
+        preserved = load_manifest(validated_path)
+        assert preserved["status"] == "excluded"
+        assert preserved["export"]["sha256"] == manifest["export"]["sha256"]
+        assert preserved["validation"]["observed"]["numerical_gates"] == "passed"
 
     requirements = (ROOT / "models" / "requirements-raft-export.txt").read_text(encoding="utf-8")
     for requirement in (
