@@ -10,7 +10,9 @@ from pathlib import Path
 import stat
 import tempfile
 from types import MappingProxyType
+from unittest.mock import patch
 
+from . import resume as resume_module
 from .matrix import CellKey, MatrixPlan
 from .resume import (
     ResumeFailure,
@@ -76,6 +78,24 @@ def test_create_determinism_and_shape() -> None:
         assert stat.S_IMODE(path.stat().st_mode) == 0o644
         assert sorted(path.parent.iterdir()) == sorted([path, second_path])
         assert [entry["state"] for entry in first["entries"]] == ["pending", "pending"]
+
+
+def test_create_collision_at_publication_does_not_clobber() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-resume-") as temporary:
+        directory = Path(temporary)
+        path = directory / "state.json"
+        competitor_bytes = b"competitor state\n"
+
+        def publish_with_competitor(_temporary: Path, destination: Path) -> None:
+            assert destination == path
+            path.write_bytes(competitor_bytes)
+            os.chmod(path, 0o644)
+            raise FileExistsError("publication collision")
+
+        with patch.object(resume_module.os, "link", side_effect=publish_with_competitor):
+            _failure("state_exists", lambda: create_state(path, IDENTITY, PLAN))
+        assert path.read_bytes() == competitor_bytes
+        assert list(directory.glob(f".{path.name}.*.tmp")) == []
 
 
 def test_identity_and_cell_strictness() -> None:
@@ -232,6 +252,7 @@ def test_destination_security() -> None:
 
 def main() -> int:
     test_create_determinism_and_shape()
+    test_create_collision_at_publication_does_not_clobber()
     test_identity_and_cell_strictness()
     test_json_and_result_strictness()
     test_interrupted_recovery()

@@ -221,7 +221,7 @@ def _check_existing_file(path: Path, *, missing_ok: bool) -> None:
         _fail("state_mode", "resume state mode must be exactly 0644")
 
 
-def _atomic_write(path: Path, state: Mapping[str, Any]) -> None:
+def _atomic_write(path: Path, state: Mapping[str, Any], *, no_clobber: bool = False) -> None:
     _check_existing_file(path, missing_ok=True)
     parent = path.parent
     if not parent.is_dir():
@@ -239,7 +239,14 @@ def _atomic_write(path: Path, state: Mapping[str, Any]) -> None:
             output.write(encoded)
             output.flush()
             os.fsync(output.fileno())
-        os.replace(temporary, path)
+        if no_clobber:
+            try:
+                os.link(temporary, path)
+            except FileExistsError as exc:
+                raise ResumeFailure("state_exists", f"resume state already exists: {path}") from exc
+            temporary.unlink()
+        else:
+            os.replace(temporary, path)
         temporary = None
         directory_descriptor = os.open(str(parent), os.O_RDONLY)
         os.fsync(directory_descriptor)
@@ -257,9 +264,15 @@ def _atomic_write(path: Path, state: Mapping[str, Any]) -> None:
                 pass
 
 
-def _save_validated(path: Path, state: Mapping[str, Any], plan: MatrixPlan) -> dict[str, Any]:
+def _save_validated(
+    path: Path,
+    state: Mapping[str, Any],
+    plan: MatrixPlan,
+    *,
+    no_clobber: bool = False,
+) -> dict[str, Any]:
     validated, _ = _validate_state_shape(state, plan)
-    _atomic_write(path, validated)
+    _atomic_write(path, validated, no_clobber=no_clobber)
     return validated
 
 
@@ -283,7 +296,7 @@ def create_state(path: Path | str, identity: Mapping[str, Any], plan: MatrixPlan
         "identity_sha256": canonical_sha256(normalized_identity),
         "entries": [{"cell": cell.as_dict(), "state": "pending"} for cell in _expected_cells(plan)],
     }
-    return _save_validated(path, state, plan)
+    return _save_validated(path, state, plan, no_clobber=True)
 
 
 def _read_validated(path: Path, expected_identity: Mapping[str, Any], plan: MatrixPlan, *, recover: bool) -> dict[str, Any]:
