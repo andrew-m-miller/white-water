@@ -1,0 +1,31 @@
+{
+  "description": "Negative cases exercised by models/artifact_tests.py",
+  "cases": [
+    {"id": "unknown-top-level-field", "kind": "manifest-schema"},
+    {"id": "unknown-nested-field", "kind": "manifest-schema"},
+    {"id": "incompatible-tensor-contract", "kind": "protocol-compatibility"},
+    {"id": "input-pair-dtype-mismatch", "kind": "protocol-compatibility"},
+    {"id": "input-pair-layout-mismatch", "kind": "protocol-compatibility"},
+    {"id": "input-pair-channel-mismatch", "kind": "protocol-compatibility"},
+    {"id": "padding-policy-unknown", "kind": "manifest-schema"},
+    {"id": "validation-identity-false", "kind": "validation-consistency"},
+    {"id": "validation-identity-threshold", "kind": "validation-consistency"},
+    {"id": "validation-parity-unchecked", "kind": "validation-consistency"},
+    {"id": "validation-parity-threshold", "kind": "validation-consistency"},
+    {"id": "validation-forward-sign-mismatch", "kind": "validation-consistency"},
+    {"id": "validation-reverse-sign-mismatch", "kind": "validation-consistency"},
+    {"id": "validation-direction-axis-mismatch", "kind": "validation-consistency"},
+    {"id": "validation-primary-motion-too-small", "kind": "validation-consistency"},
+    {"id": "validation-cross-axis-too-large", "kind": "validation-consistency"},
+    {"id": "validation-threshold-partial", "kind": "validation-consistency"},
+    {"id": "validation-status-incoherent", "kind": "validation-consistency"},
+    {"id": "export-status-validation-incoherent", "kind": "export-consistency"},
+    {"id": "host-status-validation-incoherent", "kind": "export-consistency"},
+    {"id": "export-status-hash-incoherent", "kind": "export-consistency"},
+    {"id": "artifact-sha256-mismatch", "kind": "payload-identity"},
+    {"id": "artifact-size-mismatch", "kind": "payload-identity"},
+    {"id": "artifact-symlink", "kind": "payload-file-type"},
+    {"id": "artifact-non-regular", "kind": "payload-file-type"},
+    {"id": "artifact-mode-not-0644", "kind": "payload-permissions"}
+  ]
+}

@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "schema_id": "whitewater-p25-artifact-v1",
+  "status": "host_probe_pending",
+  "purpose": "candidate-neutral validator fixture",
+  "candidate": {
+    "id": "fixture-candidate",
+    "role": "shipping-candidate",
+    "family": "fixture"
+  },
+  "upstream": {
+    "repository": "https://example.invalid/flow",
+    "commit": "1111111111111111111111111111111111111111",
+    "license": "BSD-3-Clause",
+    "license_audit": "fixture-only"
+  },
+  "checkpoint": {
+    "repository": "https://example.invalid/checkpoint",
+    "revision": "2222222222222222222222222222222222222222",
+    "url": "https://example.invalid/checkpoint/2222222222222222222222222222222222222222/model.bin",
+    "format": "fixture",
+    "size_bytes": 1,
+    "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "license": "BSD-3-Clause",
+    "license_audit": "fixture-only"
+  },
+  "backbone": {
+    "applicable": false,
+    "identity": null,
+    "provenance": "not applicable to fixture",
+    "repository": null,
+    "revision": null,
+    "checkpoint_sha256": null,
+    "license": "not-applicable",
+    "license_audit": "not_applicable"
+  },
+  "licenses": {
+    "code": {
+      "license": "BSD-3-Clause",
+      "audit": "fixture-only",
+      "commercial_use_permitted": "yes",
+      "redistribution_permitted": "yes"
+    },
+    "checkpoint": {
+      "license": "BSD-3-Clause",
+      "audit": "fixture-only",
+      "commercial_use_permitted": "yes",
+      "redistribution_permitted": "yes"
+    },
+    "backbone": {
+      "license": "not-applicable",
+      "audit": "not_applicable",
+      "commercial_use_permitted": "yes",
+      "redistribution_permitted": "yes"
+    }
+  },
+  "model": {
+    "variant": "fixture",
+    "config_source": "fixture",
+    "config": {}
+  },
+  "tensor_contract": {
+    "inputs": [
+      {"name": "image1", "dtype": "float32", "layout": "NCHW", "channels": "RGB", "range": [0, 255]},
+      {"name": "image2", "dtype": "float32", "layout": "NCHW", "channels": "RGB", "range": [0, 255]}
+    ],
+    "output": {
+      "name": "flow",
+      "dtype": "float32",
+      "layout": "NCHW",
+      "channels": ["dx", "dy"],
+      "units": "unpadded_analysis_pixels",
+      "direction": "image1_to_image2"
+    },
+    "normalization": "identity",
+    "normalization_location": "caller",
+    "normalization_formula": "identity",
+    "padding": {"multiple": 8, "policy": "none"},
+    "batch": 1,
+    "spatial_dimensions": "dynamic_multiples_of_8",
+    "iterations": "none",
+    "confidence": {"present": false, "name": null, "dtype": null, "layout": null},
+    "graph_domains": ["ai.onnx"]
+  },
+  "export_environment": {
+    "platform": "fixture",
+    "architecture": "fixture",
+    "python": "fixture",
+    "framework": "fixture",
+    "exporter": "fixture",
+    "runtime": "fixture",
+    "provider": "CPUExecutionProvider",
+    "sha256": "5121feff73e6cd69cbb0993bad5276c38987b66d320b794515321dccb2e386d3"
+  },
+  "export": {
+    "script": "fixture",
+    "opset": 17,
+    "example_shape": [1, 3, 8, 8],
+    "artifact": "valid.bin",
+    "sha256": "134dd5fafabd3ed8ab5aa7a41c46313af60a327d1e893c226619e6c78b5d04c6",
+    "size_bytes": 35,
+    "mode": "0644",
+    "platform": "fixture",
+    "export_environment_sha256": "5121feff73e6cd69cbb0993bad5276c38987b66d320b794515321dccb2e386d3",
+    "platform_artifacts": [
+      {
+        "platform": "fixture",
+        "artifact": "valid.bin",
+        "sha256": "134dd5fafabd3ed8ab5aa7a41c46313af60a327d1e893c226619e6c78b5d04c6",
+        "size_bytes": 35,
+        "mode": "0644",
+        "export_environment_sha256": "5121feff73e6cd69cbb0993bad5276c38987b66d320b794515321dccb2e386d3",
+        "export_environment": {
+          "platform": "fixture",
+          "architecture": "fixture",
+          "python": "fixture",
+          "framework": "fixture",
+          "exporter": "fixture",
+          "runtime": "fixture",
+          "provider": "CPUExecutionProvider",
+          "sha256": "5121feff73e6cd69cbb0993bad5276c38987b66d320b794515321dccb2e386d3"
+        }
+      }
+    ]
+  },
+  "validation": {
+    "status": "passed",
+    "identity": {"passed": true, "median_epe_px": 0},
+    "directions": {
+      "forward": {"median_dx_px": 1, "median_dy_px": 0, "expected_sign": "positive_x"},
+      "reverse": {"median_dx_px": -1, "median_dy_px": 0, "expected_sign": "negative_x"}
+    },
+    "shapes": {"dynamic": true, "example": [1, 2, 8, 8], "additional": [1, 2, 16, 16]},
+    "parity": {"checked": true, "mean_abs": 0, "p99_abs": 0, "p999_abs": 0, "max_abs": 0},
+    "observed": {"fixture": true}
+  }
+}

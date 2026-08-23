@@ -13,9 +13,7 @@ The export environment is intentionally separate from the plugin build; see
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import os
 import platform
 from pathlib import Path
 import subprocess
@@ -24,47 +22,37 @@ import tempfile
 import types
 from typing import Any
 
+try:
+    from artifact_workflow import (  # type: ignore  # pylint: disable=wrong-import-position
+        ArtifactError,
+        environment_sha256,
+        load_manifest,
+        publish_file,
+        sha256_file,
+        update_platform_export,
+        write_manifest,
+    )
+except ModuleNotFoundError:  # pragma: no cover - only used when imported as models.export_searaft
+    from .artifact_workflow import (  # type: ignore  # pylint: disable=wrong-import-position
+        ArtifactError,
+        environment_sha256,
+        load_manifest,
+        publish_file,
+        sha256_file,
+        update_platform_export,
+        write_manifest,
+    )
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_MANIFEST = SCRIPT_DIR / "sea-raft-m.json"
-PUBLISHED_FILE_MODE = 0o644
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def read_manifest(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as stream:
-        return json.load(stream)
+    return load_manifest(path)
 
 
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
-
-
-def publish_file(source: Path, destination: Path) -> None:
-    """Atomically publish a file with the mode required by a host-readable payload.
-
-    ``NamedTemporaryFile`` deliberately creates files as ``0600``. Replacing a destination
-    with that file carries the mode across, which made an otherwise valid ONNX payload
-    unreadable to Flame regardless of the exporting user's umask. Set the temporary file's
-    mode before the replace so publication is atomic with the intended non-secret payload
-    permissions.
-    """
-
-    try:
-        source.chmod(PUBLISHED_FILE_MODE)
-    except OSError as exc:
-        raise RuntimeError(
-            f"could not set published artifact mode to 0644: {source}"
-        ) from exc
-    os.replace(source, destination)
 
 
 def verify_provenance(manifest: dict[str, Any], upstream: Path, checkpoint: Path) -> None:
@@ -349,20 +337,82 @@ def validate_export(model, manifest: dict[str, Any], output: Path, device: str) 
     return observed
 
 
-def update_manifest(path: Path, manifest: dict[str, Any], output: Path, observed: dict[str, Any]) -> None:
-    manifest["status"] = "host_probe_pending"
-    manifest["export"]["sha256"] = sha256_file(output)
-    manifest["export"]["size_bytes"] = output.stat().st_size
-    manifest["validation"]["observed"] = observed
-    with path.open("w", encoding="utf-8") as stream:
-        json.dump(manifest, stream, indent=2)
-        stream.write("\n")
-    # The manifest travels with the model in the diagnostic bundle and must remain readable
-    # under the same host-readable contract as the ONNX payload above.
-    try:
-        path.chmod(PUBLISHED_FILE_MODE)
-    except OSError as exc:
-        raise RuntimeError(f"could not set manifest mode to 0644: {path}") from exc
+def _platform_id(value: str | None) -> str:
+    if value:
+        return value
+    if sys.platform == "darwin":
+        return "macos-arm64"
+    if sys.platform.startswith("linux"):
+        return "linux-x86_64"
+    return f"{sys.platform}-{platform.machine().lower()}"
+
+
+def _record_generic_validation(manifest: dict[str, Any], observed: dict[str, Any]) -> None:
+    """Map the SEA-RAFT numerical checks into the shared validation vocabulary."""
+
+    forward = observed["forward_median"]
+    reverse = observed["reverse_median"]
+    shape = manifest["export"]["example_shape"]
+    additional = observed["second_dynamic_shape"]
+    validation = manifest["validation"]
+    validation["status"] = "passed"
+    validation["identity"] = {
+        "passed": observed["identity_median_epe"] <= validation["identity_median_epe_max"],
+        "median_epe_px": observed["identity_median_epe"],
+    }
+    validation["directions"] = {
+        "forward": {
+            "median_dx_px": forward[0],
+            "median_dy_px": forward[1],
+            "expected_sign": "positive_x",
+        },
+        "reverse": {
+            "median_dx_px": reverse[0],
+            "median_dy_px": reverse[1],
+            "expected_sign": "negative_x",
+        },
+    }
+    validation["shapes"] = {
+        "dynamic": True,
+        "example": [1, 2, shape[2], shape[3]],
+        "additional": list(additional),
+    }
+    validation["parity"] = {
+        "checked": True,
+        "mean_abs": observed["onnx_pytorch_mean_abs"],
+        "p99_abs": observed["onnx_pytorch_p99_abs"],
+        "p999_abs": observed["onnx_pytorch_p999_abs"],
+        "max_abs": observed["onnx_pytorch_max_abs"],
+    }
+
+
+def update_manifest(
+    path: Path,
+    manifest: dict[str, Any],
+    output: Path,
+    observed: dict[str, Any],
+    platform_id: str,
+) -> None:
+    _record_generic_validation(manifest, observed)
+    env_observed = observed["environment"]
+    providers = env_observed.get("providers", ["CPUExecutionProvider"])
+    environment = {
+        "platform": "macos" if platform_id.startswith("macos") else "linux",
+        "architecture": "arm64" if platform_id.endswith("arm64") else "x86_64",
+        "python": env_observed["python"],
+        "framework": f"pytorch=={env_observed['pytorch']}",
+        "exporter": f"onnx=={env_observed['onnx']}",
+        "runtime": f"onnxruntime=={env_observed['onnxruntime']}",
+        "provider": ",".join(providers),
+    }
+    environment["sha256"] = environment_sha256(environment)
+    update_platform_export(
+        manifest,
+        platform=platform_id,
+        artifact=output,
+        environment=environment,
+    )
+    write_manifest(path, manifest)
 
 
 def parse_args() -> argparse.Namespace:
@@ -372,6 +422,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--output", type=Path, help="output ONNX path; defaults beside the manifest")
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument(
+        "--platform",
+        help="platform identity for this exact ONNX export (defaults from the host)",
+    )
     parser.add_argument(
         "--verify-provenance-only",
         action="store_true",
@@ -413,7 +467,7 @@ def main() -> int:
     print(f"sha256:   {artifact_hash}")
     print(f"validation: {json.dumps(observed, sort_keys=True)}")
     if args.update_manifest:
-        update_manifest(args.manifest, manifest, output, observed)
+        update_manifest(args.manifest, manifest, output, observed, _platform_id(args.platform))
         print(f"manifest updated: {args.manifest}")
     return 0
 
@@ -421,6 +475,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (RuntimeError, subprocess.CalledProcessError) as exc:
+    except (ArtifactError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"export_searaft.py: error: {exc}", file=sys.stderr)
         raise SystemExit(1)
