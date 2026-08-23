@@ -85,13 +85,19 @@ Three of those matter to us specifically, in this order:
 
 **P25-3E provenance result (2026-08-23):** `models/waft-twins.json` is a typed exclusion
 record, not an artifact manifest. The official WAFT `waftv2` source is pinned to commit
-`b152ff1cad1af8c185ee7b141997c48ff3334c87` and its BSD-3-Clause code terms are audited, but
-the linked A2 Drive object exposes only an aggregate `a2.zip` (3,702,705,327 bytes), not an
-immutable Twins checkpoint file. WAFT also calls `timm`'s `twins_svt_large` with
-`pretrained=True` without pinning the pretrained weight. Checkpoint and backbone identity,
-commercial-use, and redistribution verdicts therefore remain **unknown**; no ONNX export or
-tensor qualification is claimed. The candidate is excluded from the bake-off until the exact
-file-level evidence listed in the record is available.
+`b152ff1cad1af8c185ee7b141997c48ff3334c87` and its BSD-3-Clause code terms are audited. The
+official A2 object is now pinned by Drive ID, 3,702,705,327-byte size and SHA256
+`23282e0bf25e29e182ccedba8dc11969654c0658d06407edfc3932663109f62b`; its
+`waftv2-ckpts/twins/zero-shot.pth` member is pinned at 544,230,582 bytes with SHA256
+`f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070`.
+Strict PyTorch loading reports 699 keys with zero missing/unexpected keys when the model is
+constructed with `timm` pretrained initialization disabled; 380 `encoder.backbone.*` keys
+prove the Twins tensors are bundled in that checkpoint, so no separate backbone artifact is
+needed. Those 380 tensors exactly match the official timm `twins_svt_large.in1k` Apache-2.0
+reference at its pinned revision, so the backbone surface is audited separately as Apache-2.0.
+The archive contains no README, LICENSE, NOTICE, or member-level terms for the WAFT checkpoint
+itself, leaving only its commercial-use and redistribution verdicts **unknown**. No ONNX export
+or tensor qualification is claimed; the candidate remains excluded pending checkpoint terms.
 
 WAFT supports three backbones -- Twins, DAv2 (Depth Anything v2) and DINOv3 -- and the
 README states no licence for the weights separately from the BSD-3 code, nor which checkpoint

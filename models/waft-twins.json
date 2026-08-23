@@ -16,26 +16,71 @@
   },
   "checkpoint": {
     "repository": "https://drive.google.com/drive/folders/1joBWKGoH2RUdCgcge8Tz2osOHcQUX5m_",
-    "identity_status": "unresolved",
+    "identity_status": "resolved",
     "observed_public_object": {
       "name": "a2.zip",
       "id": "1RA4j0GlNCy7flmc3VIY71ZV-Kz-RYDox",
       "url": "https://drive.google.com/file/d/1RA4j0GlNCy7flmc3VIY71ZV-Kz-RYDox/view",
       "size_bytes": 3702705327,
-      "sha256": null
+      "sha256": "23282e0bf25e29e182ccedba8dc11969654c0658d06407edfc3932663109f62b"
     },
-    "identity_evidence": "The pinned official README links this Drive folder for the model zoo. Public folder metadata exposes only the aggregate a2.zip object; it does not identify a Twins checkpoint member, file revision, or SHA256. The aggregate ZIP size is recorded as observed evidence, not used as a checkpoint identity.",
-    "license_evidence": "Neither the pinned README nor the official Drive object metadata publishes checkpoint-specific commercial-use or redistribution terms. The checkpoint licence is unknown; no verdict is inferred from the BSD-3-Clause code licence."
+    "selected_member": {
+      "path": "waftv2-ckpts/twins/zero-shot.pth",
+      "size_bytes": 544230582,
+      "compressed_size_bytes": 504448407,
+      "crc32": "bf4c94c8",
+      "method": "deflate",
+      "sha256": "f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070"
+    },
+    "archive_inventory": [
+      {"path": "waftv2-ckpts/", "size_bytes": 0, "compressed_size_bytes": 0, "crc32": "00000000", "method": "store", "sha256": null},
+      {"path": "waftv2-ckpts/dav2/", "size_bytes": 0, "compressed_size_bytes": 0, "crc32": "00000000", "method": "store", "sha256": null},
+      {"path": "waftv2-ckpts/dav2/kitti.pth", "size_bytes": 227903354, "compressed_size_bytes": 211415259, "crc32": "665b126b", "method": "deflate", "sha256": null},
+      {"path": "waftv2-ckpts/dav2/spring.pth", "size_bytes": 227903354, "compressed_size_bytes": 211407904, "crc32": "4130052d", "method": "deflate", "sha256": null},
+      {"path": "waftv2-ckpts/dav2/zero-shot.pth", "size_bytes": 227903354, "compressed_size_bytes": 211426471, "crc32": "f33848b8", "method": "deflate", "sha256": null},
+      {"path": "waftv2-ckpts/dav2/sintel.pth", "size_bytes": 227903354, "compressed_size_bytes": 211392624, "crc32": "a9d9f940", "method": "deflate", "sha256": null},
+      {"path": "waftv2-ckpts/twins/", "size_bytes": 0, "compressed_size_bytes": 0, "crc32": "00000000", "method": "store", "sha256": null},
+      {"path": "waftv2-ckpts/twins/kitti.pth", "size_bytes": 544248254, "compressed_size_bytes": 504559916, "crc32": "d3df6d02", "method": "deflate", "sha256": null},
+      {"path": "waftv2-ckpts/twins/spring.pth", "size_bytes": 544248254, "compressed_size_bytes": 504548722, "crc32": "327b8da3", "method": "deflate", "sha256": null},
+      {"path": "waftv2-ckpts/twins/zero-shot.pth", "size_bytes": 544230582, "compressed_size_bytes": 504448407, "crc32": "bf4c94c8", "method": "deflate", "sha256": "f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070"},
+      {"path": "waftv2-ckpts/twins/sintel.pth", "size_bytes": 544248254, "compressed_size_bytes": 504529107, "crc32": "92d72ecb", "method": "deflate", "sha256": null},
+      {"path": "waftv2-ckpts/dinov3/", "size_bytes": 0, "compressed_size_bytes": 0, "crc32": "00000000", "method": "store", "sha256": null},
+      {"path": "waftv2-ckpts/dinov3/kitti.pth", "size_bytes": 226139078, "compressed_size_bytes": 209780940, "crc32": "09a13cc5", "method": "deflate", "sha256": null},
+      {"path": "waftv2-ckpts/dinov3/spring.pth", "size_bytes": 226139078, "compressed_size_bytes": 209779428, "crc32": "0da6bc83", "method": "deflate", "sha256": null},
+      {"path": "waftv2-ckpts/dinov3/zero-shot.pth", "size_bytes": 226139078, "compressed_size_bytes": 209657765, "crc32": "c500c9da", "method": "deflate", "sha256": null},
+      {"path": "waftv2-ckpts/dinov3/sintel.pth", "size_bytes": 226139078, "compressed_size_bytes": 209755866, "crc32": "ed6514d5", "method": "deflate", "sha256": null}
+    ],
+    "identity_evidence": "The pinned official README names ckpts/twins/zero-shot.pth for the Twins evaluation path. The exact official a2.zip object was downloaded by Drive ID, matched at 3,702,705,327 bytes, and hashed above; its central directory identifies the selected member and the extracted member hash above. PyTorch 2.7.0 inspection loaded the selected state_dict with 699 keys into the pinned WAFT model constructed with timm pretrained=False: strict=True reported zero missing and zero unexpected keys. The state_dict contains 380 encoder.backbone.* keys, so the complete checkpoint includes the Twins backbone tensors and can overwrite the initialization without a separately supplied backbone file.",
+    "license_evidence": "The archive has 16 members and no README, LICENSE, NOTICE, archive comment, or per-member licence metadata. The selected .pth file has no independently published terms in the official WAFT source or Drive object metadata; checkpoint commercial-use and redistribution permissions remain unknown."
   },
   "backbone": {
-    "identity": "timm twins_svt_large requested with pretrained=True",
-    "identity_status": "unresolved",
+    "identity": "Twins SVT-Large supplied through timm.create_model('twins_svt_large', features_only=True); its 380 encoder.backbone.* tensors are bundled in the selected WAFT checkpoint",
+    "identity_status": "bundled_in_checkpoint",
     "source_file": "https://raw.githubusercontent.com/princeton-vl/WAFT/b152ff1cad1af8c185ee7b141997c48ff3334c87/model/backbone/twins.py",
-    "repository": "https://github.com/huggingface/pytorch-image-models.git",
-    "revision": null,
-    "checkpoint_sha256": null,
-    "identity_evidence": "The pinned WAFT source calls timm.create_model('twins_svt_large', pretrained=True, features_only=True), but pins neither the timm revision nor the pretrained weight file. No exact backbone bytes can be named.",
-    "license_evidence": "Because the exact pretrained timm weight is unresolved, its terms cannot be reviewed from primary evidence. The Twins architecture name and the timm repository licence are not treated as a weight licence."
+    "repository": "https://huggingface.co/timm/twins_svt_large.in1k",
+    "revision": "9985cdd56ac6164db09e464008c512fb7b75228a",
+    "checkpoint_sha256": "2fbe754f6e595bd07294f381302e0b3f1d449176977e35e4f30200fe4f3bcf97",
+    "reference_weight": {
+      "url": "https://huggingface.co/timm/twins_svt_large.in1k/resolve/9985cdd56ac6164db09e464008c512fb7b75228a/model.safetensors",
+      "revision": "9985cdd56ac6164db09e464008c512fb7b75228a",
+      "size_bytes": 397122010,
+      "sha256": "2fbe754f6e595bd07294f381302e0b3f1d449176977e35e4f30200fe4f3bcf97",
+      "license": "Apache-2.0",
+      "license_evidence": "The official timm/twins_svt_large.in1k model card at this revision declares apache-2.0. Its model.safetensors file is pinned by the immutable revision, size, and SHA256 above."
+    },
+    "identity_evidence": "Strict state-dict loading with timm pretrained=False proves the selected WAFT checkpoint carries the instantiated backbone's complete parameter set. The 380 encoder.backbone.* tensors in the WAFT state_dict exactly match the 380 corresponding tensors in the official timm/twins_svt_large.in1k model.safetensors at revision 9985cdd (all shapes, dtypes, and values); the reference file has four additional classifier/head tensors that WAFT features_only does not use.",
+    "license_evidence": "The exact bundled backbone tensors are byte-for-byte tensor-equivalent to the official timm/twins_svt_large.in1k reference whose model card declares Apache-2.0. Apache-2.0 permits commercial use and redistribution subject to its notice and licence terms."
+  },
+  "verification": {
+    "python": "3.9.6",
+    "torch": "2.7.0",
+    "torchvision": "0.22.0",
+    "timm": "1.0.15",
+    "pretrained_initialization": false,
+    "state_dict_keys": 699,
+    "encoder_backbone_keys": 380,
+    "missing_keys": 0,
+    "unexpected_keys": 0
   },
   "license_surfaces": {
     "code": {
@@ -49,36 +94,34 @@
       "license": "unknown",
       "commercial_use_permitted": "unknown",
       "redistribution_permitted": "unknown",
-      "audit": "No checkpoint file-level terms are published by the pinned official source or the public model-zoo metadata.",
-      "evidence": "https://drive.google.com/drive/folders/1joBWKGoH2RUdCgcge8Tz2osOHcQUX5m_"
+      "audit": "The exact checkpoint bytes are now pinned, but no file-level terms are published by the pinned official source, archive, or Drive metadata.",
+      "evidence": "https://drive.google.com/file/d/1RA4j0GlNCy7flmc3VIY71ZV-Kz-RYDox/view"
     },
     "backbone": {
-      "license": "unknown",
-      "commercial_use_permitted": "unknown",
-      "redistribution_permitted": "unknown",
-      "audit": "The exact timm pretrained file is not pinned or disclosed by WAFT, so no weight terms verdict is assigned.",
-      "evidence": "https://raw.githubusercontent.com/princeton-vl/WAFT/b152ff1cad1af8c185ee7b141997c48ff3334c87/model/backbone/twins.py"
+      "license": "Apache-2.0",
+      "commercial_use_permitted": "yes",
+      "redistribution_permitted": "yes",
+      "audit": "The bundled Twins tensors exactly match the immutable official timm/twins_svt_large.in1k reference, whose model card declares Apache-2.0; the licence and notice obligations travel with that reference terms review.",
+      "evidence": "https://huggingface.co/timm/twins_svt_large.in1k/tree/9985cdd56ac6164db09e464008c512fb7b75228a"
     }
   },
   "exclusion": {
     "reasons": [
-      "checkpoint_identity_unavailable",
-      "checkpoint_terms_unavailable",
-      "backbone_identity_unavailable",
-      "backbone_terms_unavailable"
+      "checkpoint_terms_unavailable"
     ],
     "decision": "not_eligible_for_p25_bakeoff_or_shipping",
     "next_evidence_required": [
-      "An official, file-level Twins WAFT checkpoint URL or archive member name with immutable revision, byte size, and SHA256.",
-      "Checkpoint terms that separately state commercial use and redistribution permissions, including required notices.",
-      "The exact timm Twins pretrained weight identity, revision, SHA256, and its applicable licence text."
+      "Checkpoint terms that separately state commercial use and redistribution permissions for the exact zero-shot member, including required notices."
     ]
   },
   "sources": [
     "https://github.com/princeton-vl/WAFT/tree/b152ff1cad1af8c185ee7b141997c48ff3334c87",
     "https://raw.githubusercontent.com/princeton-vl/WAFT/b152ff1cad1af8c185ee7b141997c48ff3334c87/README.md",
     "https://raw.githubusercontent.com/princeton-vl/WAFT/b152ff1cad1af8c185ee7b141997c48ff3334c87/requirements.txt",
-    "https://raw.githubusercontent.com/princeton-vl/WAFT/b152ff1cad1af8c185ee7b141997c48ff3334c87/config/a2/twins/tar-c-t.json",
-    "https://drive.google.com/drive/folders/1joBWKGoH2RUdCgcge8Tz2osOHcQUX5m_"
+    "https://raw.githubusercontent.com/princeton-vl/WAFT/b152ff1cad1af8c185ee7b141997c48ff3334c87/model/backbone/twins.py",
+    "https://drive.google.com/file/d/1RA4j0GlNCy7flmc3VIY71ZV-Kz-RYDox/view",
+    "https://drive.google.com/drive/folders/1joBWKGoH2RUdCgcge8Tz2osOHcQUX5m_",
+    "https://huggingface.co/timm/twins_svt_large.in1k/blob/9985cdd56ac6164db09e464008c512fb7b75228a/README.md",
+    "https://huggingface.co/timm/twins_svt_large.in1k/tree/9985cdd56ac6164db09e464008c512fb7b75228a"
   ]
 }

@@ -51,12 +51,35 @@ def main() -> int:
     require(manifest["upstream"]["license"] == "BSD-3-Clause", "source licence audit changed")
     checkpoint = manifest["checkpoint"]
     require(checkpoint["repository"] == EXPECTED_MODEL_ZOO, "model-zoo folder changed")
-    require(checkpoint["observed_public_object"]["size_bytes"] == 3702705327,
-            "observed a2.zip size changed")
+    archive = checkpoint["observed_public_object"]
+    require(archive["size_bytes"] == 3702705327, "observed a2.zip size changed")
     require(
-        checkpoint["identity_status"] == "unresolved"
-        and checkpoint["observed_public_object"]["sha256"] is None,
-        "WAFT checkpoint must remain explicitly unresolved",
+        archive["sha256"] == "23282e0bf25e29e182ccedba8dc11969654c0658d06407edfc3932663109f62b",
+        "a2.zip SHA256 changed",
+    )
+    require(
+        checkpoint["identity_status"] == "resolved",
+        "selected WAFT checkpoint must remain file-identity pinned",
+    )
+    selected = checkpoint["selected_member"]
+    require(selected["path"] == "waftv2-ckpts/twins/zero-shot.pth", "selected member changed")
+    require(selected["size_bytes"] == 544230582, "selected member size changed")
+    require(
+        selected["sha256"] == "f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070",
+        "selected member SHA256 changed",
+    )
+    inventory = checkpoint["archive_inventory"]
+    require(len(inventory) == 16, "A2 archive inventory is incomplete")
+    require(
+        {item["path"] for item in inventory if item["path"].startswith("waftv2-ckpts/twins/")}
+        == {
+            "waftv2-ckpts/twins/",
+            "waftv2-ckpts/twins/kitti.pth",
+            "waftv2-ckpts/twins/spring.pth",
+            "waftv2-ckpts/twins/zero-shot.pth",
+            "waftv2-ckpts/twins/sintel.pth",
+        },
+        "Twins archive inventory changed",
     )
     require(manifest["license_surfaces"]["checkpoint"]["license"] == "unknown",
             "checkpoint licence must not be inferred")
@@ -66,14 +89,37 @@ def main() -> int:
             "checkpoint redistribution verdict must remain unknown")
 
     backbone = manifest["backbone"]
-    require(backbone["revision"] is None and backbone["checkpoint_sha256"] is None,
-            "unresolved timm backbone must not acquire a guessed revision or hash")
-    require(manifest["license_surfaces"]["backbone"]["license"] == "unknown",
-            "backbone licence must not be inferred")
-    require(manifest["license_surfaces"]["backbone"]["commercial_use_permitted"] == "unknown",
-            "backbone commercial-use verdict must remain unknown")
-    require(manifest["license_surfaces"]["backbone"]["redistribution_permitted"] == "unknown",
-            "backbone redistribution verdict must remain unknown")
+    require(backbone["identity_status"] == "bundled_in_checkpoint",
+            "backbone packaging identity changed")
+    require(
+        backbone["revision"] == "9985cdd56ac6164db09e464008c512fb7b75228a"
+        and backbone["checkpoint_sha256"] == "2fbe754f6e595bd07294f381302e0b3f1d449176977e35e4f30200fe4f3bcf97",
+        "bundled timm backbone reference changed",
+    )
+    reference = backbone["reference_weight"]
+    require(reference["size_bytes"] == 397122010, "reference timm weight size changed")
+    require(reference["license"] == "Apache-2.0", "backbone licence audit changed")
+    require(manifest["license_surfaces"]["backbone"]["license"] == "Apache-2.0",
+            "backbone licence must remain Apache-2.0")
+    require(manifest["license_surfaces"]["backbone"]["commercial_use_permitted"] == "yes",
+            "backbone commercial-use verdict changed")
+    require(manifest["license_surfaces"]["backbone"]["redistribution_permitted"] == "yes",
+            "backbone redistribution verdict changed")
+    verification = manifest["verification"]
+    require(
+        verification["state_dict_keys"] == 699
+        and verification["encoder_backbone_keys"] == 380
+        and verification["missing_keys"] == 0
+        and verification["unexpected_keys"] == 0
+        and verification["pretrained_initialization"] is False,
+        "strict checkpoint-loading evidence changed",
+    )
+    require(
+        manifest["exclusion"]["reasons"] == [
+            "checkpoint_terms_unavailable",
+        ],
+        "WAFT exclusion must be terms-scoped after checkpoint identity resolution",
+    )
     require(manifest["exclusion"]["decision"] == "not_eligible_for_p25_bakeoff_or_shipping",
             "WAFT exclusion decision changed")
     print("WAFT/Twins provenance-only exclusion record: PASS")
