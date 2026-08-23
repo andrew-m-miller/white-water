@@ -11,18 +11,14 @@ Schema cannot express (token matrices, repetition counts, and coverage).
 from __future__ import annotations
 
 import hashlib
+import importlib
+import importlib.util
 import json
 import math
 import re
 from itertools import product
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
-
-try:
-    from . import geometry, metrics
-except ImportError:  # pragma: no cover - supports direct invocation on the air-gapped host
-    import geometry  # type: ignore
-    import metrics  # type: ignore
 
 
 class ValidationError(ValueError):
@@ -32,6 +28,30 @@ class ValidationError(ValueError):
         self.path = path
         self.message = message
         super().__init__(f"{path}: {message}")
+
+
+def _load_sibling(module_name: str):
+    """Load a bake-off sibling in package, script, and private-spec contexts.
+
+    The artifact workflow loads this file through ``spec_from_file_location`` under a private
+    name, where relative imports have no package and ordinary imports cannot see this directory.
+    Loading by the sibling path keeps that path dependency-free without mutating ``sys.path``.
+    """
+
+    if __package__:
+        return importlib.import_module(f".{module_name}", __package__)
+    sibling_path = Path(__file__).resolve().with_name(f"{module_name}.py")
+    private_name = f"_whitewater_p25_bakeoff_{module_name}"
+    spec = importlib.util.spec_from_file_location(private_name, sibling_path)
+    if spec is None or spec.loader is None:  # pragma: no cover - checked-in siblings exist
+        raise ImportError(f"could not load bake-off sibling: {sibling_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+geometry = _load_sibling("geometry")
+metrics = _load_sibling("metrics")
 
 
 def canonical_sha256(value: Any) -> str:
