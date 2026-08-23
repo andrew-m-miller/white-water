@@ -52,6 +52,8 @@ def _reject_nonfinite(value: Any, path: str = "$", seen: set[int] | None = None)
             _fail("nonfinite", f"{path} contains a nonfinite number")
         return
     if isinstance(value, Mapping):
+        if not isinstance(value, dict):
+            _fail("json_value", f"{path} must use a plain JSON object")
         if seen is None:
             seen = set()
         marker = id(value)

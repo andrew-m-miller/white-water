@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import stat
 import tempfile
+from types import MappingProxyType
 
 from .matrix import CellKey, MatrixPlan
 from .resume import (
@@ -68,9 +69,12 @@ def test_create_determinism_and_shape() -> None:
         first = _new_state(path)
         first_bytes = path.read_bytes()
         _failure("state_exists", lambda: create_state(path, IDENTITY, PLAN))
+        second_path = Path(temporary) / "state-copy.json"
+        _new_state(second_path)
+        assert first_bytes == second_path.read_bytes()
         assert first_bytes == path.read_bytes()
         assert stat.S_IMODE(path.stat().st_mode) == 0o644
-        assert sorted(path.parent.iterdir()) == [path]
+        assert sorted(path.parent.iterdir()) == sorted([path, second_path])
         assert [entry["state"] for entry in first["entries"]] == ["pending", "pending"]
 
 
@@ -158,6 +162,9 @@ def test_json_and_result_strictness() -> None:
         cyclic_result["cycle"] = cyclic_result
         mark_in_progress(path, IDENTITY, PLAN, CELLS[0])
         _failure("identity_shape", lambda: mark_complete(path, IDENTITY, PLAN, CELLS[0], cyclic_result))
+
+        mapping_proxy = MappingProxyType({"nested": MappingProxyType({"value": 1})})
+        _failure("json_value", lambda: create_state(path.with_name("mapping-proxy.json"), mapping_proxy, PLAN))
 
 
 def test_interrupted_recovery() -> None:
