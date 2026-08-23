@@ -46,7 +46,7 @@ def main() -> int:
         raise ArtifactError("NeuFlow output direction is not image1_to_image2")
     if contract["output"]["units"] != "unpadded_analysis_pixels":
         raise ArtifactError("NeuFlow output units changed")
-    if contract["padding"] != {"multiple": 16, "policy": "none"}:
+    if contract["padding"] != {"multiple": 16, "policy": "caller-replication-crop"}:
         raise ArtifactError("NeuFlow padding contract changed")
     if contract["iterations"] != "1_s16_and_8_s8_baked_into_graph":
         raise ArtifactError("NeuFlow iteration contract changed")

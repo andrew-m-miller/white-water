@@ -44,7 +44,7 @@ has been audited, and for a facility deliverable that audit is not optional.
 |---|---|---|---|
 | **SEA-RAFT** | ECCV 2024 (oral) | **BSD-3** | Leading conservative candidate and the Phase 0B probe network. Shipping role still requires the bake-off. |
 | **WAFT** | ICLR 2026 (oral) | **BSD-3 code, backbone weights vary** | Quality/memory candidate. Strong upstream results, but export and checkpoint licensing need resolving. |
-| **NeuFlow v2** | 2024 | Apache-2.0 code; checkpoint-specific terms unresolved | P25-3F provenance pinned to upstream commit `204b5e3744461d90303b9ff82caa7a1bb56a2ca2`; exact mixed checkpoint bytes are hash-bound, but the checkpoint and non-applicable backbone surfaces remain `unknown` pending an explicit terms review. No export or choice index is selected. |
+| **NeuFlow v2** | 2024 | Apache-2.0 code; checkpoint-specific terms unresolved | P25-3F provenance pinned to upstream commit `204b5e3744461d90303b9ff82caa7a1bb56a2ca2`; exact mixed checkpoint bytes are hash-bound, but the checkpoint and non-applicable backbone surfaces remain `unknown` pending an explicit terms review. The 432x768 graph is only a planned first export shape; provider execution and other-shape support are unverified. No export or choice index is selected. |
 | **AllTracker** | ICCV 2025 | **MIT** | Architecturally native to this problem. Investigate — it could delete the chain. |
 | RAFT | ECCV 2020 | BSD-3 | Known validation baseline, not a presumed shipping model. |
 | RIFE | ECCV 2022 | MIT | Fast and exportable, but off-label for motion-field accuracy. |

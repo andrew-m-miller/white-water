@@ -112,7 +112,7 @@
     "exported_forward_input_scale": 1.0,
     "padding": {
       "multiple": 16,
-      "policy": "none"
+      "policy": "caller-replication-crop"
     },
     "batch": 1,
     "spatial_dimensions": "fixed_shape; H and W must be divisible by 16",
@@ -172,8 +172,8 @@
   },
   "notes": [
     "export_status=pending",
-    "shape_support=fixed_432x768_only_until_dynamic_export_is_proven",
-    "provider_support=CPUExecutionProvider_only_tested_until_CUDA_or_CoreML_is_proven",
+    "shape_support=432x768_is_the_planned_first_export_shape_only;_fixed_shape_support_is_not_source_model_proof_and_dynamic_or_other_shape_support_is_unverified",
+    "provider_support=ONNX_provider_execution_unverified_pending_export_and_runtime_test",
     "qualification_gate=not_eligible_for_P25_mp2_or_fast_selection_while_shape_is_fixed_below_mp0_5",
     "source_evidence=official_README_requires_PyTorch_2.0.1_and_official_inference_calls_NeuFlow.forward_after_init_bhwd",
     "direction_evidence=official_matching.py_computes_correspondence_minus_source_grid; exporter_must_verify_both_signed_directions",
