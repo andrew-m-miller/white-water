@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "schema_id": "whitewater-p25-waft-exclusion-v1",
+  "status": "excluded",
+  "candidate": {
+    "id": "waft-twins",
+    "role": "shipping-candidate",
+    "family": "WAFT v2 A2 with Twins SVT-Large"
+  },
+  "upstream": {
+    "repository": "https://github.com/princeton-vl/WAFT.git",
+    "commit": "b152ff1cad1af8c185ee7b141997c48ff3334c87",
+    "license": "BSD-3-Clause",
+    "license_audit": "The official LICENSE at this exact commit is BSD-3-Clause. Its notice and disclaimer must accompany redistributed source; it does not prohibit commercial use or redistribution.",
+    "audit_date": "2026-08-23"
+  },
+  "checkpoint": {
+    "repository": "https://drive.google.com/drive/folders/1joBWKGoH2RUdCgcge8Tz2osOHcQUX5m_",
+    "identity_status": "unresolved",
+    "observed_public_object": {
+      "name": "a2.zip",
+      "id": "1RA4j0GlNCy7flmc3VIY71ZV-Kz-RYDox",
+      "url": "https://drive.google.com/file/d/1RA4j0GlNCy7flmc3VIY71ZV-Kz-RYDox/view",
+      "size_bytes": 3702705327,
+      "sha256": null
+    },
+    "identity_evidence": "The pinned official README links this Drive folder for the model zoo. Public folder metadata exposes only the aggregate a2.zip object; it does not identify a Twins checkpoint member, file revision, or SHA256. The aggregate ZIP size is recorded as observed evidence, not used as a checkpoint identity.",
+    "license_evidence": "Neither the pinned README nor the official Drive object metadata publishes checkpoint-specific commercial-use or redistribution terms. The checkpoint licence is unknown; no verdict is inferred from the BSD-3-Clause code licence."
+  },
+  "backbone": {
+    "identity": "timm twins_svt_large requested with pretrained=True",
+    "identity_status": "unresolved",
+    "source_file": "https://raw.githubusercontent.com/princeton-vl/WAFT/b152ff1cad1af8c185ee7b141997c48ff3334c87/model/backbone/twins.py",
+    "repository": "https://github.com/huggingface/pytorch-image-models.git",
+    "revision": null,
+    "checkpoint_sha256": null,
+    "identity_evidence": "The pinned WAFT source calls timm.create_model('twins_svt_large', pretrained=True, features_only=True), but pins neither the timm revision nor the pretrained weight file. No exact backbone bytes can be named.",
+    "license_evidence": "Because the exact pretrained timm weight is unresolved, its terms cannot be reviewed from primary evidence. The Twins architecture name and the timm repository licence are not treated as a weight licence."
+  },
+  "license_surfaces": {
+    "code": {
+      "license": "BSD-3-Clause",
+      "commercial_use_permitted": "yes",
+      "redistribution_permitted": "yes",
+      "audit": "Audited the official WAFT LICENSE at the pinned source commit; BSD notice/disclaimer obligations apply.",
+      "evidence": "https://github.com/princeton-vl/WAFT/blob/b152ff1cad1af8c185ee7b141997c48ff3334c87/LICENSE"
+    },
+    "checkpoint": {
+      "license": "unknown",
+      "commercial_use_permitted": "unknown",
+      "redistribution_permitted": "unknown",
+      "audit": "No checkpoint file-level terms are published by the pinned official source or the public model-zoo metadata.",
+      "evidence": "https://drive.google.com/drive/folders/1joBWKGoH2RUdCgcge8Tz2osOHcQUX5m_"
+    },
+    "backbone": {
+      "license": "unknown",
+      "commercial_use_permitted": "unknown",
+      "redistribution_permitted": "unknown",
+      "audit": "The exact timm pretrained file is not pinned or disclosed by WAFT, so no weight terms verdict is assigned.",
+      "evidence": "https://raw.githubusercontent.com/princeton-vl/WAFT/b152ff1cad1af8c185ee7b141997c48ff3334c87/model/backbone/twins.py"
+    }
+  },
+  "exclusion": {
+    "reasons": [
+      "checkpoint_identity_unavailable",
+      "checkpoint_terms_unavailable",
+      "backbone_identity_unavailable",
+      "backbone_terms_unavailable"
+    ],
+    "decision": "not_eligible_for_p25_bakeoff_or_shipping",
+    "next_evidence_required": [
+      "An official, file-level Twins WAFT checkpoint URL or archive member name with immutable revision, byte size, and SHA256.",
+      "Checkpoint terms that separately state commercial use and redistribution permissions, including required notices.",
+      "The exact timm Twins pretrained weight identity, revision, SHA256, and its applicable licence text."
+    ]
+  },
+  "sources": [
+    "https://github.com/princeton-vl/WAFT/tree/b152ff1cad1af8c185ee7b141997c48ff3334c87",
+    "https://raw.githubusercontent.com/princeton-vl/WAFT/b152ff1cad1af8c185ee7b141997c48ff3334c87/README.md",
+    "https://raw.githubusercontent.com/princeton-vl/WAFT/b152ff1cad1af8c185ee7b141997c48ff3334c87/requirements.txt",
+    "https://raw.githubusercontent.com/princeton-vl/WAFT/b152ff1cad1af8c185ee7b141997c48ff3334c87/config/a2/twins/tar-c-t.json",
+    "https://drive.google.com/drive/folders/1joBWKGoH2RUdCgcge8Tz2osOHcQUX5m_"
+  ]
+}

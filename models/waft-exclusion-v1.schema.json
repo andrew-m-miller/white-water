@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "whitewater://schema/phase2.5/waft-exclusion-v1",
+  "title": "White Water Phase 2.5 WAFT candidate exclusion v1",
+  "description": "A provenance-only exclusion record for WAFT when exact weights or terms cannot be established.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "schema_id",
+    "status",
+    "candidate",
+    "upstream",
+    "checkpoint",
+    "backbone",
+    "license_surfaces",
+    "exclusion",
+    "sources"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "schema_id": {"const": "whitewater-p25-waft-exclusion-v1"},
+    "status": {"const": "excluded"},
+    "candidate": {"$ref": "#/$defs/candidate"},
+    "upstream": {"$ref": "#/$defs/upstream"},
+    "checkpoint": {"$ref": "#/$defs/checkpoint"},
+    "backbone": {"$ref": "#/$defs/backbone"},
+    "license_surfaces": {"$ref": "#/$defs/license_surfaces"},
+    "exclusion": {"$ref": "#/$defs/exclusion"},
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "family"],
+      "properties": {
+        "id": {"const": "waft-twins"},
+        "role": {"const": "shipping-candidate"},
+        "family": {"type": "string", "minLength": 1}
+      }
+    },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "license", "license_audit", "audit_date"],
+      "properties": {
+        "repository": {"const": "https://github.com/princeton-vl/WAFT.git"},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "license": {"type": "string", "minLength": 1},
+        "license_audit": {"type": "string", "minLength": 1},
+        "audit_date": {"type": "string", "minLength": 1}
+      }
+    },
+    "checkpoint_object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "id", "url", "size_bytes", "sha256"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "minLength": 1},
+        "url": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "identity_status",
+        "observed_public_object",
+        "identity_evidence",
+        "license_evidence"
+      ],
+      "properties": {
+        "repository": {"const": "https://drive.google.com/drive/folders/1joBWKGoH2RUdCgcge8Tz2osOHcQUX5m_"},
+        "identity_status": {"const": "unresolved"},
+        "observed_public_object": {"$ref": "#/$defs/checkpoint_object"},
+        "identity_evidence": {"type": "string", "minLength": 1},
+        "license_evidence": {"type": "string", "minLength": 1}
+      }
+    },
+    "backbone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity",
+        "identity_status",
+        "source_file",
+        "repository",
+        "revision",
+        "checkpoint_sha256",
+        "identity_evidence",
+        "license_evidence"
+      ],
+      "properties": {
+        "identity": {"type": "string", "minLength": 1},
+        "identity_status": {"const": "unresolved"},
+        "source_file": {"type": "string", "minLength": 1},
+        "repository": {"const": "https://github.com/huggingface/pytorch-image-models.git"},
+        "revision": {"type": ["string", "null"]},
+        "checkpoint_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "identity_evidence": {"type": "string", "minLength": 1},
+        "license_evidence": {"type": "string", "minLength": 1}
+      }
+    },
+    "license_surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "license",
+        "commercial_use_permitted",
+        "redistribution_permitted",
+        "audit",
+        "evidence"
+      ],
+      "properties": {
+        "license": {"type": "string", "minLength": 1},
+        "commercial_use_permitted": {"enum": ["yes", "no", "unknown"]},
+        "redistribution_permitted": {"enum": ["yes", "no", "unknown"]},
+        "audit": {"type": "string", "minLength": 1},
+        "evidence": {"type": "string", "minLength": 1}
+      }
+    },
+    "license_surfaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "checkpoint", "backbone"],
+      "properties": {
+        "code": {"$ref": "#/$defs/license_surface"},
+        "checkpoint": {"$ref": "#/$defs/license_surface"},
+        "backbone": {"$ref": "#/$defs/license_surface"}
+      }
+    },
+    "exclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reasons", "decision", "next_evidence_required"],
+      "properties": {
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "checkpoint_identity_unavailable",
+              "checkpoint_terms_unavailable",
+              "backbone_identity_unavailable",
+              "backbone_terms_unavailable"
+            ]
+          }
+        },
+        "decision": {"const": "not_eligible_for_p25_bakeoff_or_shipping"},
+        "next_evidence_required": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

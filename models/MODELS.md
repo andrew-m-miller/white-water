@@ -83,6 +83,16 @@ Three of those matter to us specifically, in this order:
 
 **The catch, and it is a real one: the code licence is not the checkpoint licence.**
 
+**P25-3E provenance result (2026-08-23):** `models/waft-twins.json` is a typed exclusion
+record, not an artifact manifest. The official WAFT `waftv2` source is pinned to commit
+`b152ff1cad1af8c185ee7b141997c48ff3334c87` and its BSD-3-Clause code terms are audited, but
+the linked A2 Drive object exposes only an aggregate `a2.zip` (3,702,705,327 bytes), not an
+immutable Twins checkpoint file. WAFT also calls `timm`'s `twins_svt_large` with
+`pretrained=True` without pinning the pretrained weight. Checkpoint and backbone identity,
+commercial-use, and redistribution verdicts therefore remain **unknown**; no ONNX export or
+tensor qualification is claimed. The candidate is excluded from the bake-off until the exact
+file-level evidence listed in the record is available.
+
 WAFT supports three backbones -- Twins, DAv2 (Depth Anything v2) and DINOv3 -- and the
 README states no licence for the weights separately from the BSD-3 code, nor which checkpoint
 uses which backbone. That mapping exists only inside the linked Google Drive folder. The
