@@ -22,6 +22,7 @@ MANIFEST_PATH = ROOT / "models" / "neuflow-v2.json"
 EXPORTER_PATH = ROOT / "models" / "export_neuflow_v2.py"
 REQUIREMENTS_PATH = ROOT / "models" / "requirements-neuflow-export.txt"
 sys.path.insert(0, str(EXPORTER_PATH.parent))
+import check_neuflow_manifest as checker  # noqa: E402
 import export_neuflow_v2 as exporter  # noqa: E402
 
 
@@ -152,6 +153,96 @@ def _test_numerically_validated_failure_is_immutable(manifest) -> None:
             raise AssertionError("excluded pending export acquired an artifact identity")
 
 
+def _test_update_manifest_preserves_checkpoint_admission(manifest) -> None:
+    """A passing export must still pass the NeuFlow-specific excluded-state gate."""
+
+    if manifest["licenses"]["checkpoint"]["commercial_use_permitted"] != "unknown":
+        raise AssertionError("regression fixture no longer has unknown checkpoint commercial terms")
+    if manifest["licenses"]["checkpoint"]["redistribution_permitted"] != "unknown":
+        raise AssertionError("regression fixture no longer has unknown checkpoint redistribution terms")
+
+    updated = copy.deepcopy(manifest)
+    observed = copy.deepcopy(updated["validation"]["observed"])
+    for field in ("numerical_status", "admission_status", "admission_reason"):
+        observed.pop(field, None)
+
+    with tempfile.TemporaryDirectory(prefix="neuflow-update-admission-") as directory:
+        root = Path(directory)
+        destination = root / "manifest.json"
+        output = root / "synthetic.onnx"
+        output.write_bytes(b"synthetic validated export")
+        output.chmod(0o644)
+
+        exporter.update_manifest(
+            destination,
+            updated,
+            output,
+            observed,
+            "macos-arm64",
+        )
+        recorded = load_manifest(destination)
+        recorded_observed = recorded["validation"]["observed"]
+        if recorded["status"] != "excluded" or recorded["candidate"]["role"] != "excluded":
+            raise AssertionError("passing export promoted a checkpoint-admission exclusion")
+        if recorded["validation"]["status"] != "passed":
+            raise AssertionError("checkpoint-admission exclusion lost numerical pass status")
+        if recorded_observed.get("numerical_status") != "passed":
+            raise AssertionError("exporter did not preserve numerical pass evidence")
+        if recorded_observed.get("admission_status") != "excluded":
+            raise AssertionError("exporter did not record excluded admission status")
+        if recorded_observed.get("admission_reason") != "checkpoint_license_terms_unknown":
+            raise AssertionError("exporter did not record the checkpoint terms admission reason")
+        if (
+            "admission_status=excluded_checkpoint_license_terms_unknown"
+            not in recorded["notes"]
+        ):
+            raise AssertionError("exporter did not retain the checker admission note")
+
+        # Exercise the candidate-specific checker as well as the shared manifest gate. The
+        # synthetic payload has the same contract as a real export, so only its expected hash
+        # and size need to be substituted for this dependency-free regression fixture.
+        digest = exporter.sha256_file(output)
+        old_argv = sys.argv
+        sys.argv = ["check_neuflow_manifest.py", str(destination)]
+        try:
+            with patch.object(checker, "EXPECTED_ARTIFACT_SHA256", digest), patch.object(
+                checker, "EXPECTED_ARTIFACT_SIZE", output.stat().st_size
+            ):
+                if checker.main() != 0:
+                    raise AssertionError("NeuFlow checker rejected exporter admission output")
+        finally:
+            sys.argv = old_argv
+
+
+def _test_contiguous_onnx_inputs() -> None:
+    class FakeTensor:
+        def __init__(self, value):
+            self.value = value
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return self.value
+
+    class FakeNumpy:
+        def __init__(self):
+            self.calls = []
+
+        def ascontiguousarray(self, value):
+            self.calls.append(value)
+            return ("contiguous", value)
+
+    original = object()
+    numpy = FakeNumpy()
+    converted = exporter._contiguous_numpy(FakeTensor(original), numpy)
+    if numpy.calls != [original] or converted != ("contiguous", original):
+        raise AssertionError("exporter did not normalize ONNX inputs through ascontiguousarray")
+
+
 def main() -> int:
     manifest = load_manifest(MANIFEST_PATH)
     if manifest["status"] not in {"provenance_pinned_export_pending", "export_validated", "excluded"}:
@@ -187,6 +278,8 @@ def main() -> int:
         raise AssertionError("exporter does not freeze the official iteration counts")
     if "scaled_dot_product_attention" not in source or "torch.softmax" not in source:
         raise AssertionError("exporter does not document its portable SDPA lowering")
+    if source.count("_contiguous_numpy(a, np)") != 1 or source.count("_contiguous_numpy(b, np)") != 1:
+        raise AssertionError("run_onnx does not make both ONNX inputs contiguous")
 
     requirements = REQUIREMENTS_PATH.read_text(encoding="utf-8")
     for pin in ("torch==2.0.1", "torchvision==0.15.2", "onnx==1.14.1", "onnxruntime==1.16.3"):
@@ -195,6 +288,8 @@ def main() -> int:
 
     _test_provenance_invariants(manifest)
     _test_numerically_validated_failure_is_immutable(manifest)
+    _test_update_manifest_preserves_checkpoint_admission(manifest)
+    _test_contiguous_onnx_inputs()
 
     artifact_path = MANIFEST_PATH.parent / manifest["export"]["artifact"]
     if artifact_path.exists():

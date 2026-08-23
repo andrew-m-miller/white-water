@@ -49,11 +49,21 @@ DEFAULT_MANIFEST = SCRIPT_DIR / "neuflow-v2.json"
 EXPECTED_SOURCE_COMMIT = "204b5e3744461d90303b9ff82caa7a1bb56a2ca2"
 EXPECTED_CHECKPOINT_SHA256 = "76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e20f7995fcc019f"
 EXPECTED_CHECKPOINT_SIZE = 36195519
+CHECKPOINT_ADMISSION_NOTE = "admission_status=excluded_checkpoint_license_terms_unknown"
+CHECKPOINT_ADMISSION_REASON = "checkpoint_license_terms_unknown"
 
 
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def _checkpoint_terms_unknown(manifest: dict[str, Any]) -> bool:
+    checkpoint_license = manifest["licenses"]["checkpoint"]
+    return any(
+        checkpoint_license[field] == "unknown"
+        for field in ("commercial_use_permitted", "redistribution_permitted")
+    )
 
 
 def verify_provenance(manifest: dict[str, Any], upstream: Path, checkpoint: Path) -> None:
@@ -299,6 +309,12 @@ def _run_reference(model, first, second):
         return model(first.clone(), second.clone())[-1].cpu().numpy()
 
 
+def _contiguous_numpy(value, numpy):
+    """Convert a tensor to the contiguous host array required by ONNX Runtime."""
+
+    return numpy.ascontiguousarray(value.detach().cpu().numpy())
+
+
 def validate_export(
     model, manifest: dict[str, Any], output: Path, device: str
 ) -> dict[str, Any]:
@@ -328,7 +344,10 @@ def validate_export(
         try:
             return session.run(
                 [output_name],
-                {input_names[0]: a.cpu().numpy(), input_names[1]: b.cpu().numpy()},
+                {
+                    input_names[0]: _contiguous_numpy(a, np),
+                    input_names[1]: _contiguous_numpy(b, np),
+                },
             )[0]
         except Exception as exc:
             raise RuntimeError(f"ONNX Runtime CPU inference failed: {exc}") from exc
@@ -477,12 +496,14 @@ def update_manifest(
     observed: dict[str, Any],
     platform_id: str,
 ) -> None:
+    checkpoint_terms_unknown = _checkpoint_terms_unknown(manifest)
     previous_observed = manifest.get("validation", {}).get("observed")
     if (
         manifest["status"] == "excluded"
         and isinstance(previous_observed, dict)
         and previous_observed.get("numerical_status") == "passed"
         and previous_observed.get("admission_status") == "excluded"
+        and not checkpoint_terms_unknown
     ):
         raise ArtifactError(
             "refusing to promote a numerically validated excluded NeuFlow manifest; "
@@ -493,7 +514,6 @@ def update_manifest(
     _record_validation(manifest, observed)
     # A prior ``--record-failure`` attempt may have marked the same working manifest excluded;
     # a newly passing exact export supersedes that transient result and its diagnostic notes.
-    manifest["candidate"]["role"] = "shipping-candidate"
     manifest["notes"] = [
         note
         for note in manifest["notes"]
@@ -522,9 +542,20 @@ def update_manifest(
     update_platform_export(
         manifest, platform=platform_id, artifact=output, environment=environment
     )
-    # update_platform_export prepares the common platform/hash fields and marks host_probe_pending;
-    # this F2 package has only exact local export/CPU evidence, so use the narrower status.
-    manifest["status"] = "export_validated"
+    # update_platform_export prepares the common platform/hash fields and marks host_probe_pending.
+    # Unknown checkpoint terms are an admission exclusion, not a numerical failure: retain the
+    # pass evidence while emitting the same excluded state accepted by check_neuflow_manifest.py.
+    if checkpoint_terms_unknown:
+        manifest["status"] = "excluded"
+        manifest["candidate"]["role"] = "excluded"
+        observed["numerical_status"] = "passed"
+        observed["admission_status"] = "excluded"
+        observed["admission_reason"] = CHECKPOINT_ADMISSION_REASON
+        if CHECKPOINT_ADMISSION_NOTE not in manifest["notes"]:
+            manifest["notes"].append(CHECKPOINT_ADMISSION_NOTE)
+    else:
+        manifest["status"] = "export_validated"
+        manifest["candidate"]["role"] = "shipping-candidate"
     result_note = "export_result=exact_fixed_shape_export_and_cpu_parity_passed"
     if result_note not in manifest["notes"]:
         manifest["notes"].append(result_note)
