@@ -399,6 +399,27 @@ def _stage(path: Path, payload: bytes) -> Path:
             os.close(descriptor)
 
 
+def _rollback_no_clobber_publication(path: Path, expected_inode: tuple[int, int]) -> None:
+    """Remove a destination only while it still names our published inode.
+
+    A later writer may replace a destination after our hard link succeeds.  Checking the
+    device/inode pair before unlinking keeps rollback from deleting that writer's file.
+    Rollback is best effort: the publication failure that triggered it must retain its
+    original typed error even if the destination becomes inaccessible concurrently.
+    """
+
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return
+    if (info.st_dev, info.st_ino) != expected_inode:
+        return
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
 def write_report_pair(
     json_path: Path | str,
     csv_path: Path | str,
@@ -415,7 +436,11 @@ def write_report_pair(
     By default each staged file is installed with an atomic same-directory hard link,
     so a destination created after the initial check cannot be clobbered. With replace
     true, os.replace is used as explicitly requested. The two destinations are staged
-    together, but their publication is not jointly atomic.
+    together, but their publication is not jointly atomic. In the default no-clobber
+    mode, a JSON destination linked by this invocation is rolled back if CSV publication
+    fails before the pair is complete; an inode replaced by another writer is preserved.
+    With replace true, replacement is explicit and a successful JSON replacement remains
+    in place if the later CSV replacement fails.
     """
 
     json_destination = Path(json_path)
@@ -432,25 +457,38 @@ def write_report_pair(
     _check_destination(csv_destination, replace)
     json_temporary: Path | None = None
     csv_temporary: Path | None = None
+    json_published_inode: tuple[int, int] | None = None
+    pair_published = False
     try:
         json_temporary = _stage(json_destination, json_payload)
         csv_temporary = _stage(csv_destination, csv_payload)
-        for temporary, destination in (
-            (json_temporary, json_destination),
-            (csv_temporary, csv_destination),
-        ):
-            if replace:
-                os.replace(temporary, destination)
-            else:
-                try:
-                    os.link(temporary, destination, follow_symlinks=False)
-                except FileExistsError:
-                    _fail("output_exists", f"output appeared during publication: {destination}")
-                os.unlink(temporary)
-            if temporary == json_temporary:
-                json_temporary = None
-            else:
-                csv_temporary = None
+        if replace:
+            # Explicit replacement is intentionally not rolled back: restoring a prior
+            # destination would require retaining and safely restoring its old inode.
+            os.replace(json_temporary, json_destination)
+            json_temporary = None
+            os.replace(csv_temporary, csv_destination)
+            csv_temporary = None
+        else:
+            json_info = os.lstat(json_temporary)
+            try:
+                os.link(json_temporary, json_destination, follow_symlinks=False)
+            except FileExistsError:
+                _fail("output_exists", f"output appeared during publication: {json_destination}")
+            json_published_inode = (json_info.st_dev, json_info.st_ino)
+            os.unlink(json_temporary)
+            json_temporary = None
+
+            try:
+                os.link(csv_temporary, csv_destination, follow_symlinks=False)
+            except FileExistsError:
+                _fail("output_exists", f"output appeared during publication: {csv_destination}")
+            # Both destinations now exist.  If cleanup of the CSV staging name fails,
+            # retain the complete pair rather than removing the JSON destination.
+            pair_published = True
+            os.unlink(csv_temporary)
+            csv_temporary = None
+        pair_published = True
         for parent in {json_destination.parent, csv_destination.parent}:
             descriptor = os.open(str(parent), os.O_RDONLY)
             try:
@@ -460,6 +498,8 @@ def write_report_pair(
     except OSError as exc:
         raise ReportFailure("atomic_write", str(exc)) from exc
     finally:
+        if not replace and not pair_published and json_published_inode is not None:
+            _rollback_no_clobber_publication(json_destination, json_published_inode)
         for temporary in (json_temporary, csv_temporary):
             if temporary is not None:
                 temporary.unlink(missing_ok=True)

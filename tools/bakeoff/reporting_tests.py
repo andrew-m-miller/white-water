@@ -218,6 +218,122 @@ class ReportingTests(unittest.TestCase):
             self.assertFalse(csv_path.exists())
             self.assertEqual(list(directory.glob(".*.tmp")), [])
 
+    def test_second_link_collision_rolls_back_json_and_can_rerun(self):
+        report = self.assembled()
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            json_path, csv_path = directory / "report.json", directory / "report.csv"
+            competitor = b"created by another writer"
+            original_link = reporting.os.link
+
+            def racing_link(source, destination, **kwargs):
+                if Path(destination) == csv_path:
+                    csv_path.write_bytes(competitor)
+                    raise FileExistsError(destination)
+                return original_link(source, destination, **kwargs)
+
+            with mock.patch.object(reporting.os, "link", side_effect=racing_link):
+                with self.assertRaises(ReportFailure) as context:
+                    write_report_pair(
+                        json_path, csv_path, report, self.protocol, self.report_schema,
+                        self.corpus, self.corpus_schema,
+                    )
+            self.assertEqual(context.exception.kind, "output_exists")
+            self.assertFalse(json_path.exists())
+            self.assertEqual(csv_path.read_bytes(), competitor)
+            self.assertEqual(list(directory.glob(".*.tmp")), [])
+
+            csv_path.unlink()
+            write_report_pair(
+                json_path, csv_path, report, self.protocol, self.report_schema,
+                self.corpus, self.corpus_schema,
+            )
+            self.assertTrue(json_path.exists())
+            self.assertTrue(csv_path.exists())
+
+    def test_second_link_error_rolls_back_json_with_typed_failure_and_can_rerun(self):
+        report = self.assembled()
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            json_path, csv_path = directory / "report.json", directory / "report.csv"
+            original_link = reporting.os.link
+
+            def failing_link(source, destination, **kwargs):
+                if Path(destination) == csv_path:
+                    raise OSError("injected CSV publication failure")
+                return original_link(source, destination, **kwargs)
+
+            with mock.patch.object(reporting.os, "link", side_effect=failing_link):
+                with self.assertRaises(ReportFailure) as context:
+                    write_report_pair(
+                        json_path, csv_path, report, self.protocol, self.report_schema,
+                        self.corpus, self.corpus_schema,
+                    )
+            self.assertEqual(context.exception.kind, "atomic_write")
+            self.assertFalse(json_path.exists())
+            self.assertFalse(csv_path.exists())
+            self.assertEqual(list(directory.glob(".*.tmp")), [])
+
+            write_report_pair(
+                json_path, csv_path, report, self.protocol, self.report_schema,
+                self.corpus, self.corpus_schema,
+            )
+            self.assertTrue(json_path.exists())
+            self.assertTrue(csv_path.exists())
+
+    def test_second_link_collision_preserves_json_competitor_inode(self):
+        report = self.assembled()
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            json_path, csv_path = directory / "report.json", directory / "report.csv"
+            json_competitor = directory / "json-competitor"
+            json_competitor.write_bytes(b"replacement JSON")
+            csv_competitor = b"created by another writer"
+            original_link = reporting.os.link
+
+            def racing_link(source, destination, **kwargs):
+                if Path(destination) == csv_path:
+                    os.replace(json_competitor, json_path)
+                    csv_path.write_bytes(csv_competitor)
+                    raise FileExistsError(destination)
+                return original_link(source, destination, **kwargs)
+
+            with mock.patch.object(reporting.os, "link", side_effect=racing_link):
+                with self.assertRaises(ReportFailure) as context:
+                    write_report_pair(
+                        json_path, csv_path, report, self.protocol, self.report_schema,
+                        self.corpus, self.corpus_schema,
+                    )
+            self.assertEqual(context.exception.kind, "output_exists")
+            self.assertEqual(json_path.read_bytes(), b"replacement JSON")
+            self.assertEqual(csv_path.read_bytes(), csv_competitor)
+            self.assertEqual(list(directory.glob(".*.tmp")), [])
+
+    def test_replace_true_second_failure_keeps_explicit_first_replacement(self):
+        report = self.assembled()
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            json_path, csv_path = directory / "report.json", directory / "report.csv"
+            json_path.write_bytes(b"old JSON")
+            csv_path.write_bytes(b"old CSV")
+            original_replace = reporting.os.replace
+
+            def failing_replace(source, destination):
+                if Path(destination) == csv_path:
+                    raise OSError("injected CSV replacement failure")
+                return original_replace(source, destination)
+
+            with mock.patch.object(reporting.os, "replace", side_effect=failing_replace):
+                with self.assertRaises(ReportFailure) as context:
+                    write_report_pair(
+                        json_path, csv_path, report, self.protocol, self.report_schema,
+                        self.corpus, self.corpus_schema, replace=True,
+                    )
+            self.assertEqual(context.exception.kind, "atomic_write")
+            self.assertEqual(json_path.read_bytes(), render_json(report))
+            self.assertEqual(csv_path.read_bytes(), b"old CSV")
+            self.assertEqual(list(directory.glob(".*.tmp")), [])
+
 
 if __name__ == "__main__":
     unittest.main()
