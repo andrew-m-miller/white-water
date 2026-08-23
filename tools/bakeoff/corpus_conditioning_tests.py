@@ -19,12 +19,19 @@ from .conditioning import (
 from .generate_corpus import build_corpus
 from .padding import pad_rows
 from .synthetic import (
+    COORDINATE_CONVENTION,
     REQUIRED_SYNTHETIC_CASES,
     all_cases,
+    analytic_pair_coordinate,
     analytic_displacement,
+    foreground_displacement,
+    foreground_rect,
     generate_frame,
+    frame_source_coordinate,
     synthetic_partition,
+    visibility_at,
     write_case_frames,
+    _sample_base,
 )
 from .validator import (
     load_json,
@@ -97,20 +104,54 @@ def _test_conditioning() -> None:
     else:
         raise AssertionError("empty pair did not produce a typed failure")
 
+    for function in (
+        lambda: condition_pair([[7.0, 7.0, 7.0]], [[7.0, 7.0, 7.0]], "pair-percentile-v1"),
+        lambda: apply_conditioning([[7.0, 7.0, 7.0]], "pair-percentile-v1", low=7.0, high=7.0),
+    ):
+        try:
+            function()
+        except ConditioningFailure as failure:
+            assert failure.kind == "constant_pair"
+            assert failure.failure_type == "conditioning_failure"
+        else:
+            raise AssertionError("constant pair did not produce the typed v1 failure")
+
 
 def _test_padding() -> None:
     source = ((1, 2, 3),)
-    replicated = pad_rows(source, left=1, right=1, policy="replication")
-    reflected = pad_rows(source, left=1, right=1, policy="reflect")
+    replicated = pad_rows(source, left=1, right=1, policy="caller_replication_pad")
+    reflected = pad_rows(source, left=1, right=1, policy="caller_reflect_pad")
     assert replicated.rows == ((1, 1, 2, 3, 3),)
     assert reflected.rows == ((2, 1, 2, 3, 2),)
     assert replicated.crop == (1, 0, 3, 1)
-    assert reflected.policy == "reflect"
+    assert replicated.policy == "caller_replication_pad"
+    assert reflected.policy == "caller_reflect_pad"
+
+    # Generic names remain compatibility aliases, while the P25-1 migrated SEA-RAFT
+    # declaration is accepted directly and is the token carried in the result.
+    assert pad_rows(source, left=1, right=1, policy="replication").policy == "caller_replication_pad"
+    assert pad_rows(source, left=1, right=1, policy="reflect").policy == "caller_reflect_pad"
 
     # Both policies preserve the source crop, while differing only in the caller-side
     # halo.  The runner passes the manifest-declared policy through this narrow seam.
     for padded in (replicated, reflected):
         assert padded.rows[0][padded.pad_left:padded.pad_left + padded.source_width] == source[0]
+
+    asymmetric_source = tuple(tuple(0 for _ in range(67)) for _ in range(53))
+    asymmetric = pad_rows(
+        asymmetric_source,
+        left=1,
+        right=3,
+        bottom=2,
+        top=2,
+        policy="caller_replication_pad",
+        multiple=8,
+    )
+    assert asymmetric.width == 72
+    assert asymmetric.height == 64
+    assert asymmetric.width % 8 == 0 and asymmetric.height % 8 == 0
+    assert (asymmetric.pad_left, asymmetric.pad_right, asymmetric.pad_bottom, asymmetric.pad_top) == (1, 4, 2, 9)
+    assert asymmetric.crop == (1, 2, 67, 53)
 
 
 def _test_synthetic_cases() -> None:
@@ -126,6 +167,41 @@ def _test_synthetic_cases() -> None:
     assert analytic_displacement("spatial", 4, 5, 4.0, 4.0) != analytic_displacement("spatial", 4, 5, 60.0, 40.0)
     assert analytic_displacement("border", 4, 5, 0.0, 0.0) == (6.0, 4.0)
     assert analytic_displacement("chain-8", 8, 16, 10.0, 10.0) == (10.0, 0.0)
+
+    assert "x right, y up" in COORDINATE_CONVENTION
+    assert "row zero is the bottom row" in COORDINATE_CONVENTION
+    positive_y_source = frame_source_coordinate("translation-y-positive", 5, 10.0, 10.0)
+    assert positive_y_source == (10.0, 8.5)
+
+    # The truth is a generated-frame correspondence: frame pixels are inverse samples
+    # of the common plate, and pair truth composes the exact forward maps.  This catches
+    # the old same-coordinate subtraction bug in affine/spatial fields.
+    for case_id, frame, x, y in (("affine", 6, 33, 28), ("spatial", 6, 33, 28)):
+        generated = generate_frame(case_id, frame)
+        source_x, source_y = frame_source_coordinate(case_id, frame, x, y)
+        expected = _sample_base(next(case for case in all_cases() if case.case_id == case_id), source_x, source_y)
+        for actual_channel, expected_channel in zip(generated[y][x], expected):
+            _near(actual_channel, expected_channel, tolerance=1.0e-12)
+        pair = analytic_pair_coordinate(case_id, 5, frame, float(x), float(y))
+        displacement = analytic_displacement(case_id, 5, frame, float(x), float(y))
+        _near(displacement[0], pair[0] - x, tolerance=1.0e-12)
+        _near(displacement[1], pair[1] - y, tolerance=1.0e-12)
+
+    # The moving rectangle has independent foreground/background motion, and both
+    # sides of the visibility transition are represented in the emitted truth.
+    assert visibility_at("occlusion-reveal", 0, 28, 30)
+    assert not visibility_at("occlusion-reveal", 8, 28, 30)
+    assert not visibility_at("occlusion-reveal", 0, 50, 30)
+    assert visibility_at("occlusion-reveal", 8, 50, 30)
+    assert foreground_rect("occlusion-reveal", 8) == (37.0, 55.0, 14.0, 34.0)
+    assert foreground_displacement("occlusion-reveal", 0, 8) == (24.0, -8.0)
+    assert analytic_displacement("occlusion-reveal", 0, 8, 50.0, 30.0) == (8.0, 4.0)
+    assert foreground_displacement("occlusion-reveal", 0, 8) != analytic_displacement("occlusion-reveal", 0, 8, 50.0, 30.0)
+    occlusion_early = generate_frame("occlusion-reveal", 0)
+    occlusion_late = generate_frame("occlusion-reveal", 8)
+    assert occlusion_early[30][28] == (0.92, 0.17, 0.08)
+    assert occlusion_late[30][50] == (0.92, 0.17, 0.08)
+    assert occlusion_late[30][28] != (0.92, 0.17, 0.08)
 
     blur = generate_frame("blur", 5)
     sharp = generate_frame("translation-x-positive", 5)
@@ -163,6 +239,13 @@ def _test_corpus_and_emission() -> None:
         truth = json.loads((directory / "identity/truth.json").read_text(encoding="utf-8"))
         assert truth["case_id"] == "identity"
         assert truth["coordinate_convention"]
+        write_case_frames("asymmetric-padding", directory)
+        padding_truth = json.loads((directory / "asymmetric-padding/truth.json").read_text(encoding="utf-8"))
+        assert padding_truth["padding"]["padded_width"] % 8 == 0
+        assert padding_truth["padding"]["padded_height"] % 8 == 0
+        write_case_frames("occlusion-reveal", directory)
+        visibility_truth = json.loads((directory / "occlusion-reveal/truth.json").read_text(encoding="utf-8"))
+        assert visibility_truth["visibility"]["frames"]
 
 
 def main() -> int:

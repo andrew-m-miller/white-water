@@ -206,6 +206,19 @@ def condition_pair(
         raise ConditioningFailure("empty_pair", "pair has no finite RGB samples")
     low = linear_quantile(finite_samples, 0.01)
     high = linear_quantile(finite_samples, 0.99)
+    if high == low:
+        # A constant pair cannot produce the v1 report's required strict
+        # low<high parameters.  Keep that outcome typed rather than returning
+        # an object that the frozen report validator must reject.
+        raise ConditioningFailure(
+            "constant_pair",
+            "pair-percentile low and high are equal; no dynamic range",
+        )
+    if high < low:
+        raise ConditioningFailure(
+            "invalid_parameters",
+            "pair-percentile high must exceed low",
+        )
     denominator = max(high - low, PAIR_PERCENTILE_EPSILON)
 
     def normalize(value: float) -> float:
@@ -232,8 +245,13 @@ def apply_conditioning(value: Any, token: str, *, low: float | None = None,
     if token == "pair-percentile-v1":
         if low is None or high is None or not math.isfinite(low) or not math.isfinite(high):
             raise ConditioningFailure("incomplete_parameters", "pair-percentile needs finite low/high")
-        if high <= low:
-            raise ConditioningFailure("incomplete_parameters", "pair-percentile high must exceed low")
+        if high == low:
+            raise ConditioningFailure(
+                "constant_pair",
+                "pair-percentile low and high are equal; no dynamic range",
+            )
+        if high < low:
+            raise ConditioningFailure("invalid_parameters", "pair-percentile high must exceed low")
         denominator = max(high - low, PAIR_PERCENTILE_EPSILON)
         _reject_nonfinite(value, value)
         if not list(_rgb_samples(value, channels=3)):

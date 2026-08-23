@@ -14,7 +14,16 @@ from dataclasses import dataclass
 from typing import Any, Sequence
 
 
-PADDING_POLICIES = ("replication", "reflect")
+# These are the tokens emitted by candidate artifact manifests.  The migrated
+# SEA-RAFT manifest uses ``caller_replication_pad``; keeping that spelling here
+# means the runner can pass the declaration through without candidate-specific
+# translation.  The short names remain accepted as compatibility aliases for
+# older P25-2 callers, but normalized results always carry the manifest token.
+PADDING_POLICIES = ("caller_replication_pad", "caller_reflect_pad")
+_PADDING_ALIASES = {
+    "replication": "caller_replication_pad",
+    "reflect": "caller_reflect_pad",
+}
 
 
 class PaddingPolicyError(ValueError):
@@ -50,11 +59,16 @@ class PaddedRows:
 
 
 def normalize_policy(policy: str) -> str:
-    if not isinstance(policy, str) or policy not in PADDING_POLICIES:
+    if not isinstance(policy, str):
         raise PaddingPolicyError(
             f"padding policy must be one of {', '.join(PADDING_POLICIES)}"
         )
-    return policy
+    normalized = _PADDING_ALIASES.get(policy, policy)
+    if normalized not in PADDING_POLICIES:
+        raise PaddingPolicyError(
+            f"padding policy must be one of {', '.join(PADDING_POLICIES)}"
+        )
+    return normalized
 
 
 def _mirror_index(index: int, size: int) -> int:
@@ -88,14 +102,20 @@ def pad_rows(
     bottom: int = 0,
     top: int = 0,
     policy: str,
+    multiple: int = 1,
 ) -> PaddedRows:
     """Pad bottom-left row-major pixels by replication or edge reflection.
 
-    The source rows are not mutated.  ``replication`` clamps coordinates to the
-    nearest source pixel and is the policy used by the current SEA-RAFT caller.
-    ``reflect`` mirrors without repeating edge pixels and matches core preprocessing.
+    The source rows are not mutated.  ``caller_replication_pad`` clamps coordinates
+    to the nearest source pixel and is the policy used by the current SEA-RAFT caller.
+    ``caller_reflect_pad`` mirrors without repeating edge pixels and matches core
+    preprocessing.  The short ``replication``/``reflect`` spellings are accepted only
+    as compatibility aliases and normalize to the canonical tokens.
     A policy is mandatory by design: callers must not accidentally compare a model
-    using replication against one using reflect.
+    using replication against one using reflect.  When ``multiple`` is greater than
+    one, the requested right/top halo is extended as needed so the returned tensor
+    dimensions are exact multiples.  The returned side counts are the actual crop
+    seam, including those extensions.
     """
 
     policy = normalize_policy(policy)
@@ -103,19 +123,30 @@ def pad_rows(
     sides = (left, right, bottom, top)
     if any(isinstance(side, bool) or not isinstance(side, int) or side < 0 for side in sides):
         raise ValueError("padding sides must be non-negative integers")
+    if isinstance(multiple, bool) or not isinstance(multiple, int) or multiple <= 0:
+        raise ValueError("padding multiple must be a positive integer")
+
+    minimum_width = width + left + right
+    minimum_height = height + bottom + top
+    padded_width = ((minimum_width + multiple - 1) // multiple) * multiple
+    padded_height = ((minimum_height + multiple - 1) // multiple) * multiple
+    actual_right = right + padded_width - minimum_width
+    actual_top = top + padded_height - minimum_height
+    if padded_width % multiple != 0 or padded_height % multiple != 0:
+        raise AssertionError("caller padding failed to produce requested multiple")
 
     output: list[tuple[Any, ...]] = []
-    for output_y in range(height + bottom + top):
+    for output_y in range(padded_height):
         source_y = output_y - bottom
-        if policy == "replication":
+        if policy == "caller_replication_pad":
             source_y = min(height - 1, max(0, source_y))
         else:
             source_y = _mirror_index(source_y, height)
         source_row = rows[source_y]
         padded_row: list[Any] = []
-        for output_x in range(width + left + right):
+        for output_x in range(padded_width):
             source_x = output_x - left
-            if policy == "replication":
+            if policy == "caller_replication_pad":
                 source_x = min(width - 1, max(0, source_x))
             else:
                 source_x = _mirror_index(source_x, width)
@@ -123,7 +154,7 @@ def pad_rows(
         output.append(tuple(padded_row))
 
     return PaddedRows(
-        tuple(output), width, height, left, right, bottom, top, policy
+        tuple(output), width, height, left, actual_right, bottom, actual_top, policy
     )
 
 

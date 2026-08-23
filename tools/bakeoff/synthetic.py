@@ -21,9 +21,12 @@ import math
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping, Sequence
 
+from .padding import pad_rows
+
 COORDINATE_CONVENTION = (
-    "x right, y down; full-resolution real-pixel coordinates at pixel centres; "
-    "pair displacement is image1-to-image2"
+    "x right, y up; full-resolution real-pixel coordinates at pixel centres; "
+    "row zero is the bottom row in PFM and row-major buffers; pair displacement "
+    "is image1-to-image2"
 )
 
 REQUIRED_SYNTHETIC_CASES = (
@@ -128,8 +131,9 @@ def all_cases() -> tuple[SyntheticCase, ...]:
         _case("translation-y-negative", "translation-y", 65, 49, seed=23,
               parameters={"shift_y_per_link": -1.5}),
         _case("affine", "affine-spatial", 80, 64, seed=29,
-              parameters={"field": "affine", "scale_x_per_link": 0.02,
-                          "scale_y_per_link": -0.015}),
+              parameters={"field": "affine", "scale_x_per_link": 0.012,
+                          "scale_y_per_link": -0.009, "shear_xy_per_link": 0.006,
+                          "shear_yx_per_link": -0.004}),
         _case("spatial", "affine-spatial", 80, 64, seed=31,
               parameters={"field": "sinusoidal", "amplitude": 3.0}),
         _case("border", "border", 80, 64, seed=37,
@@ -155,7 +159,7 @@ def all_cases() -> tuple[SyntheticCase, ...]:
                       "right": 3,
                       "bottom": 2,
                       "top": 2,
-                      "policy": "replication",
+                      "policy": "caller_replication_pad",
                       "multiple": 8,
                   },
               }),
@@ -226,10 +230,10 @@ def _sample_base(case: SyntheticCase, x: float, y: float) -> tuple[float, float,
     )
 
 
-def _motion(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float, float]:
+def _translation_motion(case: SyntheticCase, frame: int) -> tuple[float, float]:
+    """Return the common-plate translation used by non-field cases."""
+
     dt = frame - case.reference_frame
-    center_x = (case.width - 1) * 0.5
-    center_y = (case.height - 1) * 0.5
     if case.case_id == "translation-x-positive":
         return 1.25 * dt, 0.0
     if case.case_id == "translation-x-negative":
@@ -238,16 +242,6 @@ def _motion(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float,
         return 0.0, 1.5 * dt
     if case.case_id == "translation-y-negative":
         return 0.0, -1.5 * dt
-    if case.case_id == "affine":
-        return (
-            dt * (1.0 + 0.02 * (x - center_x) + 0.01 * (y - center_y)),
-            dt * (-0.75 - 0.008 * (x - center_x) + 0.015 * (y - center_y)),
-        )
-    if case.case_id == "spatial":
-        return (
-            dt * (2.5 * math.sin(y * 0.13) + 0.5 * math.cos(x * 0.07)),
-            dt * (2.0 * math.cos(x * 0.11) - 0.5 * math.sin(y * 0.09)),
-        )
     if case.case_id == "border":
         return 6.0 * dt, 4.0 * dt
     if case.case_id.startswith("chain-"):
@@ -261,6 +255,109 @@ def _motion(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float,
     return 0.0, 0.0
 
 
+def _affine_parameters(case: SyntheticCase, frame: int) -> tuple[float, float, float, float, float, float]:
+    """Return an invertible centered affine map for one frame.
+
+    The generated image samples the common plate at the inverse of this map.  Keeping
+    the matrix small and explicit makes the analytic field exact instead of treating a
+    displacement value evaluated at the output coordinate as a warp inverse.
+    """
+
+    dt = float(frame - case.reference_frame)
+    return (
+        1.0 + 0.012 * dt,
+        0.006 * dt,
+        -0.004 * dt,
+        1.0 - 0.009 * dt,
+        1.0 * dt,
+        -0.75 * dt,
+    )
+
+
+def _spatial_shear(y: float) -> float:
+    """A bounded spatial field with a closed-form inverse."""
+
+    return 2.25 * math.sin(y * 0.13) + 0.75 * math.cos(y * 0.07)
+
+
+def _forward_coordinate(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float, float]:
+    """Map a common-plate coordinate into the requested frame."""
+
+    if case.case_id == "affine":
+        a, b, c, d, tx, ty = _affine_parameters(case, frame)
+        center_x = (case.width - 1) * 0.5
+        center_y = (case.height - 1) * 0.5
+        centered_x = x - center_x
+        centered_y = y - center_y
+        return (
+            center_x + a * centered_x + b * centered_y + tx,
+            center_y + c * centered_x + d * centered_y + ty,
+        )
+    if case.case_id == "spatial":
+        dt = float(frame - case.reference_frame)
+        # A horizontal shear depending only on y is spatially varying but exactly
+        # invertible: the output y is unchanged, so the inverse uses that y directly.
+        return x + dt * _spatial_shear(y), y
+    dx, dy = _translation_motion(case, frame)
+    return x + dx, y + dy
+
+
+def _inverse_coordinate(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float, float]:
+    """Map a frame coordinate back to the common plate exactly."""
+
+    if case.case_id == "affine":
+        a, b, c, d, tx, ty = _affine_parameters(case, frame)
+        determinant = a * d - b * c
+        if abs(determinant) <= 1.0e-12:
+            raise AssertionError("synthetic affine transform is not invertible")
+        center_x = (case.width - 1) * 0.5
+        center_y = (case.height - 1) * 0.5
+        shifted_x = x - center_x - tx
+        shifted_y = y - center_y - ty
+        return (
+            center_x + (d * shifted_x - b * shifted_y) / determinant,
+            center_y + (-c * shifted_x + a * shifted_y) / determinant,
+        )
+    if case.case_id == "spatial":
+        dt = float(frame - case.reference_frame)
+        return x - dt * _spatial_shear(y), y
+    dx, dy = _translation_motion(case, frame)
+    return x - dx, y - dy
+
+
+def frame_source_coordinate(
+    case_or_id: SyntheticCase | str,
+    frame: int,
+    x: float,
+    y: float,
+) -> tuple[float, float]:
+    """Return the common-plate coordinate sampled for one generated pixel."""
+
+    case = _case_for(case_or_id)
+    return _inverse_coordinate(case, frame, x, y)
+
+
+def _motion(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float, float]:
+    """Return the displacement of a common-plate point in one frame."""
+
+    mapped_x, mapped_y = _forward_coordinate(case, frame, x, y)
+    return mapped_x - x, mapped_y - y
+
+
+def analytic_pair_coordinate(
+    case_or_id: SyntheticCase | str,
+    from_frame: int,
+    to_frame: int,
+    x: float,
+    y: float,
+) -> tuple[float, float]:
+    """Map a coordinate in ``from_frame`` to ``to_frame`` through the common plate."""
+
+    case = _case_for(case_or_id)
+    source_x, source_y = _inverse_coordinate(case, from_frame, x, y)
+    return _forward_coordinate(case, to_frame, source_x, source_y)
+
+
 def analytic_displacement(
     case_or_id: SyntheticCase | str,
     from_frame: int,
@@ -270,16 +367,13 @@ def analytic_displacement(
 ) -> tuple[float, float]:
     """Return deterministic dense truth in source-pixel units.
 
-    Synthetic motion is defined as a frame-indexed displacement from a common
-    reference plate.  The exact pair field is therefore the difference of the two
-    frame fields; this remains analytic for affine and spatial cases and makes chain
-    truth explicit rather than relying on a model output.
+    Frames are inverse-warped samples of one common plate.  The exact pair field first
+    inverts the source-frame map, then applies the target-frame map, so affine and
+    spatial truth are in the same coordinate system as the generated images.
     """
 
-    case = _case_for(case_or_id)
-    from_motion = _motion(case, from_frame, x, y)
-    to_motion = _motion(case, to_frame, x, y)
-    return to_motion[0] - from_motion[0], to_motion[1] - from_motion[1]
+    target_x, target_y = analytic_pair_coordinate(case_or_id, from_frame, to_frame, x, y)
+    return target_x - x, target_y - y
 
 
 def _noise(case: SyntheticCase, frame: int, x: int, y: int) -> float:
@@ -289,13 +383,46 @@ def _noise(case: SyntheticCase, frame: int, x: int, y: int) -> float:
     return (value / 4294967295.0 - 0.5) * 0.05
 
 
-def _foreground(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float, float, float] | None:
+def foreground_rect(case_or_id: SyntheticCase | str, frame: int) -> tuple[float, float, float, float]:
+    """Return the moving foreground rectangle as ``(left, right, bottom, top)``."""
+
+    case = _case_for(case_or_id)
+    if case.case_id != "occlusion-reveal":
+        raise ValueError("foreground rectangles are defined only for occlusion-reveal")
     dt = frame - case.reference_frame
-    left = 25.0 + dt * 1.0
+    # The background moves (1 px right, .5 px up) per frame while this foreground
+    # moves (3 px right, 1 px down) per frame.  Their relative motion is what creates
+    # both reveal and occlusion instead of a mask painted on a co-moving plate.
+    left = 25.0 + dt * 3.0
     right = left + 18.0
-    bottom = 18.0 + dt * 0.5
+    bottom = 18.0 - dt * 1.0
     top = bottom + 20.0
-    if left <= x < right and bottom <= y < top:
+    return left, right, bottom, top
+
+
+def visibility_at(case_or_id: SyntheticCase | str, frame: int, x: float, y: float) -> bool:
+    """Return analytic foreground visibility at a frame coordinate."""
+
+    left, right, bottom, top = foreground_rect(case_or_id, frame)
+    return left <= x < right and bottom <= y < top
+
+
+def foreground_displacement(
+    case_or_id: SyntheticCase | str,
+    from_frame: int,
+    to_frame: int,
+) -> tuple[float, float]:
+    """Return the foreground rectangle displacement in output coordinates."""
+
+    case = _case_for(case_or_id)
+    if case.case_id != "occlusion-reveal":
+        raise ValueError("foreground displacement is defined only for occlusion-reveal")
+    delta = float(to_frame - from_frame)
+    return 3.0 * delta, -1.0 * delta
+
+
+def _foreground(case: SyntheticCase, frame: int, x: float, y: float) -> tuple[float, float, float] | None:
+    if visibility_at(case, frame, x, y):
         return (0.92, 0.17, 0.08)
     return None
 
@@ -309,15 +436,15 @@ def frame_rows(case_or_id: SyntheticCase | str, frame: int) -> Iterator[tuple[tu
     for y in range(case.height):
         row: list[tuple[float, float, float]] = []
         for x in range(case.width):
-            dx, dy = _motion(case, frame, x, y)
+            source_x, source_y = _inverse_coordinate(case, frame, float(x), float(y))
             if case.case_id == "blur":
                 samples = [
-                    _sample_base(case, x - dx + offset, y - dy)
+                    _sample_base(case, source_x + offset, source_y)
                     for offset in (-1.0, 0.0, 1.0)
                 ]
                 rgb = tuple(sum(sample[channel] for sample in samples) / 3.0 for channel in range(3))
             else:
-                rgb = _sample_base(case, x - dx, y - dy)
+                rgb = _sample_base(case, source_x, source_y)
             foreground = _foreground(case, frame, x, y) if case.case_id == "occlusion-reveal" else None
             if foreground is not None:
                 rgb = foreground
@@ -344,7 +471,7 @@ def truth_document(case_or_id: SyntheticCase | str) -> dict[str, Any]:
         "coordinate_convention": COORDINATE_CONVENTION,
         "reference_frame": case.reference_frame,
         "frame_range": {"first": case.first_frame, "last": case.last_frame},
-        "pair_field": "motion(to_frame,x,y)-motion(from_frame,x,y)",
+        "pair_field": "forward(to_frame,inverse(from_frame,(x,y)))-(x,y)",
         "motion": {
             "case": case.case_id,
             "analytic": True,
@@ -358,11 +485,49 @@ def truth_document(case_or_id: SyntheticCase | str) -> dict[str, Any]:
             "truth": "sum of link fields equals analytic_displacement",
         }
     if case.case_id == "occlusion-reveal":
-        document["visibility"] = "moving rectangle mask from _foreground(case,frame,x,y)"
+        document["visibility"] = {
+            "kind": "analytic_rectangles",
+            "value": "1 when left <= x < right and bottom <= y < top, else 0",
+            "frames": [
+                {
+                    "frame": frame,
+                    "left": foreground_rect(case, frame)[0],
+                    "right": foreground_rect(case, frame)[1],
+                    "bottom": foreground_rect(case, frame)[2],
+                    "top": foreground_rect(case, frame)[3],
+                }
+                for frame in case.frame_numbers
+            ],
+            "foreground_per_frame": {"dx": 3.0, "dy": -1.0},
+            "background_per_frame": {"dx": 1.0, "dy": 0.5},
+            "coordinate_convention": COORDINATE_CONVENTION,
+        }
     if case.case_id == "asymmetric-padding":
+        requested = dict((case.parameters or {}).get("padding", {}))
+        source_rows = tuple(tuple(0 for _ in range(case.width)) for _ in range(case.height))
+        padded = pad_rows(
+            source_rows,
+            left=requested["left"],
+            right=requested["right"],
+            bottom=requested["bottom"],
+            top=requested["top"],
+            policy=requested["policy"],
+            multiple=requested["multiple"],
+        )
+        assert padded.width % requested["multiple"] == 0
+        assert padded.height % requested["multiple"] == 0
         document["padding"] = {
-            "policy": "replication",
+            "policy": padded.policy,
             "comparison_seam": "padding.pad_rows(policy=manifest.declared_policy)",
+            "requested": requested,
+            "actual": {
+                "left": padded.pad_left,
+                "right": padded.pad_right,
+                "bottom": padded.pad_bottom,
+                "top": padded.pad_top,
+            },
+            "padded_width": padded.width,
+            "padded_height": padded.height,
         }
     return document
 
@@ -457,7 +622,12 @@ __all__ = [
     "SyntheticCase",
     "all_cases",
     "case_map",
+    "analytic_pair_coordinate",
     "analytic_displacement",
+    "frame_source_coordinate",
+    "foreground_rect",
+    "visibility_at",
+    "foreground_displacement",
     "frame_rows",
     "generate_frame",
     "truth_document",
