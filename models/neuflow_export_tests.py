@@ -271,6 +271,24 @@ def main() -> int:
         raise AssertionError("checked-in manifest retains legacy observed admission fields")
     if any(note.startswith("admission_status=") for note in manifest.get("notes", [])):
         raise AssertionError("checked-in manifest retains the legacy free-text admission sentinel")
+    if manifest["tensor_contract"]["spatial_dimensions"] != (
+        "fixed_shape_only; exactly 432x768; no dynamic or other-shape support"
+    ):
+        raise AssertionError("NeuFlow fixed evaluation-shape contract is not explicit")
+    if manifest["validation"]["shapes"] != {
+        "dynamic": False,
+        "example": [1, 2, 432, 768],
+        "additional": [1, 2, 432, 768],
+    }:
+        raise AssertionError("NeuFlow manifest does not record the constrained fixed shape")
+    observed_provider = manifest["validation"]["observed"].get("provider_validation")
+    if observed_provider != {
+        "requested": "CPUExecutionProvider",
+        "available": ["AzureExecutionProvider", "CPUExecutionProvider"],
+        "selected": ["CPUExecutionProvider"],
+        "passed": True,
+    }:
+        raise AssertionError("NeuFlow provider qualification evidence changed")
 
     source = EXPORTER_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(EXPORTER_PATH))
@@ -293,6 +311,10 @@ def main() -> int:
         raise AssertionError("exporter does not document its portable SDPA lowering")
     if source.count("_contiguous_numpy(a, np)") != 1 or source.count("_contiguous_numpy(b, np)") != 1:
         raise AssertionError("run_onnx does not make both ONNX inputs contiguous")
+    if "def _validate_fixed_io" not in source or "requested ONNX Runtime provider is unavailable" not in source:
+        raise AssertionError("exporter lacks fixed-IO/provider qualification hooks")
+    if "CUDA is intended for a later" not in source:
+        raise AssertionError("exporter does not distinguish later EL8/CUDA qualification")
 
     requirements = REQUIREMENTS_PATH.read_text(encoding="utf-8")
     for pin in ("torch==2.0.1", "torchvision==0.15.2", "onnx==1.14.1", "onnxruntime==1.16.3"):

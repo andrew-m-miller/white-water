@@ -61,6 +61,10 @@ def main() -> int:
         raise ArtifactError("NeuFlow iteration contract changed")
     if contract["normalization_location"] != "graph" or contract["normalization_formula"] != "image / 255":
         raise ArtifactError("NeuFlow normalization contract changed")
+    if contract["spatial_dimensions"] != (
+        "fixed_shape_only; exactly 432x768; no dynamic or other-shape support"
+    ):
+        raise ArtifactError("NeuFlow fixed evaluation-shape contract changed")
     if manifest["status"] not in {
         "provenance_pinned_export_pending",
         "export_validated",
@@ -81,6 +85,12 @@ def main() -> int:
             raise ArtifactError("validated NeuFlow artifact size changed")
         if manifest["validation"]["shapes"]["dynamic"] is not False:
             raise ArtifactError("NeuFlow fixed-shape export must not claim dynamic support")
+        if manifest["validation"]["shapes"] != {
+            "dynamic": False,
+            "example": [1, 2, 432, 768],
+            "additional": [1, 2, 432, 768],
+        }:
+            raise ArtifactError("NeuFlow fixed evaluation-shape evidence changed")
     if manifest["status"] == "excluded":
         if manifest["candidate"]["role"] != "excluded":
             raise ArtifactError("excluded NeuFlow manifest must mark candidate.role=excluded")
@@ -118,6 +128,29 @@ def main() -> int:
         and manifest["exclusion"]["reason_code"] != CHECKPOINT_EXCLUSION_REASON
     ):
         raise ArtifactError("numerically validated NeuFlow exclusion has the wrong checkpoint-license reason")
+
+    observed = manifest["validation"].get("observed")
+    if manifest["validation"]["status"] == "passed":
+        if not isinstance(observed, dict):
+            raise ArtifactError("NeuFlow numerical pass is missing observed provider evidence")
+        provider_validation = observed.get("provider_validation")
+        if not isinstance(provider_validation, dict):
+            raise ArtifactError("NeuFlow numerical pass is missing provider qualification evidence")
+        if provider_validation.get("requested") != "CPUExecutionProvider":
+            raise ArtifactError("checked NeuFlow macOS evidence must remain CPU-only")
+        if provider_validation.get("passed") is not True:
+            raise ArtifactError("NeuFlow CPU provider qualification did not pass")
+        advertised_io = observed.get("advertised_io")
+        if not isinstance(advertised_io, dict):
+            raise ArtifactError("NeuFlow numerical pass is missing fixed IO evidence")
+        inputs = advertised_io.get("inputs")
+        outputs = advertised_io.get("outputs")
+        if not isinstance(inputs, list) or len(inputs) != 2 or any(
+            item.get("shape") != [1, 3, 432, 768] for item in inputs
+        ):
+            raise ArtifactError("NeuFlow advertised input shape is not the fixed evaluation lattice")
+        if not isinstance(outputs, list) or len(outputs) != 1 or outputs[0].get("shape") != [1, 2, 432, 768]:
+            raise ArtifactError("NeuFlow advertised output shape is not the fixed evaluation lattice")
 
     artifact_path = manifest_path.parent / manifest["export"]["artifact"]
     # The source checkout intentionally omits ignored ONNX payloads. If a local exporter has

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_id": "whitewater-p25-artifact-v1",
   "status": "excluded",
-  "purpose": "P25-3F NeuFlow v2 reproducible export and fast-candidate qualification",
+  "purpose": "P25-3F NeuFlow v2 reproducible evaluation-only export and constrained fast-candidate smoke qualification",
   "candidate": {
     "id": "neuflow-v2",
     "role": "excluded",
@@ -127,7 +127,7 @@
       "policy": "caller-replication-crop"
     },
     "batch": 1,
-    "spatial_dimensions": "fixed_shape; H and W must be divisible by 16",
+    "spatial_dimensions": "fixed_shape_only; exactly 432x768; no dynamic or other-shape support",
     "iterations": "1_s16_and_8_s8_baked_into_graph",
     "confidence": {
       "present": false,
@@ -195,8 +195,45 @@
         "pytorch": "2.0.1",
         "onnx": "1.14.1",
         "onnxruntime": "1.16.3",
-        "providers": [
+        "provider": "CPUExecutionProvider",
+        "available_providers": [
+          "AzureExecutionProvider",
           "CPUExecutionProvider"
+        ],
+        "selected_providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "provider_validation": {
+        "requested": "CPUExecutionProvider",
+        "available": [
+          "AzureExecutionProvider",
+          "CPUExecutionProvider"
+        ],
+        "selected": [
+          "CPUExecutionProvider"
+        ],
+        "passed": true
+      },
+      "advertised_io": {
+        "inputs": [
+          {
+            "name": "image1",
+            "dtype": "tensor(float)",
+            "shape": [1, 3, 432, 768]
+          },
+          {
+            "name": "image2",
+            "dtype": "tensor(float)",
+            "shape": [1, 3, 432, 768]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "flow",
+            "dtype": "tensor(float)",
+            "shape": [1, 2, 432, 768]
+          }
         ]
       },
       "graph_nodes": 869,
@@ -278,15 +315,17 @@
   },
   "notes": [
     "export_status=validated_exact_fixed_shape_cpu",
-    "shape_support=432x768_is_the_validated_first_export_shape_only;_fixed_shape_support_is_not_source_model_proof_and_dynamic_or_other_shape_support_is_unverified",
-    "provider_support=CPUExecutionProvider_validated_at_exact_fixed_shape;_other_providers_and_other_shapes_unverified",
-    "qualification_gate=not_eligible_for_P25_mp2_or_fast_selection_while_shape_is_fixed_below_mp0_5",
+    "evaluation_contract=exact_fixed_shape_432x768_only;_0.331776_mp_smoke_lattice_shared_with_candidate_comparisons;_no_dynamic_or_other_shape_support_claim",
+    "shape_support=432x768_is_the_only_validated_evaluation_shape;_fixed_shape_support_is_not_source_model_proof_and_dynamic_or_other_shape_support_is_unverified",
+    "provider_support=CPUExecutionProvider_validated_at_exact_fixed_shape;_CUDA_and_CoreML_require_explicit_operator_runs;_no_macOS_CUDA_success_claim",
+    "qualification_gate=constrained_smoke_only;_not_eligible_for_frozen_mp0_5_or_mp2_cap_cells_or_fast_selection",
+    "linux_operator_testing=not_run;_requires_EL8_x86_64_artifact_and_explicit_CUDAExecutionProvider_session;_record_provider_selection_latency_memory_and_nonfinite_output",
     "source_evidence=official_README_requires_PyTorch_2.0.1_and_official_inference_calls_NeuFlow.forward_after_init_bhwd",
     "direction_evidence=official_matching.py_computes_correspondence_minus_source_grid; exporter_must_verify_both_signed_directions",
     "artifact_policy=no_large_ONNX_payload_committed",
     "license_checkpoint_verdict=unknown_pending_checkpoint_specific_terms_review",
     "license_backbone_verdict=unknown_not_applicable_no_external_backbone_artifact",
     "qualification_status=excluded_from_shipping_pending_checkpoint_license_review;_numerical_export_passed",
-    "export_result=exact_fixed_shape_export_and_cpu_parity_passed"
+    "export_result=exact_fixed_shape_export_and_requested_provider_parity_passed"
   ]
 }

@@ -3,8 +3,10 @@
 
 The upstream implementation stores grids, correlation buffers and iteration context on the
 model after ``init_bhwd``.  This exporter makes that fixed-shape state explicit and exports the
-planned 432x768 graph without dynamic axes.  A graph is published only after ONNX checker,
-CPU Runtime, PyTorch/reference parity, identity, and both signed translation checks pass.
+validated evaluation lattice without dynamic axes.  A graph is published only after ONNX
+checker, the requested ONNX Runtime provider, PyTorch/reference parity, identity, and both
+signed translation checks pass.  NeuFlow's provider result is qualification evidence only;
+checkpoint admission remains a separate license decision in the manifest.
 Large ONNX payloads are ignored by git; the manifest records their exact hash and size.
 """
 
@@ -56,6 +58,11 @@ EXPECTED_CHECKPOINT_SHA256 = "76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e
 EXPECTED_CHECKPOINT_SIZE = 36195519
 CHECKPOINT_EXCLUSION_REASON = ExclusionReason.CHECKPOINT_LICENSE_TERMS_UNKNOWN.value
 EXPORT_FAILURE_EXCLUSION_REASON = ExclusionReason.EXPORT_OR_OPERATOR_FAILURE.value
+QUALIFICATION_PROVIDERS = (
+    "CPUExecutionProvider",
+    "CUDAExecutionProvider",
+    "CoreMLExecutionProvider",
+)
 
 
 def require(condition: bool, message: str) -> None:
@@ -320,8 +327,43 @@ def _contiguous_numpy(value, numpy):
     return numpy.ascontiguousarray(value.detach().cpu().numpy())
 
 
+def _validate_fixed_io(session, manifest: dict[str, Any]) -> dict[str, Any]:
+    """Require the fixed-shape graph advertised by this NeuFlow manifest.
+
+    A fixed graph is intentional here.  ``init_bhwd`` leaves shape-dependent tensors on the
+    upstream module, so putting symbolic dimensions on the ONNX inputs would advertise a graph
+    that only works at the trace shape.  The operator-facing provider hook below is independent
+    of this check and can be rerun on an EL8/CUDA machine without implying macOS CUDA support.
+    """
+
+    expected_input = list(manifest["export"]["example_shape"])
+    expected_output = [1, 2, expected_input[2], expected_input[3]]
+    inputs = session.get_inputs()
+    outputs = session.get_outputs()
+    require([item.name for item in inputs] == ["image1", "image2"], "NeuFlow input names changed")
+    require([item.name for item in outputs] == ["flow"], "NeuFlow output name changed")
+    advertised_inputs = []
+    for item in inputs:
+        require(item.type == "tensor(float)", f"{item.name} is advertised as {item.type}, expected float32")
+        actual = list(item.shape)
+        require(actual == expected_input, f"{item.name} is not fixed to {expected_input}: {actual}")
+        advertised_inputs.append({"name": item.name, "dtype": item.type, "shape": actual})
+    output = outputs[0]
+    require(output.type == "tensor(float)", f"flow is advertised as {output.type}, expected float32")
+    actual_output = list(output.shape)
+    require(actual_output == expected_output, f"flow is not fixed to {expected_output}: {actual_output}")
+    return {
+        "inputs": advertised_inputs,
+        "outputs": [{"name": output.name, "dtype": output.type, "shape": actual_output}],
+    }
+
+
 def validate_export(
-    model, manifest: dict[str, Any], output: Path, device: str
+    model,
+    manifest: dict[str, Any],
+    output: Path,
+    device: str,
+    provider: str = "CPUExecutionProvider",
 ) -> dict[str, Any]:
     import numpy as np
     import onnx
@@ -329,6 +371,12 @@ def validate_export(
     import torch
 
     validation = manifest["validation"]
+    available_providers = ort.get_available_providers()
+    require(
+        provider in available_providers,
+        f"requested ONNX Runtime provider is unavailable: {provider}; "
+        f"available={available_providers}",
+    )
     _, _, height, width = manifest["export"]["example_shape"]
     dx = int(validation["translation_pixels"])
     first, second = synthetic_pair(
@@ -339,9 +387,15 @@ def validate_export(
     reverse_pt = _run_reference(model, second, first)
 
     try:
-        session = ort.InferenceSession(str(output), providers=["CPUExecutionProvider"])
+        session = ort.InferenceSession(str(output), providers=[provider])
     except Exception as exc:
-        raise RuntimeError(f"ONNX Runtime CPU session creation failed: {exc}") from exc
+        raise RuntimeError(f"ONNX Runtime {provider} session creation failed: {exc}") from exc
+    selected_providers = session.get_providers()
+    require(
+        provider in selected_providers,
+        f"ONNX Runtime did not select {provider}: {selected_providers}",
+    )
+    advertised_io = _validate_fixed_io(session, manifest)
     input_names = [item["name"] for item in manifest["tensor_contract"]["inputs"]]
     output_name = manifest["tensor_contract"]["output"]["name"]
 
@@ -355,7 +409,7 @@ def validate_export(
                 },
             )[0]
         except Exception as exc:
-            raise RuntimeError(f"ONNX Runtime CPU inference failed: {exc}") from exc
+            raise RuntimeError(f"ONNX Runtime {provider} inference failed: {exc}") from exc
 
     identity_onnx = run_onnx(first, first)
     forward_onnx = run_onnx(first, second)
@@ -365,6 +419,9 @@ def validate_export(
         f"unexpected ONNX output shape {list(identity_onnx.shape)}",
     )
     require(identity_onnx.dtype == np.float32, f"unexpected ONNX output dtype {identity_onnx.dtype}")
+    require(np.all(np.isfinite(identity_onnx)), "ONNX identity output contains a non-finite value")
+    require(np.all(np.isfinite(forward_onnx)), "ONNX forward output contains a non-finite value")
+    require(np.all(np.isfinite(reverse_onnx)), "ONNX reverse output contains a non-finite value")
 
     differences = np.concatenate(
         [
@@ -425,8 +482,17 @@ def validate_export(
             "pytorch": torch.__version__,
             "onnx": onnx.__version__,
             "onnxruntime": ort.__version__,
-            "providers": session.get_providers(),
+            "provider": provider,
+            "available_providers": available_providers,
+            "selected_providers": selected_providers,
         },
+        "provider_validation": {
+            "requested": provider,
+            "available": available_providers,
+            "selected": selected_providers,
+            "passed": True,
+        },
+        "advertised_io": advertised_io,
         "graph_nodes": len(graph.graph.node),
         "graph_domains": sorted({node.domain or "ai.onnx" for node in graph.graph.node}),
         "onnx_pytorch_mean_abs": mean_abs,
@@ -533,7 +599,9 @@ def update_manifest(
         )
     ]
     env_observed = observed["environment"]
-    providers = env_observed.get("providers", ["CPUExecutionProvider"])
+    provider = observed.get("provider_validation", {}).get(
+        "requested", "CPUExecutionProvider"
+    )
     environment = {
         "platform": "macos" if platform_id.startswith("macos") else "linux",
         "architecture": "arm64" if platform_id.endswith("arm64") else "x86_64",
@@ -541,7 +609,7 @@ def update_manifest(
         "framework": f"pytorch=={env_observed['pytorch']}",
         "exporter": f"torch.onnx=={env_observed['pytorch']}; onnx=={env_observed['onnx']}",
         "runtime": f"onnxruntime=={env_observed['onnxruntime']}",
-        "provider": ",".join(providers),
+        "provider": provider,
     }
     environment["sha256"] = environment_sha256(environment)
     update_platform_export(
@@ -561,7 +629,7 @@ def update_manifest(
         manifest["status"] = "export_validated"
         manifest["candidate"]["role"] = "shipping-candidate"
         manifest.pop("exclusion", None)
-    result_note = "export_result=exact_fixed_shape_export_and_cpu_parity_passed"
+    result_note = "export_result=exact_fixed_shape_export_and_requested_provider_parity_passed"
     if result_note not in manifest["notes"]:
         manifest["notes"].append(result_note)
     write_manifest(path, manifest)
@@ -637,6 +705,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--device", choices=("cpu",), default="cpu")
+    parser.add_argument(
+        "--provider",
+        choices=QUALIFICATION_PROVIDERS,
+        default="CPUExecutionProvider",
+        help=(
+            "ONNX Runtime provider for local qualification; CUDA is intended for a later "
+            "EL8 operator run and is not implied by a macOS CPU export"
+        ),
+    )
     parser.add_argument("--platform", help="platform identity for this exact export")
     parser.add_argument("--verify-provenance-only", action="store_true")
     parser.add_argument("--update-manifest", action="store_true")
@@ -678,8 +755,8 @@ def main() -> int:
         try:
             stage = "onnx_export"
             export_onnx(model, manifest, candidate, args.device)
-            stage = "cpu_runtime_validation"
-            observed = validate_export(model, manifest, candidate, args.device)
+            stage = f"{args.provider}_runtime_validation"
+            observed = validate_export(model, manifest, candidate, args.device, args.provider)
             publish_file(candidate, output)
         finally:
             candidate.unlink(missing_ok=True)
