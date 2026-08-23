@@ -122,18 +122,9 @@ def _validate_identity(identity: Any) -> dict[str, Any]:
     return dict(mapping)
 
 
-def _validate_result(value: Any, path: str) -> dict[str, Any]:
-    if not isinstance(value, Mapping):
-        _fail("result_shape", f"{path} must be a JSON object")
-    mapping = value
-    _reject_nonfinite(mapping, path)
-    return dict(mapping)
+def _validate_state_header(mapping: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate the state fields needed before expanding a caller's plan."""
 
-
-def _validate_state_shape(state: Any, plan: MatrixPlan) -> tuple[dict[str, Any], tuple[CellKey, ...]]:
-    mapping = _mapping(state, "state")
-    if set(mapping) != _STATE_KEYS:
-        _fail("state_shape", "state must contain exactly schema_version, identity, identity_sha256, and entries")
     if not isinstance(mapping["schema_version"], int) or isinstance(mapping["schema_version"], bool) or mapping["schema_version"] != 1:
         _fail("schema_version", "state schema_version must be integer 1")
     identity = _validate_identity(mapping["identity"])
@@ -146,6 +137,22 @@ def _validate_state_shape(state: Any, plan: MatrixPlan) -> tuple[dict[str, Any],
         raise ResumeFailure("identity_hash", "identity_sha256 must be hexadecimal") from exc
     if canonical_sha256(identity) != identity_sha256:
         _fail("identity_hash", "identity_sha256 does not match identity")
+    return identity
+
+
+def _validate_result(value: Any, path: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        _fail("result_shape", f"{path} must be a JSON object")
+    mapping = value
+    _reject_nonfinite(mapping, path)
+    return dict(mapping)
+
+
+def _validate_state_shape(state: Any, plan: MatrixPlan) -> tuple[dict[str, Any], tuple[CellKey, ...]]:
+    mapping = _mapping(state, "state")
+    if set(mapping) != _STATE_KEYS:
+        _fail("state_shape", "state must contain exactly schema_version, identity, identity_sha256, and entries")
+    identity = _validate_state_header(mapping)
     entries = mapping["entries"]
     if not isinstance(entries, list) or len(entries) != len(plan.cells):
         _fail("cell_count", "state entries must contain exactly one entry per plan cell")
@@ -193,9 +200,8 @@ def _validate_identity_before_plan(state: Any, expected_identity: Mapping[str, A
 
     if not isinstance(state, Mapping) or set(state) != _STATE_KEYS:
         return
-    _validate_expected_identity(
-        {"identity": _validate_identity(state["identity"])}, expected_identity
-    )
+    identity = _validate_state_header(state)
+    _validate_expected_identity({"identity": identity}, expected_identity)
 
 
 def _check_existing_file(path: Path, *, missing_ok: bool) -> None:

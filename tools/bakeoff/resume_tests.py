@@ -85,6 +85,20 @@ def test_identity_and_cell_strictness() -> None:
         changed_identity = dict(IDENTITY, profile="final")
         _failure("identity_mismatch", lambda: load_state(path, changed_identity, PLAN))
 
+        _new_state(path)
+        tampered = _raw_state(path)
+        tampered["identity"]["profile"] = "tampered"
+        _write_raw(path, tampered)
+        _failure("identity_hash", lambda: load_state(path, IDENTITY, PLAN))
+
+        _new_state(path)
+        tampered = _raw_state(path)
+        tampered["schema_version"] = 2
+        tampered["identity"]["profile"] = "tampered"
+        _write_raw(path, tampered)
+        _failure("schema_version", lambda: load_state(path, IDENTITY, PLAN))
+
+        _new_state(path)
         tampered = _raw_state(path)
         tampered["identity_sha256"] = "0" * 64
         _write_raw(path, tampered)
