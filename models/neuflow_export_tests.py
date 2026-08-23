@@ -388,6 +388,10 @@ def main() -> int:
         "passed": True,
     }:
         raise AssertionError("NeuFlow provider qualification evidence changed")
+    if "CoreMLExecutionProvider" in exporter.QUALIFICATION_PROVIDERS:
+        raise AssertionError("NeuFlow exporter exposes an uncheckable CoreML provider")
+    if not any("CoreML_not_exposed_by_this_candidate_path" in note for note in manifest["notes"]):
+        raise AssertionError("NeuFlow manifest does not record the CoreML fail-closed posture")
 
     source = EXPORTER_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(EXPORTER_PATH))

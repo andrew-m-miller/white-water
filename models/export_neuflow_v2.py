@@ -61,7 +61,6 @@ EXPORT_FAILURE_EXCLUSION_REASON = ExclusionReason.EXPORT_OR_OPERATOR_FAILURE.val
 QUALIFICATION_PROVIDERS = (
     "CPUExecutionProvider",
     "CUDAExecutionProvider",
-    "CoreMLExecutionProvider",
 )
 
 
