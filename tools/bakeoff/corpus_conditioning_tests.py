@@ -207,30 +207,34 @@ def _test_synthetic_cases() -> None:
     assert foreground_truth.source_layer == "foreground"
     assert foreground_truth.target_layer == "foreground"
     assert foreground_truth.displacement == (24.0, -8.0)
-    assert foreground_truth.same_coordinate_transition == "occluded"
+    # The foreground leaves this fixed coordinate, so the background is revealed.
+    assert foreground_truth.same_coordinate_transition == "revealed"
     assert analytic_displacement("occlusion-reveal", 0, 8, 20.0, 30.0) == (24.0, -8.0)
     background_truth = analytic_pair_truth("occlusion-reveal", 0, 8, 50.0, 40.0)
     assert background_truth.status == "background"
     assert background_truth.source_layer == "background"
     assert background_truth.target_layer == "background"
     assert background_truth.displacement == (8.0, 4.0)
-    revealed_transition = analytic_pair_truth("occlusion-reveal", 0, 8, 50.0, 30.0)
-    assert revealed_transition.status == "background"
-    assert revealed_transition.same_coordinate_transition == "revealed"
-    revealed_truth = analytic_pair_truth("occlusion-reveal", 0, 8, 34.0, 29.0)
-    assert revealed_truth.status == "revealed"
-    assert revealed_truth.no_dense_truth
-    assert revealed_truth.displacement is None
+    # At this fixed coordinate, background is replaced by foreground and is therefore
+    # occluded.  The source-domain correspondence below exercises the same label for
+    # background mapping into a target foreground pixel.
+    occluded_transition = analytic_pair_truth("occlusion-reveal", 0, 8, 50.0, 30.0)
+    assert occluded_transition.status == "background"
+    assert occluded_transition.same_coordinate_transition == "occluded"
+    occluded_truth = analytic_pair_truth("occlusion-reveal", 0, 8, 34.0, 29.0)
+    assert occluded_truth.status == "occluded"
+    assert occluded_truth.no_dense_truth
+    assert occluded_truth.displacement is None
     try:
         analytic_displacement("occlusion-reveal", 0, 8, 34.0, 29.0)
     except TruthUnavailable as failure:
-        assert failure.truth == revealed_truth
+        assert failure.truth == occluded_truth
     else:
         raise AssertionError("layer-changing sample returned dense truth")
     try:
         analytic_pair_coordinate("occlusion-reveal", 0, 8, 34.0, 29.0)
     except TruthUnavailable as failure:
-        assert failure.truth == revealed_truth
+        assert failure.truth == occluded_truth
     else:
         raise AssertionError("layer-changing sample returned a pair coordinate")
     assert visibility_at("occlusion-reveal", 0, 28, 30)

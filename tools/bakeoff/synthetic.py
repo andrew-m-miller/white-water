@@ -95,7 +95,10 @@ class PairTruth:
     visible correspondence in the target.  ``occluded`` and ``revealed`` identify a
     layer mismatch and therefore carry no dense displacement.  The separate
     ``same_coordinate_transition`` records the useful fixed-coordinate mask change,
-    even when the moving layer itself has a valid correspondence elsewhere.
+    even when the moving layer itself has a valid correspondence elsewhere.  Pair
+    status and fixed-coordinate transition use opposite visibility directions:
+    source background -> target foreground is pair ``occluded``, while fixed
+    foreground -> background is ``revealed``.
     """
 
     status: str
@@ -407,10 +410,26 @@ def _layer_at(case: SyntheticCase, frame: int, x: float, y: float) -> str:
     return "background"
 
 
-def _transition(source_layer: str, target_layer: str) -> str:
+def _pair_transition(source_layer: str, target_layer: str) -> str:
+    """Classify visibility for a source-domain layer correspondence.
+
+    A background point whose target location is covered by foreground is occluded.
+    Conversely, a foreground point whose target location is background is revealed
+    as background becomes visible.  This direction is intentionally different from
+    a fixed-coordinate mask transition.
+    """
+
     if source_layer == target_layer:
         return "stable"
-    return "occluded" if source_layer == "foreground" else "revealed"
+    return "occluded" if source_layer == "background" else "revealed"
+
+
+def _fixed_coordinate_transition(source_layer: str, target_layer: str) -> str:
+    """Classify visibility at one unchanged image coordinate."""
+
+    if source_layer == target_layer:
+        return "stable"
+    return "revealed" if source_layer == "foreground" else "occluded"
 
 
 def analytic_pair_truth(
@@ -437,9 +456,9 @@ def analytic_pair_truth(
         source_x, source_y = _inverse_coordinate(case, from_frame, x, y)
         target_x, target_y = _forward_coordinate(case, to_frame, source_x, source_y)
     target_layer = _layer_at(case, to_frame, target_x, target_y)
-    status = _transition(source_layer, target_layer)
+    status = _pair_transition(source_layer, target_layer)
     displacement = None if status != "stable" else (target_x - x, target_y - y)
-    same_coordinate_transition = _transition(
+    same_coordinate_transition = _fixed_coordinate_transition(
         _layer_at(case, from_frame, x, y),
         _layer_at(case, to_frame, x, y),
     )
@@ -610,6 +629,14 @@ def truth_document(case_or_id: SyntheticCase | str) -> dict[str, Any]:
             "dense_statuses": ["foreground", "background"],
             "non_dense_statuses": ["occluded", "revealed"],
             "non_dense_displacement": None,
+            "source_pair_semantics": (
+                "background mapped into target foreground is occluded; foreground "
+                "mapped into target background is revealed"
+            ),
+            "fixed_coordinate_semantics": (
+                "foreground leaving to background is revealed; background entering "
+                "foreground is occluded"
+            ),
             "same_coordinate_transition": (
                 "stable, occluded, or revealed visibility transition at the queried "
                 "coordinate; this is separate from moving-layer correspondence"

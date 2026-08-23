@@ -36,6 +36,12 @@ for `status="foreground"` or `status="background"`; `status="occluded"` and
 `status="revealed"` have `displacement=None` and `no_dense_truth=True`.  The result also records
 fixed-coordinate `same_coordinate_transition` (`stable`, `occluded`, or `revealed`) so mask
 changes remain measurable even when a moving layer has a valid correspondence elsewhere.
+For a source-domain correspondence, background mapped into target foreground is `occluded`,
+while foreground mapped into target background is `revealed`.  At one fixed coordinate the
+labels describe the visible plate instead: foreground leaving to background is `revealed`, and
+background becoming foreground is `occluded`.  This translating-rectangle construction naturally
+produces source-domain occlusion; reveal is primarily fixed-coordinate/target-domain evidence
+unless a later target-domain query API is added.
 The compatibility `analytic_displacement` helper follows the selected layer and raises a
 typed `TruthUnavailable` for the no-dense cases rather than silently returning background flow.
 The occlusion truth sidecar names this API and its status contract.
