@@ -2,9 +2,8 @@
 """Strict, dependency-free PFM input for the offline bake-off.
 
 The public rows are immutable and use the repository convention: row zero is the
-bottom row and each pixel is a tuple containing one or three channel values. PFM
-payload scanlines are interpreted in top-to-bottom order and reversed at the
-boundary.
+bottom row and each pixel is a tuple containing one or three channel values. The
+repository's PFM payload scanlines already use that same bottom-origin order.
 """
 
 from __future__ import annotations
@@ -16,11 +15,12 @@ from pathlib import Path
 import re
 import stat
 import struct
-from typing import Any
 
 
 MAX_DIMENSION = 32768
 MAX_PAYLOAD_BYTES = 512 * 1024 * 1024
+MAX_HEADER_BYTES = 4096
+EXPECTED_MODE = 0o644
 _MAGIC = {"PF": 3, "Pf": 1}
 _DIMENSIONS = re.compile(r"[1-9][0-9]* [1-9][0-9]*\Z")
 _SCALE = re.compile(
@@ -68,6 +68,8 @@ def _regular_fd(path: Path) -> int:
         _fail("symlink_file", f"PFM input must not be a symlink: {path}")
     if not stat.S_ISREG(info.st_mode):
         _fail("nonregular_file", f"PFM input must be a regular file: {path}")
+    if stat.S_IMODE(info.st_mode) != EXPECTED_MODE:
+        _fail("file_mode", f"PFM input mode must be exactly 0644: {path}")
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(str(path), flags)
@@ -81,6 +83,12 @@ def _regular_fd(path: Path) -> int:
     if not stat.S_ISREG(opened.st_mode):
         os.close(descriptor)
         _fail("nonregular_file", f"PFM input must be a regular file: {path}")
+    if stat.S_IMODE(opened.st_mode) != EXPECTED_MODE:
+        os.close(descriptor)
+        _fail("file_mode", f"PFM input mode must be exactly 0644: {path}")
+    if opened.st_size < 0 or opened.st_size > MAX_PAYLOAD_BYTES + MAX_HEADER_BYTES:
+        os.close(descriptor)
+        _fail("size_bound", f"PFM input exceeds the bounded file size: {path}")
     return descriptor
 
 
@@ -134,13 +142,15 @@ def read_pfm(path: Path | str) -> PfmImage:
     try:
         with os.fdopen(descriptor, "rb") as stream:
             descriptor = -1
-            data = stream.read()
+            data = stream.read(MAX_PAYLOAD_BYTES + MAX_HEADER_BYTES + 1)
     except OSError as exc:
         raise PfmFailure("file_error", f"cannot read PFM file {input_path}: {exc}") from exc
     finally:
         if descriptor >= 0:
             os.close(descriptor)
 
+    if len(data) > MAX_PAYLOAD_BYTES + MAX_HEADER_BYTES:
+        _fail("size_bound", f"PFM input exceeds the bounded file size: {input_path}")
     width, height, channels, scale, offset = _parse_header(data)
     expected_bytes = width * height * channels * 4
     payload = data[offset:]
@@ -162,7 +172,10 @@ def read_pfm(path: Path | str) -> PfmImage:
                 _fail("nonfinite_sample", "PFM contains a nonfinite decoded or scaled sample")
             row.append(pixel)
         decoded.append(tuple(row))
-    return PfmImage(width, height, channels, tuple(reversed(decoded)))
+    return PfmImage(width, height, channels, tuple(decoded))
 
 
-__all__ = ["MAX_DIMENSION", "MAX_PAYLOAD_BYTES", "PfmFailure", "PfmImage", "read_pfm"]
+__all__ = [
+    "EXPECTED_MODE", "MAX_DIMENSION", "MAX_HEADER_BYTES", "MAX_PAYLOAD_BYTES",
+    "PfmFailure", "PfmImage", "read_pfm",
+]
