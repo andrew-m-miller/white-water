@@ -10,14 +10,15 @@ and a binary in git history proves nothing about where it came from.
 
 ## Selection state
 
-**Nothing is selected to ship.** P25-0's protocol/schema package is implemented and under review
-in PR #6, but no P25 bake-off candidate artifact has been measured or selected. The Phase 0B
+**Nothing is selected to ship.** P25-0, P25-1 and P25-2 are merged; candidate-specific P25-3
+work is under review in PRs #10-#12 and the runner is under review in PR #13. The Phase 0B
 SEA-RAFT M probe remains qualification evidence, not a P25 selection. Choice option order is
-persistent setup API, so the default
-and fast alternative are chosen only by the Phase 2.5 bake-off of the exact exported ONNX
-artifacts. SEA-RAFT is the leading conservative candidate, WAFT is the quality/memory
-candidate, and NeuFlow v2 is the leading fast stateless candidate. Original RAFT remains a
-useful validation baseline; RIFE and MemFlow are not leading shipping candidates.
+persistent setup API, so a default and any qualifying fast alternative are chosen only by the
+Phase 2.5 bake-off of the exact exported ONNX artifacts. A one-model release is valid and
+publishes no one-option Model choice. SEA-RAFT is the leading conservative candidate, WAFT is
+the quality/memory candidate, and NeuFlow v2 is the leading fast stateless candidate. Original
+RAFT is a validation baseline; evaluation does not make RAFT, NeuFlow or WAFT packageable when
+their checkpoint terms remain unresolved.
 
 Phase 0B deliberately uses **SEA-RAFT M** as its representative real network. That decision
 exists to exercise the CUDA provider and the runtime dependency closure with a plausible
@@ -26,10 +27,10 @@ host run, the probe gains a pinned export script and manifest containing the ups
 checkpoint URL and SHA256, tensor contract, exported ONNX SHA256, and synthetic translation
 validation.
 
-**No licence in this document has been audited.** Repository statements are leads, not
-approval. Before anything goes to a client, re-verify the exact code revision, checkpoint,
-and any backbone weights actually shipped, then record the verdict here with a date and the
-checkpoint SHA256.
+The survey table below is not a legal approval. Exact candidate manifests own revision-bound
+code, checkpoint and backbone audits as they land; unresolved checkpoint terms fail closed for
+shipping even when the artifact is useful for evaluation. Before anything goes to a client,
+verify the exact files being packaged and preserve the required notices.
 
 Deployment posture changes which of these obligations actually bind — see **Deployment
 posture** below. The short version: not distributing the plugin relaxes a lot, but it does
@@ -37,16 +38,17 @@ posture** below. The short version: not distributing the plugin relaxes a lot, b
 
 ## Candidates considered
 
-Surveyed 2026-08-19. Licence column is what the upstream repository *states*; none of it
-has been audited, and for a facility deliverable that audit is not optional.
+Surveyed 2026-08-19. The non-P25 rows remain survey leads. For active P25 candidates, the table
+summarizes revision-bound audits in the open candidate PRs; the exact manifests, not this table,
+own the evidence and still require human review before packaging.
 
 | Model | Venue | Licence | Verdict |
 |---|---|---|---|
 | **SEA-RAFT** | ECCV 2024 (oral) | **BSD-3** | Leading conservative candidate and the Phase 0B probe network. Shipping role still requires the bake-off. |
-| **WAFT** | ICLR 2026 (oral) | **BSD-3 code, backbone weights vary** | Quality/memory candidate. Strong upstream results, but export and checkpoint licensing need resolving. |
-| **NeuFlow v2** | 2024 | not checked | Leading fast stateless candidate; export, quality and licence all require measurement. |
+| **WAFT** | ICLR 2026 (oral) | **BSD-3 code; selected Twins backbone Apache-2.0; checkpoint terms unknown** | Evaluation candidate in PR #10. Exact checkpoint/backbone evidence and exporter are pinned; the ONNX export remains pending and shipping is excluded. |
+| **NeuFlow v2** | 2024 | **Apache-2.0 code; checkpoint terms unknown** | Fixed 432x768 macOS CPU export qualified in PR #12; evaluation-only pending target qualification, with shipping excluded. |
 | **AllTracker** | ICCV 2025 | **MIT** | Architecturally native to this problem. Investigate — it could delete the chain. |
-| RAFT | ECCV 2020 | BSD-3 | Known validation baseline, not a presumed shipping model. |
+| RAFT | ECCV 2020 | BSD-3 code; checkpoint terms unknown | Exact macOS CPU export qualified in PR #11 as a formal validation baseline; never a presumed shipping model. |
 | RIFE | ECCV 2022 | MIT | Fast and exportable, but off-label for motion-field accuracy. |
 | MemFlow | CVPR 2024 | Apache-2.0 | Stateful temporal design conflicts with arbitrary-order OFX rendering; reconsider only with a sequential durable-analysis architecture. |
 | DOT | CVPR 2024 | MIT code, **CC-BY-NC front-end** | Right idea, unusable as shipped. |
@@ -95,12 +97,12 @@ backbones do not share terms:
 | DAv2 Base / Large / Giant | **CC-BY-NC-4.0** | **Blocked.** Non-commercial. |
 | DINOv3 | Meta custom licence | Permits commercial use, forbids military use, and **requires the licence to travel with any redistributed weights** -- which is exactly what shipping a checkpoint inside a .ofx.bundle is. Bespoke, so it needs an actual legal read rather than a shrug. |
 
-So evaluating WAFT is two decisions: qualify the architecture and export, then separately
-choose a checkpoint whose backbone we can ship. **Action during Phase 2.5:**
-pull the model zoo, record which backbone each checkpoint uses and its SHA256 in this
-document, and benchmark the Twins-backbone checkpoint against the recommended one. If the
-gap is small, Twins ends the question. If it is large, DINOv3 becomes a legal question and
-SEA-RAFT (unambiguously BSD-3, no foundation-model backbone) remains the conservative option.
+So evaluating WAFT is two decisions: qualify the architecture/export, then separately decide
+whether the exact checkpoint may ship. PR #10 pins the 544,230,582-byte `zero-shot.pth`, verifies
+that its bundled encoder is Twins SVT-Large, and records the checkpoint's missing file-level
+terms. The exporter is ready, but no WAFT ONNX artifact has yet been produced or numerically
+qualified. That blocks measurement until the local export succeeds and blocks shipping until the
+checkpoint terms are resolved; neither result is inferred from the BSD-3 source licence.
 
 ### The general rule this keeps producing
 
@@ -150,9 +152,10 @@ render history unless the plugin owns a sequential analysis pass and durable cac
 the wrong contract for the current on-demand design.
 
 NeuFlow v2 is therefore the leading fast candidate: stateless pairwise inference matches the
-host contract. Its exact licence, export and image-quality behavior remain bake-off work.
-MemFlow can be reconsidered only if 0C leads to an explicit sequential, durable-analysis
-architecture.
+host contract. PR #12 pins and qualifies an exact fixed-shape 432x768 macOS CPU artifact and
+records Apache-2.0 code with unresolved checkpoint terms. Linux CUDA qualification and the
+production-quality comparison remain open; CoreML is not claimed. MemFlow can be reconsidered
+only if a later design adopts explicit sequential, durable analysis.
 
 ## Deployment posture, and what it does and does not change
 
@@ -278,9 +281,11 @@ private ONNX Runtime 1.29 on CPU and CUDA. This qualifies the real network and C
 on that host/runtime pair; it does not choose a shipping model. Follow-up runs measured
 warmed CPU/CUDA timing and device-wide VRAM at 480×640, 720×1280 and 1080×1920, repeated
 lifecycle, duplicate-node equivalence, cancellation, provider-init fallback, and a bounded
-64 MiB CUDA-arena failure followed by fresh-session numerical CPU recovery. Complete CUDA
-dependency closure and qualification above 1080p remain in Phase 0B. Automatic production
-fallback is Phase 4 behavior and is not established by the recovery probe.
+64 MiB CUDA-arena failure followed by fresh-session numerical CPU recovery. The exact CUDA
+dependency closure also passed. UHD, DCI 4K and Alexa 35 open-gate attempts produced controlled
+bounded-allocation stops under the configured 16 GiB arena, closing Phase 0B without establishing
+a product resolution cap. Automatic production fallback is Phase 4 behavior and is not
+established by the recovery probe.
 
 The first installed probe exposed a packaging fault before that pass: the ONNX existed but
 was mode `0600`, so the distinct Flame runtime user could not read it. Published model and

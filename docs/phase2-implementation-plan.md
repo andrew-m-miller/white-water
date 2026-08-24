@@ -8,7 +8,7 @@ stops before the Phase 2.5 model/export bake-off and preserves the later boundar
 **Status: closed 2026-08-22.** The host-free flow algebra, generation-safe caches,
 model-independent preparation, deterministic `NullPairwiseEstimator`, dependency-light
 `ww-flow` CLI and expanded unit/harness coverage merged through PR #4. This document remains
-the Phase 2 work breakdown and exclusion record; Phase 2.5 P25-0 is tracked separately.
+the Phase 2 work breakdown and exclusion record; Phase 2.5 is tracked separately.
 
 ## 2.1 — Geometry, typed links, and chain algebra
 

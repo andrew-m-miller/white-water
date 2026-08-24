@@ -24,8 +24,10 @@ Read the measured Phase 0 and Phase 1 records in `docs/host-notes.md` rather tha
 here. Phase 1 merged through PR #1 on 2026-08-22 after Flame verified the workflow, fallback,
 matte, partial-render and ST contracts. Phase 2 merged through PR #4; its host-free flow algebra,
 `NullPairwiseEstimator`, `ww-flow`, and expanded unit/harness coverage are now the base for the
-Phase 2.5 bake-off. P25-0 is implemented and under review in PR #6: it freezes the protocol and
-versioned corpus/report schemas, but does not select a model or publish OFX choice indices.
+Phase 2.5 bake-off. P25-0, P25-1 and P25-2 merged through PRs #6, #8 and #7 respectively.
+Candidate export and evidence work is under review in PRs #10-#12, and the offline bake-off
+runner is under review in PR #13. No model/default, target result, or persistent OFX choice index
+has been selected.
 
 The plan was amended on 2026-08-20 after an architecture review. Read `docs/plan.md` and
 `docs/context.md` before writing code against anything you remember about it.

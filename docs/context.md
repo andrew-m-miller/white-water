@@ -249,6 +249,23 @@ still not wired into the OFX product.
 
 ---
 
+## Session 10 — 2026-08-23/24 — P25-1 through P25-4 and evaluation-only candidates
+
+P25-0 merged through PR #6, P25-1 through PR #8, and P25-2 through PR #7. The repository now has
+the frozen v1 measurement contract, candidate-neutral artifact validation, and deterministic
+corpus/conditioning inputs. PRs #10-#12 carry the P25-3 candidate work, and PR #13 carries the
+P25-4 offline runner; all four remain under review and unmerged as of 2026-08-24.
+
+The candidate policy now distinguishes technical measurement from shipping admission. Original
+RAFT is a formal validation baseline, while NeuFlow and WAFT remain useful comparison candidates.
+Unknown or restrictive checkpoint terms can exclude any of them from packaging and selection
+without erasing valid numerical evidence. The common bake-off should therefore compare technically
+qualified SEA-RAFT, RAFT, NeuFlow and WAFT artifacts where practical, even if SEA-RAFT is the only
+model that ultimately ships. A fast alternative is optional: if none passes every gate, the plugin
+may ship one model and omit the `model` choice rather than publish a meaningless one-option API.
+
+---
+
 ## Decisions
 
 ### Vendored from warp-drive rather than submoduled
@@ -436,14 +453,14 @@ is the right design.
 - **`RTLD_LOCAL` sufficing depends on ONNX Runtime's hidden visibility**, which is a
   property of their build rather than a guarantee. Re-check whenever the bundled version
   changes.
-- **Model licences are read, not audited.** Every claim needs verifying against the actual
-  repository and the actual checkpoint file before anything goes to a client — including
-  backbone weights, which may carry different terms from the code that loads them. Secondhand
-  licence claims, including those in the 2026-08-20 architecture review, are leads rather than
-  findings. See `models/MODELS.md`.
+- **Survey licence claims are leads; exact manifests own the audits.** P25-3 verifies the pinned
+  repository, checkpoint and backbone surfaces separately. Unknown checkpoint terms fail closed
+  for shipping without automatically blocking evaluation. Before anything goes to a client, the
+  exact packaged files and required notices still need human review. See `models/MODELS.md`.
 - **No model default is chosen, deliberately.** Choice option order is API — a saved setup
-  stores the index — so `model` and `inputCurve` get their options at Phase 2.5, from the
-  bake-off, measured on the exact exported artifact rather than on upstream PyTorch.
+  stores the index — so `inputCurve` and any multi-model `model` choice get their options at
+  Phase 2.5, from the bake-off, measured on the exact exported artifact rather than on upstream
+  PyTorch. If only one model qualifies, the Model choice is omitted.
 - **The chain is a workaround for pairwise models.** A reference-frame tracker computes
   directly what `FlowChain` approximates. If one becomes viable at production resolutions,
   the chain, the drift work and the link cache all collapse into a single inference. The v1
