@@ -194,6 +194,14 @@ class LegalReviewTests(unittest.TestCase):
         for surface in ("code", "checkpoint", "backbone"):
             self.assertNotIn(f"--reviewed-surface {surface}", workflow)
 
+    def test_workflow_uses_el8_compatible_curl_options(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertNotIn(
+            "--retry-all-errors",
+            workflow,
+            "the EL8 qualification container carries curl 7.61.1",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

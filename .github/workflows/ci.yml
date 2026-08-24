@@ -853,7 +853,7 @@ jobs:
           git -C "$upstream" remote add origin https://github.com/princeton-vl/SEA-RAFT.git
           git -C "$upstream" fetch --depth=1 origin "$commit"
           git -C "$upstream" checkout --detach FETCH_HEAD
-          curl --fail --location --retry 3 --retry-all-errors -o "$checkpoint" "$checkpoint_url"
+          curl --fail --location --retry 3 -o "$checkpoint" "$checkpoint_url"
 
           "$py" models/export_searaft.py \
             --upstream "$upstream" \
@@ -965,7 +965,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/p25-5-inputs"
-          curl --fail --location --retry 3 --retry-all-errors \
+          curl --fail --location --retry 3 \
             --output "$RUNNER_TEMP/p25-5-inputs/conda-bootstrap.sh" "$P25_5_CONDA_INSTALLER_URL"
           printf '%s  %s\n' "$P25_5_CONDA_INSTALLER_SHA256" \
             "$RUNNER_TEMP/p25-5-inputs/conda-bootstrap.sh" | sha256sum --check --status
@@ -1003,7 +1003,7 @@ jobs:
           ort_inputs="$RUNNER_TEMP/p25-5-inputs/onnxruntime-cuda12"
           ort_archive="$RUNNER_TEMP/p25-5-inputs/onnxruntime-cuda12.tgz"
           mkdir -p "$ort_inputs"
-          curl --fail --location --retry 3 --retry-all-errors \
+          curl --fail --location --retry 3 \
             --output "$ort_archive" "$ort_url"
           printf '%s  %s\n' "$ort_sha" "$ort_archive" | sha256sum --check --status
           tar --extract --gzip --file "$ort_archive" --directory "$ort_inputs"
