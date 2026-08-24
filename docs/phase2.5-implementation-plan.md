@@ -12,16 +12,18 @@ PFM CLI are present. **P25-0, P25-1 and P25-2 are merged through PRs #6, #8 and 
 respectively.** They provide the frozen protocol and schemas, candidate-neutral artifact
 framework, and deterministic corpus/conditioning package. P25-3 candidate export/evidence work
 merged through PRs #11, #10 and #12, and the P25-4 offline runner and active protocol v2 merged
-through PR #13. No production target measurement, ranking decision, shipping model, or OFX choice
-order has been selected. P25-5 local/CI qualification is next; broader closeout for Phases 2 and
-2.5 remains deferred while the bake-off is open.
+through PR #13. P25-5 local/CI qualification completed on draft PR #15 at `adfd4fb`; P25-6
+airgapped target measurement is next after review and merge. No production target measurement,
+ranking decision, shipping model, or OFX choice order has been selected, and broader closeout for
+Phases 2 and 2.5 remains deferred while the bake-off is open.
 
-P25-5 implementation is in review. Its EL8 lane builds a hash-pinned conda environment, relocates
-it with `conda-pack`, and places the opaque runtime archive behind an offline bootstrap wrapper.
-The lane remains fail-closed until an explicit conda lock, complete runtime/candidate
-licence-and-notice inputs, and a concrete package
-specification are reviewed. That implementation state is not the P25-5 exit: no carried tarball or
-target result exists yet.
+The successful P25-5 workflow-dispatch run is `32780658875`. Its uploaded artifact is
+`whitewater-p25-5-el8-adfd4fb85ce319bfc76468a9d097f514901405c9`; the exact carried evaluator
+tarball is 638,391,000 bytes with SHA256
+`53b4e7192496a5ee8be1e0af6085980b59e287afc03599f953e2bb9a65eb8850`. The reviewed runtime
+licence inventory remains bound to SHA256
+`49ef6e85b032f64b8bfa62b939274aeee9d59c55a0f83f6fddb03d7d9aadecee`. This closes P25-5's
+local/CI and carried-tarball exit only; it is not a target CUDA result or shipping selection.
 
 ## Exit
 
@@ -283,6 +285,10 @@ and only those shots/providers; final shipping commands continue to select the u
 target cells.
 
 ### P25-5 - Local and CI qualification - Luna H
+
+**Status: complete on draft PR #15 at `adfd4fb`; successful workflow run `32780658875`. The
+evaluation tarball SHA256 is
+`53b4e7192496a5ee8be1e0af6085980b59e287afc03599f953e2bb9a65eb8850`.**
 
 Run export, schema, hash, permission, tensor-contract, direction, operator and CPU-correctness
 gates locally and in CI. Build the EL8 airgap tarball containing only explicitly admitted

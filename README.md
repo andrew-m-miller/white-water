@@ -36,9 +36,11 @@ host-free flow algebra, deterministic null estimator, `ww-flow` CLI and expanded
 coverage. Phase 2.5 P25-0, P25-1 and P25-2 merged through PRs #6, #8 and #7 respectively: the
 frozen protocol and schemas, candidate-neutral artifact framework, and deterministic
 corpus/conditioning package are present. P25-3 candidate export/evidence work merged through PRs
-#11, #10 and #12, and the P25-4 offline runner and active protocol v2 merged through PR #13. No
-shipping model/default or persistent OFX choice order has been selected; P25-5 qualification,
-target measurement, ranking and production inference remain open.
+#11, #10 and #12, and the P25-4 offline runner and active protocol v2 merged through PR #13.
+P25-5 local/CI qualification is complete on draft PR #15 at `adfd4fb`; its exact evaluation-only
+EL8 tarball is recorded in the Phase 2.5 implementation plan. No shipping model/default or
+persistent OFX choice order has been selected; airgapped target measurement, ranking and
+production inference remain open.
 See [docs/host-notes.md](docs/host-notes.md), [docs/context.md](docs/context.md), and *Phasing* in
 [docs/plan.md](docs/plan.md).
 
