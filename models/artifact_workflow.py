@@ -268,6 +268,9 @@ def _validate_numerical_validation(manifest: Mapping[str, Any]) -> None:
         "export_validated": {"passed"},
         "host_probe_pending": {"passed"},
         "host_probe_cpu_cuda_passed": {"passed"},
+        # A candidate can be numerically validated yet excluded from admission for a
+        # non-numerical gate such as unresolved checkpoint licensing.  Its pass evidence stays
+        # intact while the manifest's top-level status and candidate role remain ``excluded``.
         "excluded": {"pending", "failed", "passed"},
     }
     if status not in expected_statuses[manifest_status]:

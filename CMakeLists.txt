@@ -123,6 +123,13 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/check_searaft_manifest.py"
       "${CMAKE_SOURCE_DIR}/models/sea-raft-m.json")
+  add_test(NAME models::neuflow_manifest
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/check_neuflow_manifest.py"
+      "${CMAKE_SOURCE_DIR}/models/neuflow-v2.json")
+  add_test(NAME models::neuflow_export_contract
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/neuflow_export_tests.py")
   add_test(NAME models::raft_manifest
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/check_raft_manifest.py"

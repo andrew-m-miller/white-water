@@ -45,7 +45,7 @@ has been audited, and for a facility deliverable that audit is not optional.
 |---|---|---|---|
 | **SEA-RAFT** | ECCV 2024 (oral) | **BSD-3** | Leading conservative candidate and the Phase 0B probe network. Shipping role still requires the bake-off. |
 | **WAFT** | ICLR 2026 (oral) | **BSD-3 code, backbone weights vary** | Quality/memory candidate. Strong upstream results, but export and checkpoint licensing need resolving. |
-| **NeuFlow v2** | 2024 | not checked | Leading fast stateless candidate; export, quality and licence all require measurement. |
+| **NeuFlow v2** | 2024 | Apache-2.0 code; checkpoint-specific terms unresolved | P25-3F provenance and an exact 432x768 (0.331776 MP) fixed-shape CPU-validated export are hash-bound to upstream commit `204b5e3744461d90303b9ff82caa7a1bb56a2ca2`. It is an **evaluation-only constrained smoke lattice**, below the frozen mp0.5 cap: no dynamic/other-shape support is claimed; CUDA requires an EL8 operator run and CoreML is not exposed by this candidate path. Admission is explicitly **excluded pending checkpoint commercial-use and redistribution terms**; no shipping selection or OFX choice index is assigned. |
 | **AllTracker** | ICCV 2025 | **MIT** | Architecturally native to this problem. Investigate — it could delete the chain. |
 | RAFT | ECCV 2020 | BSD-3 code; checkpoint terms unresolved | Formal validation baseline: the exact export may be evaluated, while unknown checkpoint terms exclude shipping, selection and packaging. |
 | RIFE | ECCV 2022 | MIT | Fast and exportable, but off-label for motion-field accuracy. |
@@ -266,6 +266,39 @@ Pre-converted exports exist publicly (PINTO0309's model zoo, ibaiGorordo's ONNX-
 FuryTMP/RIFE_fp32) and are worth reading for their tensor contracts. Do not ship them: an
 export whose provenance and preprocessing we did not pin is an export whose failure mode we
 cannot reason about.
+
+### NeuFlow v2 evaluation contract (P25-3F)
+
+The pinned NeuFlow implementation keeps grids, correlation buffers and iteration context as
+shape-dependent module state initialized by `init_bhwd`. A plain ONNX trace therefore produces
+a fixed graph. Adding symbolic H/W axes would be misleading: the graph still contains constants
+for the trace lattice and has not been proven at another shape. P25-3F consequently records the
+smallest reproducible contract that can be compared honestly:
+
+- inputs and output are fixed at `NCHW [1,3,432,768]` and `[1,2,432,768]`;
+- the 331,776-pixel (0.331776 MP) lattice is a shared smoke/evaluation endpoint, not a frozen
+  P25 cap and not a product resolution claim;
+- `validation.shapes.dynamic` is false and the additional-shape evidence is deliberately the
+  same lattice; and
+- the candidate is not eligible for the protocol's mp0.5/mp2 cap cells or fast selection until
+  a separately exported and validated shape contract exists.
+
+The exporter accepts an explicit `--provider` for qualification. It verifies that the requested
+ONNX Runtime provider is available, selected, and numerically sound, and records the advertised
+fixed IO metadata. The checked-in evidence is CPU-only on macOS. A future EL8 run may invoke the
+same path with `--provider CUDAExecutionProvider` and a Linux artifact, but provider availability
+or success is never inferred from this macOS record; no macOS CUDA claim is made.
+
+Remaining operator work is intentionally explicit: on the EL8 x86-64 target, rerun the pinned
+export/manifest workflow or stage the recorded artifact, create a CUDA provider session beside
+Flame, verify that CUDA is actually selected, and record warm latency, peak/incremental device
+memory, repeated-run stability, and cancellation/cleanup at the fixed 432x768 lattice. The
+current artifact does not owe generic mp0.5/mp2 cap cells: those require a separately exported
+and validated shape contract. None of these Linux measurements is present in this manifest.
+
+The exact checkpoint remains excluded from shipping because its file-specific commercial-use and
+redistribution terms are unknown. Numerical validation and shipping admission are intentionally
+separate manifest decisions.
 
 ### Phase 0B export status
 
