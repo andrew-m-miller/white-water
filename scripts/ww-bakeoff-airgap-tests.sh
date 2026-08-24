@@ -28,13 +28,17 @@ printf '# fake evaluator entrypoint\n' > "$PACKAGE/tools/bakeoff/evaluator.py"
 UNPACK_LOG="$TEMP_ROOT/unpack.log"
 PYTHON_LOG="$TEMP_ROOT/python.log"
 cat > "$PACKAGE/runtime/source/bin/conda-unpack" <<'FAKE_UNPACK'
-#!/usr/bin/env bash
-set -euo pipefail
-printf 'unpack\n' >> "$WW_TEST_UNPACK_LOG"
+#!/usr/bin/env python
+# The fake bundled Python below handles this marker.  This shebang deliberately matches
+# conda-pack so the wrapper test proves the relocated runtime is present on PATH.
 FAKE_UNPACK
 cat > "$PACKAGE/runtime/source/bin/python" <<'FAKE_PYTHON'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1-}" == */bin/conda-unpack ]]; then
+  printf 'unpack\n' >> "$WW_TEST_UNPACK_LOG"
+  exit 0
+fi
 printf 'python\n' >> "$WW_TEST_PYTHON_LOG"
 printf 'PYTHON_ARGS=' >> "$WW_TEST_PYTHON_LOG"
 for arg in "$@"; do printf '<%s>' "$arg" >> "$WW_TEST_PYTHON_LOG"; done

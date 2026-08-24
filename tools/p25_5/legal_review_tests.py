@@ -207,6 +207,13 @@ class LegalReviewTests(unittest.TestCase):
         self.assertIn("grep -F '$ORIGIN/onnxruntime'", workflow)
         self.assertNotIn("grep -F '\\$ORIGIN/onnxruntime'", workflow)
 
+    def test_workflow_resolves_conda_unpack_with_the_relocated_python(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            'env PATH="$RUNNER_TEMP/p25-5-runtime-extracted/bin:$PATH"',
+            workflow,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

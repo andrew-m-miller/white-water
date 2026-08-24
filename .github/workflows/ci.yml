@@ -1105,7 +1105,8 @@ jobs:
           tar --extract --gzip --file "$runtime_archive" \
             --directory "$RUNNER_TEMP/p25-5-runtime-extracted"
           test -x "$RUNNER_TEMP/p25-5-runtime-extracted/bin/conda-unpack"
-          "$RUNNER_TEMP/p25-5-runtime-extracted/bin/conda-unpack"
+          env PATH="$RUNNER_TEMP/p25-5-runtime-extracted/bin:$PATH" \
+            "$RUNNER_TEMP/p25-5-runtime-extracted/bin/conda-unpack"
           test -x "$RUNNER_TEMP/p25-5-runtime-extracted/bin/python"
           # The packed environment is the exact carried runtime; this smoke import catches a
           # broken relocation before the evaluator is allowed to run.
