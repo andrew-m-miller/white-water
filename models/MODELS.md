@@ -26,10 +26,11 @@ host run, the probe gains a pinned export script and manifest containing the ups
 checkpoint URL and SHA256, tensor contract, exported ONNX SHA256, and synthetic translation
 validation.
 
-**No licence in this document has been audited.** Repository statements are leads, not
-approval. Before anything goes to a client, re-verify the exact code revision, checkpoint,
-and any backbone weights actually shipped, then record the verdict here with a date and the
-checkpoint SHA256.
+The P25-3D audit below is the first revision-bound audit in this document. It covers only the
+exact SEA-RAFT source/checkpoint surfaces and the original-RAFT source surface named there;
+the other candidates remain unaudited. Before anything goes to a client, re-verify the exact
+code revision, checkpoint, and any backbone weights actually shipped, then record the verdict
+with a date and checkpoint SHA256.
 
 Deployment posture changes which of these obligations actually bind — see **Deployment
 posture** below. The short version: not distributing the plugin relaxes a lot, but it does
@@ -46,7 +47,7 @@ has been audited, and for a facility deliverable that audit is not optional.
 | **WAFT** | ICLR 2026 (oral) | **BSD-3 code, backbone weights vary** | Quality/memory candidate. Strong upstream results, but export and checkpoint licensing need resolving. |
 | **NeuFlow v2** | 2024 | Apache-2.0 code; checkpoint-specific terms unresolved | P25-3F provenance and an exact 432x768 (0.331776 MP) fixed-shape CPU-validated export are hash-bound to upstream commit `204b5e3744461d90303b9ff82caa7a1bb56a2ca2`. It is an **evaluation-only constrained smoke lattice**, below the frozen mp0.5 cap: no dynamic/other-shape support is claimed; CUDA requires an EL8 operator run and CoreML is not exposed by this candidate path. Admission is explicitly **excluded pending checkpoint commercial-use and redistribution terms**; no shipping selection or OFX choice index is assigned. |
 | **AllTracker** | ICCV 2025 | **MIT** | Architecturally native to this problem. Investigate — it could delete the chain. |
-| RAFT | ECCV 2020 | BSD-3 | Known validation baseline, not a presumed shipping model. |
+| RAFT | ECCV 2020 | BSD-3 code; checkpoint terms unresolved | Formal validation baseline: the exact export may be evaluated, while unknown checkpoint terms exclude shipping, selection and packaging. |
 | RIFE | ECCV 2022 | MIT | Fast and exportable, but off-label for motion-field accuracy. |
 | MemFlow | CVPR 2024 | Apache-2.0 | Stateful temporal design conflicts with arbitrary-order OFX rendering; reconsider only with a sequential durable-analysis architecture. |
 | DOT | CVPR 2024 | MIT code, **CC-BY-NC front-end** | Right idea, unusable as shipped. |
@@ -82,6 +83,27 @@ Three of those matter to us specifically, in this order:
    section is unchanged.
 
 **The catch, and it is a real one: the code licence is not the checkpoint licence.**
+
+**P25-3E provenance result (2026-08-23):** `models/waft-twins.json` is a typed exclusion
+record, not an artifact manifest. The official WAFT `waftv2` source is pinned to commit
+`b152ff1cad1af8c185ee7b141997c48ff3334c87` and its BSD-3-Clause code terms are audited. The
+official A2 object is now pinned by Drive ID, 3,702,705,327-byte size and SHA256
+`23282e0bf25e29e182ccedba8dc11969654c0658d06407edfc3932663109f62b`; its
+`waftv2-ckpts/twins/zero-shot.pth` member is pinned at 544,230,582 bytes with SHA256
+`f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070`.
+Strict PyTorch loading reports 699 keys with zero missing/unexpected keys when the model is
+constructed with `timm` pretrained initialization disabled; 380 `encoder.backbone.*` keys
+prove the Twins tensors are bundled in that checkpoint, so no separate backbone artifact is
+needed. Those 380 tensors exactly match the official timm `twins_svt_large.in1k` Apache-2.0
+reference at its pinned revision, so the backbone surface is audited separately as Apache-2.0.
+The archive contains no README, LICENSE, NOTICE, or member-level terms for the WAFT checkpoint
+itself, leaving only its commercial-use and redistribution verdicts **unknown**. The
+evaluation-only artifact record `models/waft-twins-artifact.json` and explicit-input exporter
+`models/export_waft.py` now provide the deterministic qualification path (strict load, ONNX
+operator/domain gate, parity, identity, signed directions, dynamic shape, and hash/mode
+recording). No local checkout, checkpoint member, or ML export environment is present in this
+repository run, so no ONNX bytes or numerical qualification are claimed; the candidate remains
+excluded from shipping pending checkpoint terms.
 
 WAFT supports three backbones -- Twins, DAv2 (Depth Anything v2) and DINOv3 -- and the
 README states no licence for the weights separately from the BSD-3 code, nor which checkpoint
@@ -321,6 +343,89 @@ manifest files are now required to be regular mode-`0644` files, and CI checks t
 staged and extracted-package copies as well as their size and SHA256.
 
 The artifact remains ignored by git and must be staged from a qualified build input.
+
+### P25-3D provenance and licence audit — 2026-08-23
+
+`models/sea-raft-m.json` now records a revision-bound audit without changing its measured
+tensor contract, export hash/size, or Phase 0B validation values. The official SEA-RAFT
+`LICENSE` at commit
+[`9137517ba24e628442aec097d3afe71d03503b75`](https://github.com/princeton-vl/SEA-RAFT/tree/9137517ba24e628442aec097d3afe71d03503b75)
+is BSD-3-Clause. The exact checkpoint model card at Hugging Face revision
+[`ea21e467a7076978b251e09d55751fcce166c2f8`](https://huggingface.co/MemorySlices/Tartan-C-T-TSKH-spring540x960-M/tree/ea21e467a7076978b251e09d55751fcce166c2f8)
+declares `bsd-3-clause` for the 78,778,760-byte file recorded in the manifest. The exporter
+disables torchvision pretrained initialization and strictly loads the complete checkpoint,
+so no separate backbone checkpoint is carried; the manifest marks that surface
+not-applicable and does not infer a framework licence.
+
+`models/raft-original.json` pins the official original-RAFT source at commit
+[`2888e15a51fa41140771d3f498ed8023cff098d1`](https://github.com/princeton-vl/RAFT/tree/2888e15a51fa41140771d3f498ed8023cff098d1)
+and the author-linked `models/raft-things.pth` archive member by its URL, 21,108,000-byte
+size, and SHA256 `fcfa4125d6418f4de95d84aec20a3c5f4e205101715a79f193243c186ac9a7e1`.
+The official README and `download_models.sh` do not state checkpoint commercial-use or
+redistribution terms, so that surface remains `unknown`; the numerical export below is
+recorded as numerically `passed` but top-level `excluded` with a typed checkpoint-terms reason.
+That exclusion blocks shipping, selection and packaging, not an explicit validation-baseline
+evaluation, and makes no licence permission claim.
+
+### P25-3D original RAFT baseline export — 2026-08-23
+
+`models/fetch_raft_checkpoint.py` verifies the author-linked archive SHA256
+`4be6101b271f58ec49866da5cf609fd17e86e9cae2483f70630ef4a295dc66bd`, extracts only the
+`models/raft-things.pth` member, and verifies the pinned member hash before publishing mode
+`0644`. Network access is opt-in. `models/export_raft.py` then verifies the source checkout and
+member again, loads the complete state dict strictly, and exports the official full RAFT path
+with 12 iterations baked into the graph. Inputs are caller-replication-padded to a multiple of
+eight and the caller crops the output; the graph does not hide data-dependent padding.
+
+The export used `models/requirements-raft-export.txt` in the external environment
+`/private/tmp/white-water-searaft-export-env` (Python 3.11.15, PyTorch 2.2.0, ONNX 1.15.0,
+ONNX Runtime 1.29.0). The exact mode-0644 opset-17 artifact is kept outside Git at
+`/private/tmp/raft-original-opset17.onnx`: 21,419,753 bytes,
+SHA256 `d9b8aa7d07c3e56303b336c5e1da101c5ebd09c3d71cdcf0c8a649de1044b6d2`. The graph has
+2,598 standard `ai.onnx` nodes. CPU provider validation selected
+`CPUExecutionProvider`; CoreML and Azure were visible but were not run or qualified here.
+
+The local synthetic gates passed identity, both signed translations, runtime `[1,2,H,W]`
+shapes at 128x192 and 160x256, and PyTorch/ONNX parity. Identity median EPE was 0.02275 px;
+forward median flow was `(4.0249, -0.0234)` and reverse was `(-4.0233, 0.0289)`. Across both
+shapes and all three pairs, parity mean/p99/p99.9/max absolute error was
+`0.01437 / 0.06491 / 0.11318 / 0.30979`. These are local CPU evidence only. Because the
+checkpoint terms remain unresolved, the manifest records the exact bytes and measurements but
+remains explicitly excluded from shipping, selection and packaging. It is still a valid
+explicit validation-baseline result; no licence permission or CUDA success is inferred.
+
+The exporter has an explicit provider hook. The checked-in record is CPU-qualified on macOS;
+it does not claim CUDA merely because the exporter accepts a provider argument or because CUDA
+appears in another runtime's provider list. The remaining operator step is a fresh EL8 x86-64
+Linux qualification run with the pinned export dependencies and a CUDA-capable ONNX Runtime,
+using the same pinned source and checkpoint and requesting `CUDAExecutionProvider`:
+
+```bash
+mkdir -p /path/to/raft-linux-requalification
+cp models/raft-original.json /path/to/raft-linux-requalification/raft-original.json
+python3 models/export_raft.py \
+  --upstream /path/to/RAFT-at-2888e15a51fa41140771d3f498ed8023cff098d1 \
+  --checkpoint /path/to/raft-things.pth \
+  --manifest /path/to/raft-linux-requalification/raft-original.json \
+  --output /path/to/raft-linux-requalification/raft-original-opset17.onnx \
+  --platform linux-x86_64 \
+  --device cuda \
+  --provider CUDAExecutionProvider \
+  --update-manifest
+python3 models/check_raft_manifest.py \
+  /path/to/raft-linux-requalification/raft-original.json
+```
+
+The command first verifies the pinned checkout and mode-0644 checkpoint, then requires the
+CUDA provider to be available and actually selected before it records the identity/direction/
+dynamic-shape checks. A missing provider or failed run is a requalification failure, not a
+CUDA result; it must not be converted into a shipping claim. Running against a copy keeps the
+checked-in macOS CPU record immutable. This exporter-level run is not a substitute for the
+self-contained evaluator on the airgapped Flame box. On success, archive the copied manifest
+and ONNX hash as Linux qualification evidence, carry that exact artifact into the evaluator,
+and measure the report-v2 target cells beside live Flame; the checkpoint-terms exclusion remains
+unchanged. The current remaining Linux step is exactly this EL8 `CUDAExecutionProvider`
+requalification, followed by its target measurement run; none has been run or claimed here.
 
 ```bash
 python3.10 -m venv /path/to/searaft-export-env

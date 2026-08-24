@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "schema_id": "whitewater-p25-artifact-v1",
+  "status": "excluded",
+  "purpose": "Evaluation-only WAFT/Twins bake-off artifact; checkpoint terms remain unresolved and this file is never a shipping authorization.",
+  "candidate": {
+    "id": "waft-twins",
+    "role": "shipping-candidate",
+    "family": "WAFT v2 A2 with Twins SVT-Large",
+    "notes": "The artifact may be measured for the bake-off only. The exact checkpoint is excluded from shipping until file-level commercial-use and redistribution terms are established."
+  },
+  "upstream": {
+    "repository": "https://github.com/princeton-vl/WAFT.git",
+    "commit": "b152ff1cad1af8c185ee7b141997c48ff3334c87",
+    "license": "BSD-3-Clause",
+    "license_audit": "The official LICENSE at this exact commit is BSD-3-Clause. This audits source code only; it does not grant terms for the separate checkpoint file.",
+    "license_audit_date": "2026-08-23"
+  },
+  "checkpoint": {
+    "repository": "https://drive.google.com/drive/folders/1joBWKGoH2RUdCgcge8Tz2osOHcQUX5m_",
+    "revision": "b152ff1cad1af8c185ee7b141997c48ff3334c87",
+    "url": "https://drive.google.com/file/d/1RA4j0GlNCy7flmc3VIY71ZV-Kz-RYDox/view",
+    "format": "torch-pth-member",
+    "size_bytes": 544230582,
+    "sha256": "f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070",
+    "license": "unknown",
+    "license_audit": "The selected zero-shot.pth member has no published file-level terms in the pinned archive or official source. Commercial use and redistribution remain unknown."
+  },
+  "backbone": {
+    "applicable": true,
+    "identity": "Twins SVT-Large supplied inside the selected WAFT checkpoint",
+    "provenance": "Strict loading evidence in the provenance record found 380 encoder.backbone tensors in the selected checkpoint; no separate backbone payload is used by this export.",
+    "repository": "https://huggingface.co/timm/twins_svt_large.in1k",
+    "revision": "9985cdd56ac6164db09e464008c512fb7b75228a",
+    "checkpoint_sha256": "2fbe754f6e595bd07294f381302e0b3f1d449176977e35e4f30200fe4f3bcf97",
+    "license": "Apache-2.0",
+    "license_audit": "The bundled tensors match the pinned timm Twins reference whose model card declares Apache-2.0; this does not resolve the separate WAFT checkpoint terms."
+  },
+  "licenses": {
+    "code": {
+      "license": "BSD-3-Clause",
+      "audit": "Audited at the pinned WAFT source commit.",
+      "commercial_use_permitted": "yes",
+      "redistribution_permitted": "yes",
+      "source": "upstream.license"
+    },
+    "checkpoint": {
+      "license": "unknown",
+      "audit": "Exact bytes are pinned, but the selected checkpoint member has no file-level terms.",
+      "commercial_use_permitted": "unknown",
+      "redistribution_permitted": "unknown",
+      "source": "checkpoint.license"
+    },
+    "backbone": {
+      "license": "Apache-2.0",
+      "audit": "Pinned timm Twins reference review; notice and licence obligations still apply to any future redistribution.",
+      "commercial_use_permitted": "yes",
+      "redistribution_permitted": "yes",
+      "source": "backbone.license"
+    }
+  },
+  "model": {
+    "variant": "WAFTv2 A2",
+    "config_source": "config/a2/twins/chairs-things.json",
+    "config": {
+      "algorithm": "waft-a2",
+      "feature_encoder": "twins",
+      "config_path": "config/a2/twins/chairs-things.json",
+      "config_sha256": "4eb827762b132fe0e90b4d87e456088e772573b4f346d5e396e0912dad528996",
+      "configuration": "loaded from the pinned upstream checkout; iterative_module and iters are not guessed"
+    }
+  },
+  "tensor_contract": {
+    "inputs": [
+      {
+        "name": "image1",
+        "dtype": "float32",
+        "layout": "NCHW",
+        "channels": "RGB",
+        "range": [0, 255]
+      },
+      {
+        "name": "image2",
+        "dtype": "float32",
+        "layout": "NCHW",
+        "channels": "RGB",
+        "range": [0, 255]
+      }
+    ],
+    "output": {
+      "name": "flow",
+      "dtype": "float32",
+      "layout": "NCHW",
+      "channels": ["dx", "dy"],
+      "units": "unpadded_analysis_pixels",
+      "direction": "image1_to_image2"
+    },
+    "normalization": "performed in graph: ImageNet mean/std after image / 255",
+    "normalization_location": "graph",
+    "normalization_formula": "(image / 255 - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]",
+    "padding": {
+      "multiple": 32,
+      "policy": "graph-internal"
+    },
+    "batch": 1,
+    "spatial_dimensions": "dynamic_multiples_of_32",
+    "iterations": "pinned_config_baked_into_graph",
+    "confidence": {
+      "present": false,
+      "name": null,
+      "dtype": null,
+      "layout": null
+    },
+    "graph_domains": ["ai.onnx"]
+  },
+  "export_environment": {
+    "platform": "pending",
+    "architecture": "pending",
+    "python": "not-run",
+    "framework": "not-run",
+    "exporter": "not-run",
+    "runtime": "not-run",
+    "provider": "CPUExecutionProvider",
+    "sha256": "5c04b8d5713f8a6ca6d9fd1c30c19a4cb2b61e0d8e7166caaeb23401d6390b03"
+  },
+  "export": {
+    "script": "models/export_waft.py",
+    "opset": 17,
+    "example_shape": [1, 3, 128, 192],
+    "artifact": "waft-twins-opset17.onnx",
+    "sha256": null,
+    "size_bytes": null,
+    "mode": "0644",
+    "platform": "pending",
+    "export_environment_sha256": "5c04b8d5713f8a6ca6d9fd1c30c19a4cb2b61e0d8e7166caaeb23401d6390b03",
+    "platform_artifacts": [
+      {
+        "platform": "pending",
+        "artifact": "waft-twins-opset17.onnx",
+        "sha256": null,
+        "size_bytes": null,
+        "mode": "0644",
+        "export_environment_sha256": "5c04b8d5713f8a6ca6d9fd1c30c19a4cb2b61e0d8e7166caaeb23401d6390b03"
+      }
+    ]
+  },
+  "validation": {
+    "status": "pending",
+    "observed": null,
+    "seed": 20260823,
+    "translation_pixels": 4,
+    "second_dynamic_shape": [1, 3, 160, 256],
+    "identity_median_epe_max": 0.75,
+    "translation_x_fraction_min": 0.5,
+    "translation_abs_y_max": 2.0,
+    "onnx_pytorch_mean_abs_max": 0.05,
+    "onnx_pytorch_p99_abs_max": 0.2,
+    "onnx_pytorch_p999_abs_max": 0.5,
+    "onnx_pytorch_max_abs_max": 4.0
+  },
+  "exclusion": {
+    "reason_code": "checkpoint_license_terms_unknown"
+  },
+  "notes": [
+    "This manifest records a possible evaluation artifact, not permission to ship or redistribute the checkpoint.",
+    "The exporter never downloads source, checkpoints, timm weights, xformers, PyTorch, ONNX, or ONNX Runtime.",
+    "A failed export records a typed technical blocker without publishing an ONNX hash or changing the shipping exclusion."
+  ]
+}
