@@ -73,7 +73,10 @@ class NativeOrtTests(unittest.TestCase):
                 native_ort.NativeRuntime(Path(temporary))
 
     def test_native_session_preserves_metadata_and_runs_float32_pair(self) -> None:
-        import numpy as np
+        try:
+            import numpy as np
+        except ModuleNotFoundError:
+            self.skipTest("NumPy-backed execution is required by the pinned P25-5 runtime gate")
 
         session = native_ort.NativeSession(_FakeBridge(), 17, "CPUExecutionProvider")
         self.assertEqual(session.get_providers(), ["CPUExecutionProvider"])

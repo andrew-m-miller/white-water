@@ -933,10 +933,24 @@ jobs:
           echo "generated SEA-RAFT admission: $P25_5_OUTPUT_DIR/sea-raft-admission.json"
           echo "P25_5_ADMISSION_FILE=$P25_5_OUTPUT_DIR/sea-raft-admission.json" >> "$GITHUB_ENV"
 
+          # Ordinary repository gates assert the checked-in P25-3 evidence and must not
+          # accidentally bless the fresh P25-5 export.  Isolate the generated pair while
+          # those gates run, then restore it before runtime qualification and packaging.
+          generated_manifest="$RUNNER_TEMP/p25-5-generated-sea-raft-m.json"
+          generated_artifact="$RUNNER_TEMP/p25-5-generated-sea-raft-m-opset17.onnx"
+          cp -- models/sea-raft-m.json "$generated_manifest"
+          mv -- models/sea-raft-m-opset17.onnx "$generated_artifact"
+          git restore --source=HEAD --worktree -- models/sea-raft-m.json
+          test ! -e models/sea-raft-m-opset17.onnx
+          echo "P25_5_GENERATED_MANIFEST=$generated_manifest" >> "$GITHUB_ENV"
+          echo "P25_5_GENERATED_ARTIFACT=$generated_artifact" >> "$GITHUB_ENV"
+
       # Keep the ordinary repository suite in the P25-5 lane. This is independent of the
       # evaluator runtime and catches regressions in the host-free flow algebra and OFX bundle.
       - name: Configure ordinary gates
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: >-
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DPython3_EXECUTABLE="$RUNNER_TEMP/searaft-export-venv/bin/python"
 
       - name: Build ordinary gates
         run: cmake --build build -j$(nproc)
@@ -959,7 +973,12 @@ jobs:
           python3.11 models/neuflow_export_tests.py
           python3.11 models/raft_export_tests.py
           python3.11 models/waft_export_tests.py
-          python3.11 -m tools.bakeoff.native_ort_tests
+          "$RUNNER_TEMP/searaft-export-venv/bin/python" -m tools.bakeoff.native_ort_tests
+
+          cp -- "$P25_5_GENERATED_MANIFEST" models/sea-raft-m.json
+          mv -- "$P25_5_GENERATED_ARTIFACT" models/sea-raft-m-opset17.onnx
+          "$RUNNER_TEMP/searaft-export-venv/bin/python" models/check_searaft_artifact.py \
+            models/sea-raft-m.json models/sea-raft-m-opset17.onnx
 
       - name: Fetch explicit conda bootstrap and environment lock
         run: |
