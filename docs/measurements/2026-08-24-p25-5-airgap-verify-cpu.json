@@ -1,0 +1,49 @@
+{
+  "artifact_sha256": "3fd6e110a7459567d2bc8f8dd30ba5e40c780e862fd0fd95809e7ad2e026fa0e",
+  "artifact_size_bytes": 78840944,
+  "candidate_id": "sea-raft-m",
+  "inputs": [
+    {
+      "dtype": "float32",
+      "layout": "NCHW",
+      "name": "image1",
+      "shape": [
+        1,
+        3,
+        "height",
+        "width"
+      ]
+    },
+    {
+      "dtype": "float32",
+      "layout": "NCHW",
+      "name": "image2",
+      "shape": [
+        1,
+        3,
+        "height",
+        "width"
+      ]
+    }
+  ],
+  "manifest_sha256": "8fa3b5deec5806b613290e7315b5af01d56139fe2534135af8797703c6de70de",
+  "outputs": [
+    {
+      "direction": "image1_to_image2",
+      "dtype": "float32",
+      "layout": "NCHW",
+      "name": "flow",
+      "shape": [
+        "Sliceflow_dim_0",
+        "Sliceflow_dim_1",
+        "height",
+        "width"
+      ]
+    }
+  ],
+  "requested_provider": "CPUExecutionProvider",
+  "runtime_version": "1.29.0",
+  "selected_providers": [
+    "CPUExecutionProvider"
+  ]
+}

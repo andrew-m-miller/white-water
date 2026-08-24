@@ -333,6 +333,17 @@ provider/session verification, and an optional single PFM-pair smoke command. It
 P25-6 production operator procedure. P25-6 begins by supplying the resumable `smoke`, `screen`,
 and `final` entrypoints and exact onsite instructions before target measurements are run.
 
+**Returned airgapped verification — 2026-08-24:** Andrew ran the required `verify --provider cpu`
+command from the P25-5 evaluator handoff on the airgapped target. The returned JSON is preserved
+unchanged at `docs/measurements/2026-08-24-p25-5-airgap-verify-cpu.json`; its independently returned
+and locally recomputed SHA256 is
+`b8e7bc88f9672d447bc1b9189e47c3faa7808907d78d60187b9ddfaaa3408888`. It binds the qualified
+Linux SEA-RAFT manifest and 78,840,944-byte artifact hashes, reports ONNX Runtime 1.29.0, selects
+only `CPUExecutionProvider`, and exposes the expected two-input/one-forward-flow tensor contract.
+This is successful target transfer, runtime relocation and CPU session/metadata evidence. It runs
+no image pair and makes no CUDA, inference-quality, latency, memory, production-footage or P25-6
+completion claim.
+
 ---
 
 ## Decisions
