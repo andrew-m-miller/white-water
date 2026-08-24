@@ -6,7 +6,7 @@
     "installer_url": "https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh",
     "installer_sha256": "848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c",
     "explicit_lock": "bakeoff/p25-5/conda-el8-x86_64.lock",
-    "explicit_lock_sha256": "edebf1e9436af9fe3eebc29ecb2cb258cbeb8b10f0e8152fc729fab0e8cf29e2"
+    "explicit_lock_sha256": "e317c0d3ad953e024b24f352aaa1ce0eda0cabf1d37e5feda9fd24f21452e4ae"
   },
   "onnxruntime_cuda12": {
     "version": "1.29.0",

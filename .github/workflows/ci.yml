@@ -68,7 +68,7 @@ on:
         description: SHA256 of the explicit conda environment lock/spec (must match runtime-inputs.json)
         required: false
         type: string
-        default: edebf1e9436af9fe3eebc29ecb2cb258cbeb8b10f0e8152fc729fab0e8cf29e2
+        default: e317c0d3ad953e024b24f352aaa1ce0eda0cabf1d37e5feda9fd24f21452e4ae
       p25_5_qualifier:
         description: Actual Python evaluator entry point implementing verify --manifest --artifact --protocol --provider (required for p25-5)
         required: false
