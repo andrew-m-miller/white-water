@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import textwrap
 import tempfile
 import unittest
 
@@ -213,6 +214,35 @@ class LegalReviewTests(unittest.TestCase):
             'env PATH="$RUNNER_TEMP/p25-5-runtime-extracted/bin:$PATH"',
             workflow,
         )
+
+    def test_workflow_rejects_conda_lock_that_resolves_outside_workspace(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertNotIn(
+            'lock.resolve() != (workspace / conda["explicit_lock"]).resolve()',
+            workflow,
+        )
+        self.assertIn("workspace not in resolved_lock.parents", workflow)
+        guard_start = workflow.index('          lock = workspace / conda["explicit_lock"]\n')
+        guard_end = workflow.index("          actual_lock =", guard_start)
+        guard = textwrap.dedent(workflow[guard_start:guard_end])
+
+        workspace = self.root / "workspace"
+        workspace.mkdir()
+        local_lock = workspace / "environment.lock"
+        local_lock.write_text("local\n", encoding="utf-8")
+        namespace = {
+            "workspace": workspace.resolve(),
+            "conda": {"explicit_lock": "environment.lock"},
+        }
+        exec(guard, namespace)
+
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "environment.lock").write_text("outside\n", encoding="utf-8")
+        (workspace / "linked").symlink_to(outside, target_is_directory=True)
+        namespace["conda"] = {"explicit_lock": "linked/environment.lock"}
+        with self.assertRaisesRegex(SystemExit, "not a local regular file"):
+            exec(guard, namespace)
 
     def test_workflow_runs_the_glibc_tree_gate_with_bash(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

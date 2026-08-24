@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime
 from email.parser import Parser
 import hashlib
 import json
@@ -193,6 +194,23 @@ def _hash(value: Any, label: str) -> str:
     text = _text(value, label)
     if _SHA256.fullmatch(text) is None:
         raise LicenseInputError(f"{label} must be a lowercase SHA256")
+    return text
+
+
+def _validate_reviewed_at(value: Any) -> str:
+    """Require the same timezone-qualified ISO-8601 timestamp as candidate review input."""
+
+    text = _text(value, "runtime legal-review reviewed_at")
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise LicenseInputError(
+            "runtime legal-review reviewed_at must be an ISO-8601 timestamp"
+        ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise LicenseInputError(
+            "runtime legal-review reviewed_at must include an explicit timezone"
+        )
     return text
 
 
@@ -766,9 +784,9 @@ def component_payload_sha256(path: Path | str) -> str:
         raise LicenseInputError(f"runtime component payload must not be a symlink: {root}")
     if not stat.S_ISREG(root_info.st_mode) and not stat.S_ISDIR(root_info.st_mode):
         raise LicenseInputError(f"runtime component payload must be a regular file or directory: {root}")
-    entries: list[tuple[str, Path, int]] = []
+    entries: list[tuple[str, Path, int, int]] = []
     if stat.S_ISREG(root_info.st_mode):
-        entries.append((root.name, root, stat.S_IMODE(root_info.st_mode)))
+        entries.append((root.name, root, stat.S_IMODE(root_info.st_mode), root_info.st_size))
     else:
         for item in sorted(root.rglob("*"), key=lambda candidate: candidate.relative_to(root).as_posix()):
             info = item.lstat()
@@ -778,19 +796,28 @@ def component_payload_sha256(path: Path | str) -> str:
                 continue
             if not stat.S_ISREG(info.st_mode):
                 raise LicenseInputError(f"runtime component payload contains a non-regular file: {item}")
-            entries.append((item.relative_to(root).as_posix(), item, stat.S_IMODE(info.st_mode)))
+            entries.append(
+                (item.relative_to(root).as_posix(), item, stat.S_IMODE(info.st_mode), info.st_size)
+            )
     digest = hashlib.sha256()
     digest.update(b"whitewater-p25-runtime-component-v1\0")
     digest.update((b"file\0" if stat.S_ISREG(root_info.st_mode) else b"directory\0"))
-    for relative, item, mode in entries:
-        try:
-            content = item.read_bytes()
-        except OSError as exc:
-            raise LicenseInputError(f"could not read runtime component payload: {item}: {exc}") from exc
+    for relative, item, mode, size_bytes in entries:
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(f"{mode:04o}:{len(content)}\0".encode("ascii"))
-        digest.update(content)
+        digest.update(f"{mode:04o}:{size_bytes}\0".encode("ascii"))
+        try:
+            with item.open("rb") as stream:
+                actual_size = 0
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                    actual_size += len(chunk)
+        except OSError as exc:
+            raise LicenseInputError(f"could not read runtime component payload: {item}: {exc}") from exc
+        if actual_size != size_bytes:
+            raise LicenseInputError(
+                f"runtime component payload changed while hashing: {item}"
+            )
     return digest.hexdigest()
 
 
@@ -1282,7 +1309,7 @@ def validate_runtime_review(
         raise LicenseInputError("runtime legal-review reviewer must be Andrew Miller")
     if document["reviewed"] is not True:
         raise LicenseInputError("runtime legal-review reviewed must be true")
-    _text(document["reviewed_at"], "runtime legal-review reviewed_at")
+    _validate_reviewed_at(document["reviewed_at"])
     declared_inventory_sha = _hash(
         document["inventory_sha256"], "runtime legal-review inventory_sha256"
     )

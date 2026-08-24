@@ -13,7 +13,13 @@ sha256_file() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
 count_lines() { [[ -f "$1" ]] && wc -l < "$1" | tr -d ' ' || printf '0\n'; }
-count_python() { [[ -f "$1" ]] && grep -c '^python$' "$1" || printf '0\n'; }
+count_python() {
+  if [[ ! -f "$1" ]]; then
+    printf '0\n'
+    return
+  fi
+  awk '$0 == "python" { count++ } END { print count + 0 }' "$1"
+}
 
 TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/whitewater-airgap-test.XXXXXX")
 TEMP_ROOT=$(CDPATH= cd -P -- "$TEMP_ROOT" && pwd -P)
@@ -27,6 +33,9 @@ printf '# fake evaluator entrypoint\n' > "$PACKAGE/tools/bakeoff/evaluator.py"
 
 UNPACK_LOG="$TEMP_ROOT/unpack.log"
 PYTHON_LOG="$TEMP_ROOT/python.log"
+NO_PYTHON_LOG="$TEMP_ROOT/no-python.log"
+printf 'evaluator\n' > "$NO_PYTHON_LOG"
+[[ "$(count_python "$NO_PYTHON_LOG")" == 0 ]] || die "zero-match count_python result was not exactly zero"
 cat > "$PACKAGE/runtime/source/bin/conda-unpack" <<'FAKE_UNPACK'
 #!/usr/bin/env python
 # The fake bundled Python below handles this marker.  This shebang deliberately matches

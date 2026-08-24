@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from .licenses import (
     CANDIDATE_SURFACES,
@@ -625,6 +626,32 @@ class LicenseInputTests(unittest.TestCase):
         with self.assertRaisesRegex(LicenseInputError, "payload SHA256 mismatch"):
             collect_runtime(prefix, lock, runtime_input, self.root / "runtime-component-tampered", lock_sha)
 
+    def test_component_payload_hash_streams_and_preserves_digest_contract(self) -> None:
+        payload = self.root / "large-component.bin"
+        payload_bytes = bytes(range(256)) * (8192 + 1)
+        payload.write_bytes(payload_bytes)
+        payload.chmod(0o755)
+
+        expected = hashlib.sha256()
+        expected.update(b"whitewater-p25-runtime-component-v1\0")
+        expected.update(b"file\0")
+        expected.update(payload.name.encode("utf-8"))
+        expected.update(b"\0")
+        expected.update(f"0755:{len(payload_bytes)}\0".encode("ascii"))
+        expected.update(payload_bytes)
+
+        reader = mock.mock_open(read_data=payload_bytes)
+        with (
+            mock.patch.object(Path, "read_bytes", side_effect=AssertionError("read_bytes used")),
+            mock.patch.object(Path, "open", reader),
+        ):
+            actual = component_payload_sha256(payload)
+
+        self.assertEqual(actual, expected.hexdigest())
+        read_calls = reader.return_value.read.call_args_list
+        self.assertGreater(len(read_calls), 1)
+        self.assertTrue(all(call.args == (1024 * 1024,) for call in read_calls))
+
     def test_runtime_review_is_hash_bound_to_generated_inventory_and_reviewer(self) -> None:
         prefix, lock, runtime_input, lock_sha = self._runtime_fixture()
         output = self.root / "runtime-review-out"
@@ -651,6 +678,37 @@ class LicenseInputTests(unittest.TestCase):
         value["reviewer"] = "not Andrew Miller"
         self._write_json(review, value)
         with self.assertRaisesRegex(LicenseInputError, "reviewer must be Andrew Miller"):
+            validate_runtime_review(review, self._sha(review), inventory_sha)
+
+    def test_runtime_review_requires_timezone_qualified_iso8601_timestamp(self) -> None:
+        prefix, lock, runtime_input, lock_sha = self._runtime_fixture()
+        output = self.root / "runtime-review-timestamp-out"
+        collect_runtime(prefix, lock, runtime_input, output, lock_sha)
+        inventory_sha = self._sha(output / "runtime-license-inventory.json")
+        review = self.root / "runtime-legal-review-timestamp.json"
+        document = {
+            "schema_id": "whitewater-p25-runtime-legal-review-v1",
+            "reviewer": "Andrew Miller",
+            "reviewed": True,
+            "reviewed_at": "2026-08-24T20:00:00Z",
+            "inventory_sha256": inventory_sha,
+            "statement": "I approve this exact runtime license and notice inventory for P25-5 evaluation-only use.",
+        }
+
+        self._write_json(review, document)
+        self.assertEqual(
+            validate_runtime_review(review, self._sha(review), inventory_sha)["inventory_sha256"],
+            inventory_sha,
+        )
+
+        document["reviewed_at"] = "2026-08-24T20:00:00"
+        self._write_json(review, document)
+        with self.assertRaisesRegex(LicenseInputError, "must include an explicit timezone"):
+            validate_runtime_review(review, self._sha(review), inventory_sha)
+
+        document["reviewed_at"] = "not-an-iso8601-timestamp"
+        self._write_json(review, document)
+        with self.assertRaisesRegex(LicenseInputError, "must be an ISO-8601 timestamp"):
             validate_runtime_review(review, self._sha(review), inventory_sha)
 
     def test_cli_emits_json_result(self) -> None:

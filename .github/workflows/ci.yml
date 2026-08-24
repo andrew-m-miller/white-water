@@ -701,7 +701,12 @@ jobs:
               if not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
                   raise SystemExit(f"P25-5 runtime manifest {label} is not lowercase SHA256")
           lock = workspace / conda["explicit_lock"]
-          if lock.resolve() != (workspace / conda["explicit_lock"]).resolve() or not lock.is_file() or lock.is_symlink():
+          resolved_lock = lock.resolve()
+          if (
+              workspace not in resolved_lock.parents
+              or not lock.is_file()
+              or lock.is_symlink()
+          ):
               raise SystemExit(f"P25-5 runtime manifest lock is not a local regular file: {lock}")
           actual_lock = hashlib.sha256(lock.read_bytes()).hexdigest()
           if actual_lock != conda["explicit_lock_sha256"]:
