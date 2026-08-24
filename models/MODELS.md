@@ -10,15 +10,16 @@ and a binary in git history proves nothing about where it came from.
 
 ## Selection state
 
-**Nothing is selected to ship.** P25-0 through P25-4 are merged. P25-3 records the exact
-candidate artifacts or typed exclusions, and P25-4 provides the offline runner and active v2
-measurement-admission contract. The Phase 0B SEA-RAFT M probe remains qualification evidence,
-not a P25 selection. Choice option order is persistent setup API, so a default and any qualifying
-fast alternative are chosen only by the Phase 2.5 bake-off of the exact exported ONNX artifacts.
-A one-model release is valid and publishes no one-option Model choice. SEA-RAFT is the leading
-conservative candidate, WAFT is the quality/memory candidate, and NeuFlow v2 is the leading fast
-stateless candidate. Original RAFT is a validation baseline; evaluation does not make RAFT,
-NeuFlow or WAFT packageable while their checkpoint terms remain unresolved.
+**Nothing is selected to ship.** P25-0 through P25-5 are merged. P25-3 records the exact
+candidate artifacts or typed exclusions, P25-4 provides the offline runner and active v2
+measurement-admission contract, and P25-5 provides the exact evaluation-only EL8 airgap package.
+That package is local/CI qualification evidence, not a target CUDA result or P25 selection. Choice
+option order is persistent setup API, so a default and any qualifying fast alternative are chosen
+only by the Phase 2.5 bake-off of the exact exported ONNX artifacts. A one-model release is valid
+and publishes no one-option Model choice. SEA-RAFT is the leading conservative candidate, WAFT is
+the quality/memory candidate, and NeuFlow v2 is the leading fast stateless candidate. Original
+RAFT is a validation baseline; evaluation does not make RAFT, NeuFlow or WAFT packageable while
+their checkpoint terms remain unresolved.
 
 Phase 0B deliberately uses **SEA-RAFT M** as its representative real network. That decision
 exists to exercise the CUDA provider and the runtime dependency closure with a plausible

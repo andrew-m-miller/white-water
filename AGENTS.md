@@ -26,10 +26,10 @@ matte, partial-render and ST contracts. Phase 2 merged through PR #4; its host-f
 `NullPairwiseEstimator`, `ww-flow`, and expanded unit/harness coverage are now the base for the
 Phase 2.5 bake-off. P25-0, P25-1 and P25-2 merged through PRs #6, #8 and #7 respectively.
 P25-3 candidate export/evidence work merged through PRs #11, #10 and #12; the P25-4 offline
-runner and active protocol v2 merged through PR #13. P25-5 local/CI qualification is complete on
-draft PR #15 at `adfd4fb`, with its exact EL8 evaluation tarball recorded in the Phase 2.5 plan;
-the PR remains unmerged pending human review. No model/default, target result, or persistent OFX
-choice index has been selected. P25-6 airgapped target measurement is next after review and merge.
+runner and active protocol v2 merged through PR #13. P25-5 local/CI qualification merged through
+PR #15 at `946c042`; its exact EL8 evaluation tarball was qualified at `adfd4fb` and is recorded
+in the Phase 2.5 plan. No model/default, target result, or persistent OFX choice index has been
+selected. P25-6 airgapped target measurement is next.
 
 The plan was amended on 2026-08-20 after an architecture review. Read `docs/plan.md` and
 `docs/context.md` before writing code against anything you remember about it.

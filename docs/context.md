@@ -321,6 +321,18 @@ revalidated its checksum and package inventory and verified all 31 carried files
 This satisfies the P25-5 exit. It makes no target CUDA, performance, shipping-default, or
 persistent OFX choice claim; those remain P25-6 and later decisions.
 
+PR #15 merged to `main` at `946c042`. Its final follow-up review commit `0246b92` corrected the
+CI lock containment guard, bounded component hashing memory without changing the digest contract,
+made runtime-review timestamps timezone-qualified, and fixed the airgap-wrapper zero-match test.
+None of the package specification's 30 carried sources or the native ORT bridge changed after the
+qualified `adfd4fb` artifact, and the approved runtime inventory/review hashes still validate, so
+no replacement airgap artifact was generated.
+
+The carried `RUN-P25-5.txt` is a P25-5 qualification handoff: checksum/extraction, required CPU
+provider/session verification, and an optional single PFM-pair smoke command. It is not the full
+P25-6 production operator procedure. P25-6 begins by supplying the resumable `smoke`, `screen`,
+and `final` entrypoints and exact onsite instructions before target measurements are run.
+
 ---
 
 ## Decisions
