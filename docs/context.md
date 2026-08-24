@@ -247,6 +247,25 @@ artifact manifest/export, airgapped target measurement, ranking decision, or per
 order is selected. P25-1 and the later bake-off packages remain open, and production inference is
 still not wired into the OFX product.
 
+## Session 10 — 2026-08-23 — pre-target admission amendment
+
+The first protocol overloaded shipping/license eligibility with technical measurement admission:
+an artifact with valid export evidence but unresolved checkpoint or backbone terms disappeared from
+the matrix. Because that distinction changes report semantics, v2 is additive and versioned rather
+than silently mutating v1. `status` remains the fail-closed shipping gate; v2 adds required typed
+`measurement_status`, and matrix planning admits measurable excluded candidates while rejecting
+unavailable artifacts. Unavailable candidates carry a separate typed measurement reason, while
+excluded-but-measurable entries retain complete legal verdict and redistribution-review surfaces;
+the shipping exclusion reason never doubles as a technical admission signal. Shipping eligibility
+implies measurable, and the validation baseline remains evaluation-only. The unchanged corpus stays
+v1 and is bound by hash. NeuFlow's fixed 432x768 export now has an explicit v2-only constrained
+comparison lattice: `mp0_331776` computes to exactly 768x432 at canonical 16:9, and candidate
+constraints reject every other cap/provider/source geometry before rows are generated. The shared
+cap is available to other measurable models for a fair comparison, while the unchanged final
+shipping `mp2` coverage remains separate. Candidate report entries also carry provider-specific
+technical measurement evidence; the checked-in NeuFlow evidence is CPU only, so no CUDA pass is
+implied.
+
 ---
 
 ## Decisions

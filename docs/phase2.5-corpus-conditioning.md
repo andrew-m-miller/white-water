@@ -10,6 +10,10 @@ python3 -m tools.bakeoff.generate_corpus --output /tmp/corpus-v1.json
 python3 tools/bakeoff/validate.py /tmp/corpus-v1.json --kind corpus
 ```
 
+The validator defaults to the active `whitewater-p25-v2` protocol; the unchanged corpus remains
+the v1 corpus contract. To reproduce the historical v1 gate explicitly, pass
+`--protocol bakeoff/protocol-v1.json`.
+
 The default command writes metadata only.  Add `--frames-dir DIR` to emit deterministic
 RGB PFM sequences and one JSON analytic-truth sidecar per small synthetic case.  FHD and
 UHD remain lazy metadata cases unless `--include-large` is explicitly requested; this keeps

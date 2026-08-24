@@ -1,0 +1,168 @@
+{
+  "schema_version": 2,
+  "protocol_id": "whitewater-p25-v2",
+  "frozen_date": "2026-08-23",
+  "schema_ids": {
+    "protocol": "whitewater-p25-protocol-v2",
+    "corpus": "whitewater-p25-corpus-v1",
+    "report": "whitewater-p25-report-v2"
+  },
+  "candidate_ids": [
+    {"id": "sea-raft-m", "role": "shipping-candidate"},
+    {"id": "waft-twins", "role": "shipping-candidate"},
+    {"id": "neuflow-v2", "role": "shipping-candidate"},
+    {"id": "raft-original", "role": "validation-baseline"}
+  ],
+  "candidate_constraints": [
+    {
+      "candidate_id": "neuflow-v2",
+      "providers": ["cpu", "cuda"],
+      "cap_tokens": ["mp0_331776"],
+      "required_geometry": {
+        "analysis_width": 768,
+        "analysis_height": 432,
+        "canonical_aspect_ratio": "16:9"
+      }
+    }
+  ],
+  "eligibility": {
+    "required_identity": ["source_commit", "checkpoint_sha256", "artifact_sha256", "export_environment_sha256"],
+    "license_surfaces": ["code", "checkpoint", "backbone"],
+    "required_license_verdicts": ["commercial_use_permitted", "redistribution_permitted"],
+    "redistribution_terms_review_required": true,
+    "required_tensor_contract": {
+      "batch": 1,
+      "input_dtype": "float32",
+      "input_layout": "NCHW",
+      "input_channels": "RGB",
+      "input_pair": ["image1", "image2"],
+      "output_dtype": "float32",
+      "output_layout": "NCHW",
+      "output_channels": ["dx", "dy"],
+      "output_direction": "image1_to_image2",
+      "output_units": "unpadded_analysis_pixels"
+    }
+  },
+  "providers": [
+    {"token": "cpu", "environment": "el8-x86_64", "purpose": "correctness", "cap_tokens": ["mp0_5", "mp0_331776"]},
+    {"token": "cuda", "environment": "el8-x86_64", "purpose": "selection", "cap_tokens": ["mp0_5", "mp1", "mp2", "mp4", "mp6", "mp8", "mp0_331776"]},
+    {"token": "coreml", "environment": "macos-arm64", "purpose": "supporting", "cap_tokens": ["mp0_5", "mp1", "mp2", "mp0_331776"]}
+  ],
+  "analysis_caps": [
+    {"token": "mp0_5", "decimal_megapixels": 0.5},
+    {"token": "mp1", "decimal_megapixels": 1.0},
+    {"token": "mp2", "decimal_megapixels": 2.0},
+    {"token": "mp4", "decimal_megapixels": 4.0},
+    {"token": "mp6", "decimal_megapixels": 6.0},
+    {"token": "mp8", "decimal_megapixels": 8.0},
+    {
+      "token": "mp0_331776",
+      "decimal_megapixels": 0.331776,
+      "lattice": {
+        "analysis_width": 768,
+        "analysis_height": 432,
+        "canonical_aspect_ratio": "16:9"
+      }
+    }
+  ],
+  "cap_accounting": {
+    "unit_pixels": 1000000,
+    "applies_to": "unpadded_square_pixel_analysis_area",
+    "rounding": "phase2-analysisGeometry-v1",
+    "record_padded_dimensions": true,
+    "minimum_target_cap_token": "mp2",
+    "source_targets": ["fhd-1920x1080-par1", "uhd-3840x2160-par1"]
+  },
+  "conditioning": [
+    {
+      "token": "native-clamp01-v1",
+      "accepted_encoding": "scene-linear-or-log",
+      "formula": "c(x)=min(1,max(0,x)); then artifact-declared packing"
+    },
+    {
+      "token": "signed-log-v1",
+      "accepted_encoding": "scene-linear",
+      "formula": "c(x)=clamp(0.5+sign(x)*log1p(abs(x))/(2*log(17)),0,1); sign(0)=0; nonfinite input -> typed conditioning failure; then artifact-declared packing"
+    },
+    {
+      "token": "pair-percentile-v1",
+      "accepted_encoding": "scene-linear-or-log",
+      "formula": "finite RGB samples from both frames; lo=linear-quantile(p=0.01), hi=linear-quantile(p=0.99); c(x)=min(1,max(0,(x-lo)/max(hi-lo,1e-6))); then artifact-declared packing"
+    },
+    {
+      "token": "native-log-v1",
+      "accepted_encoding": "log",
+      "formula": "c(x)=x unchanged; then artifact-declared packing"
+    }
+  ],
+  "quantile": {
+    "ordering": "ascending IEEE-754 numeric order after discarding nonfinite samples",
+    "index": "h=(n-1)*p",
+    "interpolation": "x[floor(h)]+(h-floor(h))*(x[ceil(h)]-x[floor(h)])",
+    "scope": "all RGB channel samples from the two-frame pair",
+    "empty_pair_result": "typed conditioning failure"
+  },
+  "padding_comparison_policy": "artifact-declared caller padding, held identical across artifacts in a comparison cell",
+  "synthetic_categories": [
+    "identity", "translation-x", "translation-y", "affine-spatial", "border",
+    "occlusion-reveal", "blur", "noise", "hdr-log", "odd-padding", "par", "chain"
+  ],
+  "required_synthetic_cases": [
+    "identity",
+    "translation-x-positive", "translation-x-negative",
+    "translation-y-positive", "translation-y-negative",
+    "affine", "spatial", "border", "occlusion-reveal", "blur", "noise",
+    "hdr-scene-linear", "log-input", "odd-size", "asymmetric-padding",
+    "par-0_5", "par-2", "chain-1", "chain-2", "chain-4", "chain-8",
+    "fhd-1920x1080-par1", "uhd-3840x2160-par1"
+  ],
+  "primary_production_categories": [
+    "motion-blur", "defocus", "low-contrast", "grain", "occlusion-reveal",
+    "rolling-shutter", "fine-detail", "reflections-screens", "anamorphic"
+  ],
+  "chain_lengths": [1, 2, 4, 8],
+  "metrics": [
+    "endpoint_error_px", "fraction_le_1px", "fraction_le_3px", "landmark_median_error_px",
+    "landmark_p95_error_px", "visible_warp_residual", "forward_backward_residual_px",
+    "chain_drift_px", "nonfinite_fraction", "repeated_run_p99_delta_px"
+  ],
+  "review_dimensions": ["edge_adherence", "occlusion_reveal", "blur", "jitter", "drift"],
+  "profiles": {
+    "smoke": {"fresh_sessions": 1, "warmups_per_session": 0, "steady_samples_per_session": 2},
+    "screen": {"fresh_sessions": 1, "warmups_per_session": 0, "steady_samples_per_session": 5},
+    "final": {"fresh_sessions": 3, "warmups_per_session": 1, "steady_samples_per_session": 10}
+  },
+  "aggregation": {
+    "order": ["samples_to_shot", "shots_to_category", "categories_to_partition"],
+    "sample_statistic": "median; p95 also reported",
+    "shot_weighting": "equal_within_category",
+    "category_weighting": "equal",
+    "dense_score": "100*(0.50*fraction_le_1px+0.30*fraction_le_3px+0.20*max(0,1-endpoint_error_px/3))",
+    "review_score": "100*mean(five_review_dimensions)/4",
+    "final_quality_score": "0.30*synthetic_macro_score+0.70*production_macro_score"
+  },
+  "hard_gates": {
+    "missing_required_results_max": 0,
+    "nonfinite_fraction_max": 0.0,
+    "repeated_run_p99_delta_px_max": 0.05,
+    "peak_incremental_device_memory_gib_max": 15.0,
+    "synthetic_macro_score_min": 75.0,
+    "synthetic_primary_category_score_min": 60.0,
+    "production_macro_score_min": 70.0,
+    "production_primary_category_score_min": 60.0,
+    "mandatory_source_cap_cells": [
+      {"source_target": "fhd-1920x1080-par1", "cap_token": "mp2", "provider": "cuda"},
+      {"source_target": "uhd-3840x2160-par1", "cap_token": "mp2", "provider": "cuda"}
+    ]
+  },
+  "ranking": {
+    "material_quality_points": 3.0,
+    "default_order": ["quality_score_desc", "geomean_steady_latency_asc", "peak_memory_asc", "artifact_size_asc", "candidate_id_asc"],
+    "fast_quality_score_min": 75.0,
+    "fast_max_quality_loss_points": 8.0,
+    "fast_max_primary_category_loss_points": 10.0,
+    "fast_min_latency_reduction_each_target": 0.30,
+    "fast_min_latency_reduction_geomean": 0.35,
+    "no_qualifier_result": "no-fast-selection"
+  }
+}

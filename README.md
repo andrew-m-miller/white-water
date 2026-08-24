@@ -47,6 +47,7 @@ production inference remain open. See [docs/host-notes.md](docs/host-notes.md),
 | [docs/plan.md](docs/plan.md) | The approved plan: architecture, parameters, phasing, verification |
 | [docs/phase2-implementation-plan.md](docs/phase2-implementation-plan.md) | The scoped Phase 2 work packages and explicit later-phase exclusions |
 | [docs/phase2.5-implementation-plan.md](docs/phase2.5-implementation-plan.md) | The exact-artifact bake-off, airgapped production evaluation, and selection gates |
+| [docs/phase2.5-protocol-v2.md](docs/phase2.5-protocol-v2.md) | Pre-target amendment separating shipping eligibility from measurement admission |
 | [docs/host-notes.md](docs/host-notes.md) | What Flame actually does — measured, inherited, and open |
 | [docs/context.md](docs/context.md) | Why decisions went the way they did; known weaknesses |
 | [models/MODELS.md](models/MODELS.md) | Model provenance, licences, export procedure |

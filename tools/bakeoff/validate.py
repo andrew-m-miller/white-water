@@ -39,17 +39,27 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("document", type=Path, help="protocol, corpus or report JSON document")
     parser.add_argument("--kind", choices=("protocol", "corpus", "report"), required=True)
-    parser.add_argument("--protocol", type=Path, default=root / "bakeoff/protocol-v1.json")
+    parser.add_argument(
+        "--protocol",
+        type=Path,
+        default=root / "bakeoff/protocol-v2.json",
+        help="protocol JSON (defaults to the active v2 amendment; pass protocol-v1.json for legacy reports)",
+    )
     parser.add_argument("--corpus", type=Path, help="corpus JSON used to resolve report shot ids")
     parser.add_argument("--schema", type=Path, help="override the selected schema path")
     args = parser.parse_args(argv)
 
     protocol_path = args.protocol
-    protocol_schema_path = root / "bakeoff/protocol-v1.schema.json"
-    corpus_schema_path = root / "bakeoff/corpus-v1.schema.json"
-    report_schema_path = root / "bakeoff/report-v1.schema.json"
     try:
         protocol = load_json(protocol_path)
+        version = protocol.get("schema_version", 1)
+        if version not in (1, 2):
+            raise ValueError(f"unsupported protocol schema version: {version!r}")
+        protocol_schema_path = root / f"bakeoff/protocol-v{version}.schema.json"
+        report_schema_path = root / f"bakeoff/report-v{version}.schema.json"
+        # v2 deliberately reuses the unchanged v1 corpus contract; keep this derived from the
+        # protocol version rather than making report validation depend on a filename convention.
+        corpus_schema_path = root / "bakeoff/corpus-v1.schema.json"
         protocol_schema = load_json(protocol_schema_path)
         corpus_schema = load_json(corpus_schema_path)
         report_schema = load_json(report_schema_path)
