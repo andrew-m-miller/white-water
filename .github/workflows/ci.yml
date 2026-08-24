@@ -1095,9 +1095,11 @@ jobs:
             --prefix "$RUNNER_TEMP/p25-5-conda-env" \
             --format tar.gz \
             --output "$runtime_archive"
+          chmod 0644 "$runtime_archive"
           runtime_sha=$(sha256sum -- "$runtime_archive" | awk '{print $1}')
           printf '%s  %s\n' "$runtime_sha" "$(basename "$runtime_archive")" \
             > "$P25_5_OUTPUT_DIR/whitewater-p25-5-runtime.tar.gz.sha256"
+          chmod 0644 "$P25_5_OUTPUT_DIR/whitewater-p25-5-runtime.tar.gz.sha256"
           "$RUNNER_TEMP/miniforge/bin/conda" list --prefix "$RUNNER_TEMP/p25-5-conda-env" --explicit \
             > "$P25_5_OUTPUT_DIR/whitewater-p25-5-runtime.inventory"
           "$RUNNER_TEMP/miniforge/bin/conda" list --prefix "$RUNNER_TEMP/p25-5-conda-env" --json \

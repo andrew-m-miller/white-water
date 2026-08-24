@@ -223,6 +223,22 @@ class LegalReviewTests(unittest.TestCase):
             workflow,
         )
 
+    def test_workflow_normalizes_the_packed_runtime_modes(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            '--output "$runtime_archive"\n'
+            '          chmod 0644 "$runtime_archive"\n'
+            '          runtime_sha=$(sha256sum -- "$runtime_archive"',
+            workflow,
+        )
+        self.assertIn(
+            "printf '%s  %s\\n' \"$runtime_sha\" \"$(basename \"$runtime_archive\")\" \\\n"
+            '            > "$P25_5_OUTPUT_DIR/whitewater-p25-5-runtime.tar.gz.sha256"\n'
+            '          chmod 0644 "$P25_5_OUTPUT_DIR/'
+            'whitewater-p25-5-runtime.tar.gz.sha256"',
+            workflow,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
