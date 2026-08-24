@@ -102,6 +102,11 @@ assert sys.path == before, 'package reload changed sys.path'
             str(ROOT / "models" / "sea-raft-m.json"),
             cwd=outside_root,
         )
+        _run_cli(
+            ROOT / "models" / "check_raft_manifest.py",
+            str(ROOT / "models" / "raft-original.json"),
+            cwd=outside_root,
+        )
 
     print("artifact workflow import and outside-root CLI gates: PASS")
     return 0

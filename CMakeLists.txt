@@ -123,12 +123,41 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/check_searaft_manifest.py"
       "${CMAKE_SOURCE_DIR}/models/sea-raft-m.json")
+  add_test(NAME models::neuflow_manifest
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/check_neuflow_manifest.py"
+      "${CMAKE_SOURCE_DIR}/models/neuflow-v2.json")
+  add_test(NAME models::neuflow_export_contract
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/neuflow_export_tests.py")
+  add_test(NAME models::raft_manifest
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/check_raft_manifest.py"
+      "${CMAKE_SOURCE_DIR}/models/raft-original.json")
+  add_test(NAME models::p25_3_candidate_manifests
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/p25_3_candidate_manifest_tests.py")
+  add_test(NAME models::raft_export_framework
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/raft_export_tests.py")
   add_test(NAME models::artifact_framework
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/artifact_tests.py")
   add_test(NAME models::artifact_imports
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/artifact_import_tests.py")
+  add_test(NAME models::waft_twins_exclusion
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/check_waft_manifest.py")
+  add_test(NAME models::waft_twins_artifact
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/check_waft_artifact.py")
+  add_test(NAME models::waft_export_gates
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/waft_export_tests.py")
+  add_test(NAME models::exclusion_contract
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/exclusion_contract_tests.py")
   add_test(NAME bakeoff::protocol_schema
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/tools/bakeoff/schema_tests.py")

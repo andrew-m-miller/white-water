@@ -1,0 +1,8 @@
+# NeuFlow v2 upstream README: Python 3.8 and PyTorch 2.0.1.  This CPU export
+# environment keeps that framework pair, and pins the graph checker/runtime used
+# for the recorded local export attempt.
+torch==2.0.1
+torchvision==0.15.2
+numpy==1.24.4
+onnx==1.14.1
+onnxruntime==1.16.3
