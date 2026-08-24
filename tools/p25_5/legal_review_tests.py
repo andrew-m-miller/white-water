@@ -202,6 +202,11 @@ class LegalReviewTests(unittest.TestCase):
             "the EL8 qualification container carries curl 7.61.1",
         )
 
+    def test_workflow_checks_the_literal_relative_ort_runpath(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn("grep -F '$ORIGIN/onnxruntime'", workflow)
+        self.assertNotIn("grep -F '\\$ORIGIN/onnxruntime'", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

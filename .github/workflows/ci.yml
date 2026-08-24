@@ -1054,7 +1054,7 @@ jobs:
           chmod 0755 "$native_root/libwhitewater_ort_bridge.so"
           test -f "$native_root/libwhitewater_ort_bridge.so"
           objdump -p "$native_root/libwhitewater_ort_bridge.so" | \
-            grep -F 'RUNPATH' | grep -F '\$ORIGIN/onnxruntime' >/dev/null || {
+            grep -F 'RUNPATH' | grep -F '$ORIGIN/onnxruntime' >/dev/null || {
               echo "native ORT bridge must use a relative ONNX Runtime RUNPATH" >&2; exit 1; }
           echo "P25_5_ORT_ARCHIVE_SHA256=$ort_sha" >> "$GITHUB_ENV"
           echo "P25_5_NATIVE_ORT_ROOT=$native_root" >> "$GITHUB_ENV"
