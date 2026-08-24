@@ -12,10 +12,11 @@ PFM CLI are present. **P25-0, P25-1 and P25-2 are merged through PRs #6, #8 and 
 respectively.** They provide the frozen protocol and schemas, candidate-neutral artifact
 framework, and deterministic corpus/conditioning package. P25-3 candidate export/evidence work
 merged through PRs #11, #10 and #12, and the P25-4 offline runner and active protocol v2 merged
-through PR #13. P25-5 local/CI qualification completed on draft PR #15 at `adfd4fb`; P25-6
-airgapped target measurement is next after review and merge. No production target measurement,
-ranking decision, shipping model, or OFX choice order has been selected, and broader closeout for
-Phases 2 and 2.5 remains deferred while the bake-off is open.
+through PR #13. P25-5 local/CI qualification merged through PR #15 at `946c042`; the exact
+evaluation artifact remains the one qualified at `adfd4fb`. P25-6 airgapped target measurement is
+next. No production target measurement, ranking decision, shipping model, or OFX choice order has
+been selected, and broader closeout for Phases 2 and 2.5 remains deferred while the bake-off is
+open.
 
 The successful P25-5 workflow-dispatch run is `32780658875`. Its uploaded artifact is
 `whitewater-p25-5-el8-adfd4fb85ce319bfc76468a9d097f514901405c9`; the exact carried evaluator
@@ -286,8 +287,8 @@ target cells.
 
 ### P25-5 - Local and CI qualification - Luna H
 
-**Status: complete on draft PR #15 at `adfd4fb`; successful workflow run `32780658875`. The
-evaluation tarball SHA256 is
+**Status: merged through PR #15 at `946c042`; the exact artifact was qualified at `adfd4fb` by
+successful workflow run `32780658875`. The evaluation tarball SHA256 is
 `53b4e7192496a5ee8be1e0af6085980b59e287afc03599f953e2bb9a65eb8850`.**
 
 Run export, schema, hash, permission, tensor-contract, direction, operator and CPU-correctness
@@ -303,7 +304,18 @@ across the whole matrix would consume time without answering the GPU shipping qu
 Exit: the ordinary repository suite remains green and the exact carried tarball has a SHA256 and
 human-readable run instructions.
 
+The carried `RUN-P25-5.txt` is deliberately limited to archive verification/extraction, the
+required CPU provider/session check, and one optional PFM-pair smoke command. It is not the
+operator procedure for the resumable P25-6 `smoke`, `screen`, and `final` profiles. P25-6 must
+publish and verify that complete operator procedure before production target measurement begins;
+the inner `runtime/whitewater-p25-5-runtime.tar.gz` is only the relocatable conda environment.
+
 ### P25-6 - Airgapped target measurement - Luna I plus human operator
+
+Before the human run, package or otherwise provide the exact resumable profile entrypoints,
+production-corpus inputs, output paths, and recovery commands needed to drive the P25-4
+matrix/session/reporting machinery with this qualified evaluator. The instructions must identify
+the qualified outer archive by SHA256 and must not require edits to any carried file.
 
 The human runs three resumable profiles on the production machine:
 
