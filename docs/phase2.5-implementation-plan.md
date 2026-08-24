@@ -11,9 +11,10 @@ preprocessing, `PairwiseFlowEstimator`, `NullPairwiseEstimator`, and the ORT-fre
 PFM CLI are present. **P25-0, P25-1 and P25-2 are merged through PRs #6, #8 and #7
 respectively.** They provide the frozen protocol and schemas, candidate-neutral artifact
 framework, and deterministic corpus/conditioning package. P25-3 candidate export/evidence work
-is under review in PRs #10-#12, and the P25-4 offline runner is under review in PR #13. No
-production target measurement, ranking decision, shipping model, or OFX choice order has been
-selected. Broader closeout for Phases 2 and 2.5 remains deferred while the bake-off is open.
+merged through PRs #11, #10 and #12, and the P25-4 offline runner and active protocol v2 merged
+through PR #13. No production target measurement, ranking decision, shipping model, or OFX choice
+order has been selected. P25-5 local/CI qualification is next; broader closeout for Phases 2 and
+2.5 remains deferred while the bake-off is open.
 
 ## Exit
 
@@ -191,7 +192,8 @@ annotation schemas.
 
 ### P25-3 - Candidate export spikes - Lunas D, E and F
 
-**Status: under review in PRs #10 (WAFT), #11 (SEA-RAFT/original RAFT) and #12 (NeuFlow).**
+**Status: merged through PRs #11 (SEA-RAFT/original RAFT), #10 (WAFT) and #12 (NeuFlow) at
+`5b7e059`, `2ab6121` and `366a9fc`.**
 
 Run three independent workstreams after P25-1:
 
@@ -208,7 +210,7 @@ OFX choice parameters.
 
 ### P25-4 - Offline bake-off runner and metrics - Luna G
 
-**Status: under review in PR #13.**
+**Status: merged through PR #13 at `efc350f`.**
 
 Add a self-contained offline runner in the `tools/ww-flow` family. It executes the Cartesian
 product selected by the protocol:
@@ -238,6 +240,40 @@ an aggregate.
 
 Exit: validated JSON and CSV reports, deterministic metric fixtures, no implicit downloads, and
 resume support for interrupted airgapped runs.
+
+#### Admission amendment (2026-08-23)
+
+The pre-target-measurement contract is `whitewater-p25-v2`; v1 remains available for backward
+compatibility. Report candidates carry shipping `status` and technical `measurement_status`
+separately. Matrix planning admits only `measurement_status=measurable`, so a shipping-excluded
+but technically qualified RAFT/NeuFlow/WAFT artifact can be evaluated without weakening the
+fail-closed license/redistribution gate. Shipping `exclusion_reason` and technical
+`measurement_exclusion_reason` are independent; excluded-but-measurable entries retain all legal
+verdict and redistribution-review surfaces, including unknown/not-permitted values. Validation
+baselines remain evaluation-only and cannot be shipping or P25-7 ranking winners. See
+`docs/phase2.5-protocol-v2.md` for the version boundary and the fixed-shape NeuFlow follow-up.
+
+#### Fixed-shape comparison lattice (2026-08-23)
+
+Protocol v2 appends the shared `mp0_331776` evaluation point (0.331776 MP) to every provider's
+capability list. Its frozen lattice is exactly 768x432 analysis pixels at canonical 16:9. The
+`candidate_constraints` table restricts NeuFlow v2 to that cap, CPU/CUDA providers, and shots
+whose computed geometry and PAR actually satisfy the lattice; matrix planning rejects unsupported
+NeuFlow cells before row generation. SEA-RAFT, RAFT, and a qualified WAFT may use the same point.
+The existing `mp0_5`–`mp8` grid and final CUDA `mp2` FHD/UHD gates are unchanged.
+
+Provider capability is not provider qualification. Every measurable v2 report candidate declares
+`measurement_providers`, and the planner only schedules providers listed there. The checked-in
+NeuFlow evidence lists CPU only, so an operator must return a technically measurable report
+candidate with CUDA explicitly listed before a NeuFlow CUDA lattice run is admitted. No CUDA pass
+is implied by the protocol or by this lattice.
+
+Corpus selection for a NeuFlow comparison should use the existing FHD/UHD PAR1 synthetic targets
+or production shots that compute to 768x432 at the new cap. Non-16:9, anamorphic, undersized, and
+other rounded geometries remain valid for unconstrained candidates but must be separate from a
+NeuFlow matrix. The operator command must select `profile=screen`, `cap_tokens=["mp0_331776"]`,
+and only those shots/providers; final shipping commands continue to select the unchanged `mp2`
+target cells.
 
 ### P25-5 - Local and CI qualification - Luna H
 

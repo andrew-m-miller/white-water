@@ -68,6 +68,253 @@ def main() -> int:
     positive_report = load_json(ROOT / "bakeoff/fixtures/positive/report-v1.json")
     validate_report_consistency(positive_report, protocol, report_schema, positive_corpus, corpus_schema)
 
+    # v1 remains the backward-compatible shipping-only contract.  The admission amendment is
+    # exercised separately through the new v2 protocol/report IDs so an old consumer cannot
+    # silently reinterpret an excluded candidate as measurable.
+    protocol_v2 = load_json(ROOT / "bakeoff/protocol-v2.json")
+    protocol_schema_v2 = load_json(ROOT / "bakeoff/protocol-v2.schema.json")
+    report_schema_v2 = load_json(ROOT / "bakeoff/report-v2.schema.json")
+    positive_report_v2 = load_json(ROOT / "bakeoff/fixtures/positive/report-v2.json")
+    validate_protocol_and_schemas(protocol_v2, protocol_schema_v2, corpus_schema, report_schema_v2)
+    validate_report_consistency(
+        positive_report_v2, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+    )
+
+    # The new sub-mp0.5 lattice is available to an ordinary measurable candidate.  The
+    # positive row remains the small 64x48 fixture geometry; the cap is an upper bound, not a
+    # forced resize for sources already below it.
+    shared_lattice_report = copy.deepcopy(positive_report_v2)
+    shared_lattice_report["matrix"]["cap_tokens"] = ["mp0_331776"]
+    shared_lattice_report["matrix"]["matrix_sha256"] = canonical_sha256({
+        key: value for key, value in shared_lattice_report["matrix"].items()
+        if key != "matrix_sha256"
+    })
+    shared_lattice_report["results"][0]["cap_token"] = "mp0_331776"
+    validate_report_consistency(
+        shared_lattice_report, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+    )
+
+    neuflow_wrong_geometry = copy.deepcopy(shared_lattice_report)
+    neuflow_candidate = copy.deepcopy(neuflow_wrong_geometry["candidates"][0])
+    neuflow_candidate.update({
+        "candidate_id": "neuflow-v2",
+        "status": "excluded",
+        "measurement_status": "measurable",
+        "measurement_providers": ["cpu"],
+        "exclusion_reason": {"type": "license_unknown", "message": "fixed-shape fixture"},
+    })
+    neuflow_wrong_geometry["candidates"] = [neuflow_candidate]
+    neuflow_wrong_geometry["matrix"]["candidate_ids"] = ["neuflow-v2"]
+    neuflow_wrong_geometry["matrix"]["matrix_sha256"] = canonical_sha256({
+        key: value for key, value in neuflow_wrong_geometry["matrix"].items()
+        if key != "matrix_sha256"
+    })
+    neuflow_wrong_geometry["results"][0]["candidate_id"] = "neuflow-v2"
+    expect_failure(
+        "NeuFlow rejects non-16:9 fixed-lattice source geometry",
+        lambda: validate_report_consistency(
+            neuflow_wrong_geometry, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    neuflow_wrong_cap = copy.deepcopy(neuflow_wrong_geometry)
+    neuflow_wrong_cap["matrix"]["cap_tokens"] = ["mp2"]
+    neuflow_wrong_cap["matrix"]["providers"] = [{"token": "cuda", "host_loads": ["idle"]}]
+    neuflow_wrong_cap["matrix"]["matrix_sha256"] = canonical_sha256({
+        key: value for key, value in neuflow_wrong_cap["matrix"].items()
+        if key != "matrix_sha256"
+    })
+    neuflow_wrong_cap["results"][0].update({
+        "cap_token": "mp2", "provider": "cuda", "host_load": "idle",
+    })
+    neuflow_wrong_cap["candidates"][0]["measurement_providers"] = ["cpu", "cuda"]
+    expect_failure(
+        "NeuFlow rejects frozen shipping caps",
+        lambda: validate_report_consistency(
+            neuflow_wrong_cap, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    protocol_v2_bad_lattice = copy.deepcopy(protocol_v2)
+    protocol_v2_bad_lattice["analysis_caps"][-1]["lattice"]["analysis_width"] = 769
+    expect_failure(
+        "v2 fixed lattice dimensions are frozen",
+        lambda: validate_protocol_consistency(
+            protocol_v2_bad_lattice, protocol_schema_v2, report_schema_v2,
+        ),
+    )
+
+    excluded_but_measurable = copy.deepcopy(positive_report_v2)
+    evaluation_candidate = copy.deepcopy(positive_report_v2["candidates"][0])
+    evaluation_candidate.update({
+        "candidate_id": "waft-twins",
+        "status": "excluded",
+        "measurement_status": "measurable",
+        "exclusion_reason": {"type": "license_unknown", "message": "evaluation-only fixture"},
+    })
+    evaluation_candidate["license_verdicts"]["checkpoint"] = "unknown"
+    evaluation_candidate["redistribution_permitted"]["checkpoint"] = "not_permitted"
+    excluded_but_measurable["candidates"].append(evaluation_candidate)
+    set_matrix(
+        excluded_but_measurable,
+        candidate_ids=["waft-twins"],
+        shot_ids=["syn-identity"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp0_5"],
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
+    )
+    excluded_but_measurable["results"][0]["candidate_id"] = "waft-twins"
+    validate_report_consistency(
+        excluded_but_measurable, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+    )
+
+    baseline_measurable = copy.deepcopy(excluded_but_measurable)
+    baseline_candidate = copy.deepcopy(positive_report_v2["candidates"][0])
+    baseline_candidate.update({
+        "candidate_id": "raft-original",
+        "status": "excluded",
+        "measurement_status": "measurable",
+        "exclusion_reason": {"type": "license_unknown", "message": "baseline fixture"},
+    })
+    baseline_measurable["candidates"].append(baseline_candidate)
+    set_matrix(
+        baseline_measurable,
+        candidate_ids=["raft-original"],
+        shot_ids=["syn-identity"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp0_5"],
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
+    )
+    baseline_measurable["results"][0]["candidate_id"] = "raft-original"
+    validate_report_consistency(
+        baseline_measurable, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+    )
+
+    unavailable_in_matrix = copy.deepcopy(positive_report_v2)
+    unavailable_candidate = copy.deepcopy(positive_report_v2["candidates"][0])
+    unavailable_candidate.update({
+        "candidate_id": "waft-twins",
+        "status": "excluded",
+        "measurement_status": "unavailable",
+        "exclusion_reason": {"type": "license_unknown", "message": "shipping exclusion fixture"},
+        "measurement_exclusion_reason": {
+            "type": "artifact_missing",
+            "message": "measurement unavailability fixture",
+        },
+    })
+    unavailable_candidate.pop("measurement_providers")
+    unavailable_in_matrix["candidates"].append(unavailable_candidate)
+    unavailable_report = copy.deepcopy(unavailable_in_matrix)
+    unavailable_report["matrix"]["candidate_ids"] = ["sea-raft-m"]
+    unavailable_report["matrix"]["matrix_sha256"] = canonical_sha256(
+        {key: value for key, value in unavailable_report["matrix"].items() if key != "matrix_sha256"}
+    )
+    unavailable_report["results"][0]["candidate_id"] = "sea-raft-m"
+    validate_report_consistency(
+        unavailable_report, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+    )
+    unavailable_with_provider = copy.deepcopy(unavailable_report)
+    unavailable_with_provider["candidates"][1]["measurement_providers"] = ["cpu"]
+    expect_failure(
+        "v2 unavailable candidate cannot carry provider evidence",
+        lambda: validate_report_consistency(
+            unavailable_with_provider, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+    set_matrix(
+        unavailable_in_matrix,
+        candidate_ids=["waft-twins"],
+        shot_ids=["syn-identity"],
+        conditioning_tokens=["native-clamp01-v1"],
+        cap_tokens=["mp0_5"],
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"]}],
+    )
+    unavailable_in_matrix["results"][0]["candidate_id"] = "waft-twins"
+    expect_failure(
+        "v2 unavailable candidate matrix selection",
+        lambda: validate_report_consistency(
+            unavailable_in_matrix, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    eligible_unavailable = copy.deepcopy(positive_report_v2)
+    eligible_unavailable["candidates"][0]["measurement_status"] = "unavailable"
+    expect_failure(
+        "v2 shipping eligibility requires measurable artifact",
+        lambda: validate_report_consistency(
+            eligible_unavailable, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    v2_license_not_permitted = copy.deepcopy(positive_report_v2)
+    v2_license_not_permitted["candidates"][0]["license_verdicts"]["checkpoint"] = "unknown"
+    expect_failure(
+        "v2 shipping eligibility retains the fail-closed license gate",
+        lambda: validate_report_consistency(
+            v2_license_not_permitted, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    baseline_as_shipping = copy.deepcopy(positive_report_v2)
+    baseline_as_shipping["candidates"][0]["candidate_id"] = "raft-original"
+    expect_failure(
+        "v2 validation baseline cannot be shipping eligible",
+        lambda: validate_report_consistency(
+            baseline_as_shipping, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    measurable_without_artifact = copy.deepcopy(excluded_but_measurable)
+    measurable_without_artifact["candidates"][1].pop("artifact_sha256")
+    expect_failure(
+        "v2 measurable candidate requires artifact identity",
+        lambda: validate_report_consistency(
+            measurable_without_artifact, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+    )
+
+    measurable_without_legal_evidence = copy.deepcopy(excluded_but_measurable)
+    measurable_without_legal_evidence["candidates"][1].pop("license_verdicts")
+    expect_failure(
+        "v2 excluded measurable candidate preserves license evidence",
+        lambda: validate_report_consistency(
+            measurable_without_legal_evidence,
+            protocol_v2,
+            report_schema_v2,
+            positive_corpus,
+            corpus_schema,
+        ),
+    )
+
+    measurable_with_measurement_reason = copy.deepcopy(excluded_but_measurable)
+    measurable_with_measurement_reason["candidates"][1]["measurement_exclusion_reason"] = {
+        "type": "artifact_missing",
+        "message": "must be unavailable instead",
+    }
+    expect_failure(
+        "v2 measurable candidate cannot carry a measurement exclusion reason",
+        lambda: validate_report_consistency(
+            measurable_with_measurement_reason,
+            protocol_v2,
+            report_schema_v2,
+            positive_corpus,
+            corpus_schema,
+        ),
+    )
+
+    unavailable_without_measurement_reason = copy.deepcopy(unavailable_report)
+    unavailable_without_measurement_reason["candidates"][1].pop("measurement_exclusion_reason")
+    expect_failure(
+        "v2 unavailable candidate requires a measurement exclusion reason",
+        lambda: validate_report_consistency(
+            unavailable_without_measurement_reason,
+            protocol_v2,
+            report_schema_v2,
+            positive_corpus,
+            corpus_schema,
+        ),
+    )
+
     failed_with_metrics = copy.deepcopy(positive_report)
     failed_with_metrics["results"][0]["status"] = "fail"
     failed_with_metrics["results"][0]["failure"] = {

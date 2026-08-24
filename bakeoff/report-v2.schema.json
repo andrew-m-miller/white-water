@@ -1,0 +1,513 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "whitewater://schema/phase2.5/report-v2",
+  "title": "White Water Phase 2.5 bake-off report v2",
+  "description": "Machine-readable measurements with hashes and anonymous frame identities; shipping status is separate from typed, provider-specific measurement admission; no source-frame payloads or P25-7 selection record.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "protocol_id",
+    "report_id",
+    "corpus_id",
+    "corpus_sha256",
+    "profile",
+    "environment",
+    "runner",
+    "hardware",
+    "matrix",
+    "candidates",
+    "results",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "protocol_id": {"const": "whitewater-p25-v2"},
+    "report_id": {"$ref": "#/$defs/id"},
+    "corpus_id": {"$ref": "#/$defs/id"},
+    "corpus_sha256": {"$ref": "#/$defs/sha256"},
+    "profile": {"enum": ["smoke", "screen", "final"]},
+    "environment": {"enum": ["el8-x86_64", "macos-arm64"]},
+    "started_utc": {"type": "string", "format": "date-time"},
+    "completed_utc": {"type": "string", "format": "date-time"},
+    "runner": {"$ref": "#/$defs/runner"},
+    "hardware": {"$ref": "#/$defs/hardware"},
+    "matrix": {"$ref": "#/$defs/matrix"},
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/candidate"}
+    },
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/result"}
+    },
+    "summary": {"$ref": "#/$defs/summary"},
+    "warnings": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "finite_number": {
+      "type": "number"
+    },
+    "nonnegative_number": {
+      "type": "number",
+      "minimum": 0
+    },
+    "fraction": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "source_commit", "evaluator_sha256", "runtime", "runtime_sha256"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "evaluator_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime": {"type": "string", "minLength": 1},
+        "runtime_sha256": {"$ref": "#/$defs/sha256"},
+        "command": {"type": "string", "minLength": 1}
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "architecture"],
+      "properties": {
+        "platform": {"type": "string", "minLength": 1},
+        "architecture": {"type": "string", "minLength": 1},
+        "os_release": {"type": "string", "minLength": 1},
+        "cpu": {"type": "string", "minLength": 1},
+        "gpu": {"type": "string", "minLength": 1},
+        "driver": {"type": "string", "minLength": 1}
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_id", "status", "measurement_status"],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/id"},
+        "status": {"enum": ["eligible", "excluded"]},
+        "measurement_status": {"enum": ["measurable", "unavailable"]},
+        "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+        "backbone_sha256": {"$ref": "#/$defs/sha256"},
+        "artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "export_environment_sha256": {"$ref": "#/$defs/sha256"},
+        "artifact_size_bytes": {"type": "integer", "minimum": 1},
+        "measurement_providers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["cpu", "cuda", "coreml"]}
+        },
+        "license_verdicts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "checkpoint", "backbone"],
+          "properties": {
+            "code": {"enum": ["commercial_use_permitted", "not_permitted", "unknown"]},
+            "checkpoint": {"enum": ["commercial_use_permitted", "not_permitted", "unknown"]},
+            "backbone": {"enum": ["commercial_use_permitted", "not_permitted", "unknown"]}
+          }
+        },
+        "redistribution_permitted": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "checkpoint", "backbone"],
+          "properties": {
+            "code": {"enum": ["permitted", "not_permitted", "unknown"]},
+            "checkpoint": {"enum": ["permitted", "not_permitted", "unknown"]},
+            "backbone": {"enum": ["permitted", "not_permitted", "unknown"]}
+          }
+        },
+        "redistribution_terms_reviewed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "checkpoint", "backbone"],
+          "properties": {
+            "code": {"const": true},
+            "checkpoint": {"const": true},
+            "backbone": {"const": true}
+          }
+        },
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "exclusion_reason": {"$ref": "#/$defs/failure"},
+        "measurement_exclusion_reason": {"$ref": "#/$defs/failure"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "status": {"const": "eligible"},
+            "measurement_status": {"const": "measurable"}
+          },
+          "required": [
+            "source_commit",
+            "checkpoint_sha256",
+            "artifact_sha256",
+            "export_environment_sha256",
+            "manifest_sha256",
+            "artifact_size_bytes",
+            "measurement_providers",
+            "redistribution_terms_reviewed",
+            "license_verdicts",
+            "redistribution_permitted"
+          ],
+          "not": {
+            "anyOf": [
+              {"required": ["exclusion_reason"]},
+              {"required": ["measurement_exclusion_reason"]}
+            ]
+          }
+        },
+        {
+          "properties": {
+            "status": {"const": "excluded"},
+            "measurement_status": {"const": "measurable"}
+          },
+          "required": [
+            "source_commit",
+            "checkpoint_sha256",
+            "artifact_sha256",
+            "export_environment_sha256",
+            "manifest_sha256",
+            "artifact_size_bytes",
+            "measurement_providers",
+            "exclusion_reason",
+            "license_verdicts",
+            "redistribution_permitted",
+            "redistribution_terms_reviewed"
+          ],
+          "not": {"required": ["measurement_exclusion_reason"]}
+        },
+        {
+          "properties": {
+            "status": {"const": "excluded"},
+            "measurement_status": {"const": "unavailable"}
+          },
+          "required": ["exclusion_reason", "measurement_exclusion_reason"],
+          "not": {"required": ["measurement_providers"]}
+        }
+      ]
+    },
+    "matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_ids",
+        "shot_ids",
+        "conditioning_tokens",
+        "cap_tokens",
+        "providers",
+        "matrix_sha256"
+      ],
+      "properties": {
+        "candidate_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "shot_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "conditioning_tokens": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "cap_tokens": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "providers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/matrix_provider"}
+        },
+        "matrix_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "matrix_provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["token", "host_loads"],
+      "properties": {
+        "token": {"enum": ["cpu", "cuda", "coreml"]},
+        "host_loads": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["idle", "live_flame", "not_applicable"]}
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "shot_id",
+        "conditioning_token",
+        "cap_token",
+        "provider",
+        "status",
+        "host_load"
+      ],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/id"},
+        "shot_id": {"$ref": "#/$defs/id"},
+        "category": {"$ref": "#/$defs/id"},
+        "source_target": {"type": "string", "minLength": 1},
+        "conditioning_token": {"$ref": "#/$defs/id"},
+        "cap_token": {"$ref": "#/$defs/id"},
+        "provider": {"enum": ["cpu", "cuda", "coreml"]},
+        "status": {"enum": ["pass", "fail", "skip"]},
+        "host_load": {"enum": ["idle", "live_flame", "not_applicable"]},
+        "conditioning_parameters": {"$ref": "#/$defs/conditioning_parameters"},
+        "failure": {"$ref": "#/$defs/failure"},
+        "input_frames": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/input_frame"}
+        },
+        "geometry": {"$ref": "#/$defs/geometry"},
+        "timing": {"$ref": "#/$defs/timing"},
+        "metrics": {"$ref": "#/$defs/metrics"},
+        "resource": {"$ref": "#/$defs/resource"},
+        "environment": {"$ref": "#/$defs/result_environment"}
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "message"],
+      "properties": {
+        "type": {
+          "enum": [
+            "artifact_missing",
+            "artifact_hash_mismatch",
+            "license_not_permitted",
+            "license_unknown",
+            "provider_unavailable",
+            "unsupported_tensor_contract",
+            "wrong_direction",
+            "export_not_reproducible",
+            "missing_input",
+            "input_invalid",
+            "conditioning_failure",
+            "cap_unavailable",
+            "out_of_memory",
+            "runtime_error",
+            "nonfinite_output",
+            "repeated_run_instability",
+            "quality_gate_failed",
+            "operator_cancelled",
+            "not_attempted",
+            "other"
+          ]
+        },
+        "message": {"type": "string", "minLength": 1},
+        "retryable": {"type": "boolean"},
+        "stage": {"type": "string", "minLength": 1}
+      }
+    },
+    "input_frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frame", "sha256"],
+      "properties": {
+        "frame": {"type": "integer"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "conditioning_parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "low": {"$ref": "#/$defs/finite_number"},
+        "high": {"$ref": "#/$defs/finite_number"},
+        "epsilon": {"const": 0.000001}
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_width",
+        "source_height",
+        "source_pixel_aspect_ratio",
+        "canonical_width",
+        "canonical_height",
+        "analysis_width",
+        "analysis_height",
+        "padded_width",
+        "padded_height",
+        "effective_padded_megapixels",
+        "spacing_x_source_pixels",
+        "spacing_y_source_pixels"
+      ],
+      "properties": {
+        "source_width": {"type": "integer", "minimum": 1},
+        "source_height": {"type": "integer", "minimum": 1},
+        "source_pixel_aspect_ratio": {"type": "number", "exclusiveMinimum": 0},
+        "canonical_width": {"type": "number", "exclusiveMinimum": 0},
+        "canonical_height": {"type": "number", "exclusiveMinimum": 0},
+        "analysis_width": {"type": "integer", "minimum": 1},
+        "analysis_height": {"type": "integer", "minimum": 1},
+        "padded_width": {"type": "integer", "minimum": 1},
+        "padded_height": {"type": "integer", "minimum": 1},
+        "effective_padded_megapixels": {"type": "number", "exclusiveMinimum": 0},
+        "spacing_x_source_pixels": {"type": "number", "exclusiveMinimum": 0},
+        "spacing_y_source_pixels": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preprocessing_ms",
+        "session_creation_ms",
+        "first_inference_ms",
+        "steady_inference_ms",
+        "postprocessing_ms",
+        "total_pair_ms",
+        "steady_samples_ms",
+        "sessions"
+      ],
+      "properties": {
+        "preprocessing_ms": {"$ref": "#/$defs/nonnegative_number"},
+        "session_creation_ms": {"$ref": "#/$defs/nonnegative_number"},
+        "first_inference_ms": {"$ref": "#/$defs/nonnegative_number"},
+        "steady_inference_ms": {"$ref": "#/$defs/nonnegative_number"},
+        "postprocessing_ms": {"$ref": "#/$defs/nonnegative_number"},
+        "total_pair_ms": {"$ref": "#/$defs/nonnegative_number"},
+        "steady_samples_ms": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/nonnegative_number"}
+        },
+        "sessions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/session"}
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_index",
+        "warmup_recorded",
+        "session_creation_ms",
+        "first_inference_ms",
+        "steady_samples_ms"
+      ],
+      "properties": {
+        "session_index": {"type": "integer", "minimum": 0},
+        "warmup_recorded": {"type": "boolean"},
+        "warmup_ms": {"$ref": "#/$defs/nonnegative_number"},
+        "session_creation_ms": {"$ref": "#/$defs/nonnegative_number"},
+        "first_inference_ms": {"$ref": "#/$defs/nonnegative_number"},
+        "steady_samples_ms": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/nonnegative_number"}
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nonfinite_fraction", "repeated_run_p99_delta_px", "not_applicable"],
+      "properties": {
+        "endpoint_error_px": {"$ref": "#/$defs/nonnegative_number"},
+        "fraction_le_1px": {"$ref": "#/$defs/fraction"},
+        "fraction_le_3px": {"$ref": "#/$defs/fraction"},
+        "landmark_median_error_px": {"$ref": "#/$defs/nonnegative_number"},
+        "landmark_p95_error_px": {"$ref": "#/$defs/nonnegative_number"},
+        "visible_warp_residual": {"$ref": "#/$defs/nonnegative_number"},
+        "forward_backward_residual_px": {"$ref": "#/$defs/nonnegative_number"},
+        "chain_drift_px": {"$ref": "#/$defs/nonnegative_number"},
+        "nonfinite_fraction": {"$ref": "#/$defs/fraction"},
+        "repeated_run_p99_delta_px": {"$ref": "#/$defs/nonnegative_number"},
+        "not_applicable": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["peak_incremental_device_memory_gib"],
+      "properties": {
+        "peak_incremental_device_memory_gib": {"$ref": "#/$defs/nonnegative_number"},
+        "baseline_device_memory_mib": {"$ref": "#/$defs/nonnegative_number"},
+        "peak_device_memory_mib": {"$ref": "#/$defs/nonnegative_number"},
+        "cleanup_device_memory_mib": {"$ref": "#/$defs/nonnegative_number"},
+        "process_exit_device_memory_mib": {"$ref": "#/$defs/nonnegative_number"},
+        "nvml_samples": {"type": "array", "items": {"$ref": "#/$defs/nvml_sample"}}
+      }
+    },
+    "nvml_sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "used_mib"],
+      "properties": {
+        "stage": {"enum": ["baseline", "session_create", "steady", "cleanup", "process_exit", "other"]},
+        "used_mib": {"$ref": "#/$defs/nonnegative_number"},
+        "process_used_mib": {"$ref": "#/$defs/nonnegative_number"}
+      }
+    },
+    "result_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtime_version", "provider_version"],
+      "properties": {
+        "runtime_version": {"type": "string", "minLength": 1},
+        "provider_version": {"type": "string", "minLength": 1},
+        "model_manifest_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_cells", "passed_cells", "failed_cells", "skipped_cells"],
+      "properties": {
+        "required_cells": {"type": "integer", "minimum": 0},
+        "passed_cells": {"type": "integer", "minimum": 0},
+        "failed_cells": {"type": "integer", "minimum": 0},
+        "skipped_cells": {"type": "integer", "minimum": 0},
+        "synthetic_macro_score": {"type": "number", "minimum": 0, "maximum": 100},
+        "production_macro_score": {"type": "number", "minimum": 0, "maximum": 100},
+        "final_quality_score": {"type": "number", "minimum": 0, "maximum": 100},
+        "category_scores": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0, "maximum": 100}}
+      }
+    }
+  }
+}

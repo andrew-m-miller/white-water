@@ -35,10 +35,10 @@ renders, native ST round-trip and load diagnostics. Phase 2 merged through PR #4
 host-free flow algebra, deterministic null estimator, `ww-flow` CLI and expanded unit/harness
 coverage. Phase 2.5 P25-0, P25-1 and P25-2 merged through PRs #6, #8 and #7 respectively: the
 frozen protocol and schemas, candidate-neutral artifact framework, and deterministic
-corpus/conditioning package are present. Candidate export/evidence work is under review in PRs
-#10-#12, and the offline bake-off runner is under review in PR #13. No shipping model/default or
-persistent OFX choice order has been selected; target qualification, measurement, ranking and
-production inference remain open.
+corpus/conditioning package are present. P25-3 candidate export/evidence work merged through PRs
+#11, #10 and #12, and the P25-4 offline runner and active protocol v2 merged through PR #13. No
+shipping model/default or persistent OFX choice order has been selected; P25-5 qualification,
+target measurement, ranking and production inference remain open.
 See [docs/host-notes.md](docs/host-notes.md), [docs/context.md](docs/context.md), and *Phasing* in
 [docs/plan.md](docs/plan.md).
 
@@ -49,6 +49,7 @@ See [docs/host-notes.md](docs/host-notes.md), [docs/context.md](docs/context.md)
 | [docs/plan.md](docs/plan.md) | The approved plan: architecture, parameters, phasing, verification |
 | [docs/phase2-implementation-plan.md](docs/phase2-implementation-plan.md) | The scoped Phase 2 work packages and explicit later-phase exclusions |
 | [docs/phase2.5-implementation-plan.md](docs/phase2.5-implementation-plan.md) | The exact-artifact bake-off, airgapped production evaluation, and selection gates |
+| [docs/phase2.5-protocol-v2.md](docs/phase2.5-protocol-v2.md) | Pre-target amendment separating shipping eligibility from measurement admission |
 | [docs/host-notes.md](docs/host-notes.md) | What Flame actually does — measured, inherited, and open |
 | [docs/context.md](docs/context.md) | Why decisions went the way they did; known weaknesses |
 | [models/MODELS.md](models/MODELS.md) | Model provenance, licences, export procedure |

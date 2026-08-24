@@ -25,9 +25,9 @@ here. Phase 1 merged through PR #1 on 2026-08-22 after Flame verified the workfl
 matte, partial-render and ST contracts. Phase 2 merged through PR #4; its host-free flow algebra,
 `NullPairwiseEstimator`, `ww-flow`, and expanded unit/harness coverage are now the base for the
 Phase 2.5 bake-off. P25-0, P25-1 and P25-2 merged through PRs #6, #8 and #7 respectively.
-Candidate export and evidence work is under review in PRs #10-#12, and the offline bake-off
-runner is under review in PR #13. No model/default, target result, or persistent OFX choice index
-has been selected.
+P25-3 candidate export/evidence work merged through PRs #11, #10 and #12; the P25-4 offline
+runner and active protocol v2 merged through PR #13. No model/default, target result, or persistent
+OFX choice index has been selected. P25-5 local/CI qualification is next.
 
 The plan was amended on 2026-08-20 after an architecture review. Read `docs/plan.md` and
 `docs/context.md` before writing code against anything you remember about it.

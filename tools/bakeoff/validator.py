@@ -11,10 +11,11 @@ Schema cannot express (token matrices, repetition counts, and coverage).
 from __future__ import annotations
 
 import hashlib
+import importlib
+import importlib.util
 import json
 import math
 import re
-import statistics
 from itertools import product
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -27,6 +28,30 @@ class ValidationError(ValueError):
         self.path = path
         self.message = message
         super().__init__(f"{path}: {message}")
+
+
+def _load_sibling(module_name: str):
+    """Load a bake-off sibling in package, script, and private-spec contexts.
+
+    The artifact workflow loads this file through ``spec_from_file_location`` under a private
+    name, where relative imports have no package and ordinary imports cannot see this directory.
+    Loading by the sibling path keeps that path dependency-free without mutating ``sys.path``.
+    """
+
+    if __package__:
+        return importlib.import_module(f".{module_name}", __package__)
+    sibling_path = Path(__file__).resolve().with_name(f"{module_name}.py")
+    private_name = f"_whitewater_p25_bakeoff_{module_name}"
+    spec = importlib.util.spec_from_file_location(private_name, sibling_path)
+    if spec is None or spec.loader is None:  # pragma: no cover - checked-in siblings exist
+        raise ImportError(f"could not load bake-off sibling: {sibling_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+geometry = _load_sibling("geometry")
+metrics = _load_sibling("metrics")
 
 
 def canonical_sha256(value: Any) -> str:
@@ -53,6 +78,9 @@ _EXPECTED_CANDIDATES = [
     {"id": "neuflow-v2", "role": "shipping-candidate"},
     {"id": "raft-original", "role": "validation-baseline"},
 ]
+_V1_PROTOCOL_ID = "whitewater-p25-v1"
+_V2_PROTOCOL_ID = "whitewater-p25-v2"
+_EXPECTED_MEASUREMENT_STATUSES = ["measurable", "unavailable"]
 _EXPECTED_REQUIRED_IDENTITY = [
     "source_commit", "checkpoint_sha256", "artifact_sha256", "export_environment_sha256",
 ]
@@ -70,20 +98,51 @@ _EXPECTED_TENSOR_CONTRACT = {
     "output_direction": "image1_to_image2",
     "output_units": "unpadded_analysis_pixels",
 }
-_EXPECTED_PROVIDERS = [
+_EXPECTED_PROVIDERS_V1 = [
     {"token": "cpu", "environment": "el8-x86_64", "purpose": "correctness", "cap_tokens": ["mp0_5"]},
     {"token": "cuda", "environment": "el8-x86_64", "purpose": "selection",
      "cap_tokens": ["mp0_5", "mp1", "mp2", "mp4", "mp6", "mp8"]},
     {"token": "coreml", "environment": "macos-arm64", "purpose": "supporting",
      "cap_tokens": ["mp0_5", "mp1", "mp2"]},
 ]
-_EXPECTED_CAPS = [
+_EXPECTED_PROVIDERS_V2 = [
+    {"token": "cpu", "environment": "el8-x86_64", "purpose": "correctness", "cap_tokens": ["mp0_5", "mp0_331776"]},
+    {"token": "cuda", "environment": "el8-x86_64", "purpose": "selection",
+     "cap_tokens": ["mp0_5", "mp1", "mp2", "mp4", "mp6", "mp8", "mp0_331776"]},
+    {"token": "coreml", "environment": "macos-arm64", "purpose": "supporting",
+     "cap_tokens": ["mp0_5", "mp1", "mp2", "mp0_331776"]},
+]
+_EXPECTED_CAPS_V1 = [
     {"token": "mp0_5", "decimal_megapixels": 0.5},
     {"token": "mp1", "decimal_megapixels": 1.0},
     {"token": "mp2", "decimal_megapixels": 2.0},
     {"token": "mp4", "decimal_megapixels": 4.0},
     {"token": "mp6", "decimal_megapixels": 6.0},
     {"token": "mp8", "decimal_megapixels": 8.0},
+]
+_EXPECTED_CAPS_V2 = [
+    *_EXPECTED_CAPS_V1,
+    {
+        "token": "mp0_331776",
+        "decimal_megapixels": 0.331776,
+        "lattice": {
+            "analysis_width": 768,
+            "analysis_height": 432,
+            "canonical_aspect_ratio": "16:9",
+        },
+    },
+]
+_EXPECTED_CANDIDATE_CONSTRAINTS_V2 = [
+    {
+        "candidate_id": "neuflow-v2",
+        "providers": ["cpu", "cuda"],
+        "cap_tokens": ["mp0_331776"],
+        "required_geometry": {
+            "analysis_width": 768,
+            "analysis_height": 432,
+            "canonical_aspect_ratio": "16:9",
+        },
+    },
 ]
 _EXPECTED_CAP_ACCOUNTING = {
     "unit_pixels": 1000000,
@@ -523,53 +582,86 @@ def _validate_metadata_only(value: Any, path: str) -> None:
         _require(False, path, "generator parameters may not contain binary payloads")
 
 
-def _rounded_dimension(value: float) -> int:
-    return max(1, math.floor(value + 0.5))
-
-
 def _expected_analysis_dimensions(source_width: int, source_height: int, pixel_aspect_ratio: float,
                                   cap_megapixels: float) -> tuple[int, int]:
-    """Mirror src/core/flow/Preprocess.cpp's frozen cap-sizing algorithm."""
+    """Return the shared frozen ``analysisGeometry-v1`` dimensions."""
 
-    canonical_width = float(source_width) * float(pixel_aspect_ratio)
-    canonical_height = float(source_height)
-    canonical_area = canonical_width * canonical_height
-    cap_pixels_value = float(cap_megapixels) * 1_000_000.0
-    cap_applied = cap_megapixels > 0.0 and canonical_area > cap_pixels_value
-    scale = 1.0
-    if cap_applied:
-        scale = min(math.sqrt(cap_pixels_value / canonical_area), 1.0)
-    analysis_width = _rounded_dimension(canonical_width * scale)
-    analysis_height = _rounded_dimension(canonical_height * scale)
-    if cap_applied:
-        cap_pixels = max(1, math.floor(cap_pixels_value))
-        rounded_area = analysis_width * analysis_height
-        if rounded_area > cap_pixels:
-            rounded_scale_x = analysis_width / canonical_width
-            rounded_scale_y = analysis_height / canonical_height
+    return geometry.analysis_dimensions(
+        source_width,
+        source_height,
+        pixel_aspect_ratio,
+        cap_megapixels,
+    )
 
-            def clamp_width() -> None:
-                nonlocal analysis_width
-                limit = cap_pixels // max(1, analysis_height)
-                analysis_width = max(1, min(analysis_width, limit))
 
-            def clamp_height() -> None:
-                nonlocal analysis_height
-                limit = cap_pixels // max(1, analysis_width)
-                analysis_height = max(1, min(analysis_height, limit))
+def _candidate_constraint_map(protocol: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """Return v2's candidate-specific scheduling constraints by candidate id.
 
-            if rounded_scale_x >= rounded_scale_y:
-                clamp_width()
-                if analysis_width * analysis_height > cap_pixels:
-                    clamp_height()
-            else:
-                clamp_height()
-                if analysis_width * analysis_height > cap_pixels:
-                    clamp_width()
-            if analysis_width * analysis_height > cap_pixels:
-                clamp_width()
-                clamp_height()
-    return analysis_width, analysis_height
+    v1 intentionally has no such surface.  Callers that consume a hand-built protocol in
+    unit tests also get the unconstrained legacy behaviour when the v2 field is absent; the
+    checked-in v2 protocol/schema gate requires the frozen NeuFlow entry.
+    """
+
+    raw_constraints = protocol.get("candidate_constraints", [])
+    if not isinstance(raw_constraints, (list, tuple)):
+        return {}
+    result: dict[str, Mapping[str, Any]] = {}
+    for constraint in raw_constraints:
+        if isinstance(constraint, Mapping) and isinstance(constraint.get("candidate_id"), str):
+            result[constraint["candidate_id"]] = constraint
+    return result
+
+
+def _cap_map(protocol: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    caps = protocol.get("analysis_caps", [])
+    if not isinstance(caps, (list, tuple)):
+        return {}
+    return {
+        cap["token"]: cap
+        for cap in caps
+        if isinstance(cap, Mapping) and isinstance(cap.get("token"), str)
+    }
+
+
+def _candidate_constraint_geometry_ok(
+    constraint: Mapping[str, Any],
+    shot: Mapping[str, Any],
+    cap: Mapping[str, Any],
+) -> tuple[bool, str]:
+    """Check a constrained candidate against one computed source/cap geometry."""
+
+    required = constraint.get("required_geometry")
+    if not isinstance(required, Mapping):
+        return False, "candidate constraint has no required geometry"
+    lattice = cap.get("lattice")
+    if not isinstance(lattice, Mapping):
+        return False, "selected cap has no frozen lattice metadata"
+    for field in ("analysis_width", "analysis_height", "canonical_aspect_ratio"):
+        if lattice.get(field) != required.get(field):
+            return False, "candidate geometry disagrees with selected cap lattice"
+
+    try:
+        expected_width, expected_height = _expected_analysis_dimensions(
+            shot["width"], shot["height"], shot["pixel_aspect_ratio"], cap["decimal_megapixels"],
+        )
+    except (KeyError, TypeError, ValueError, geometry.GeometryFailure):
+        return False, "source geometry cannot be computed"
+    if (expected_width, expected_height) != (
+        required["analysis_width"], required["analysis_height"],
+    ):
+        return False, "computed analysis geometry is not the required fixed lattice"
+
+    try:
+        canonical_aspect = (
+            float(shot["width"]) * float(shot["pixel_aspect_ratio"])
+        ) / float(shot["height"])
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return False, "source aspect ratio cannot be computed"
+    if not math.isfinite(canonical_aspect) or required.get("canonical_aspect_ratio") == "16:9" and not math.isclose(
+        canonical_aspect, 16.0 / 9.0, rel_tol=0.0, abs_tol=1e-12,
+    ):
+        return False, "source geometry is not canonical 16:9"
+    return True, ""
 
 
 def validate_protocol_consistency(
@@ -581,16 +673,20 @@ def validate_protocol_consistency(
 
     if protocol_schema is not None:
         validate(protocol, protocol_schema)
-    _require(protocol.get("schema_version") == 1, "$.schema_version", "must be 1")
-    _require(protocol.get("protocol_id") == "whitewater-p25-v1", "$.protocol_id", "wrong protocol id")
-    _require(protocol.get("frozen_date") == "2026-08-22", "$.frozen_date", "protocol freeze date changed")
+    protocol_id = protocol.get("protocol_id")
+    _require(protocol_id in {_V1_PROTOCOL_ID, _V2_PROTOCOL_ID}, "$.protocol_id", "wrong protocol id")
+    is_v2 = protocol_id == _V2_PROTOCOL_ID
+    expected_version = 2 if is_v2 else 1
+    expected_date = "2026-08-23" if is_v2 else "2026-08-22"
+    _require(protocol.get("schema_version") == expected_version, "$.schema_version", f"must be {expected_version}")
+    _require(protocol.get("frozen_date") == expected_date, "$.frozen_date", "protocol freeze date changed")
     schema_ids = _mapping(protocol.get("schema_ids"), "$.schema_ids")
     expected_schema_ids = {
-        "protocol": "whitewater-p25-protocol-v1",
+        "protocol": f"whitewater-p25-protocol-v{'2' if is_v2 else '1'}",
         "corpus": "whitewater-p25-corpus-v1",
-        "report": "whitewater-p25-report-v1",
+        "report": f"whitewater-p25-report-v{'2' if is_v2 else '1'}",
     }
-    _require(dict(schema_ids) == expected_schema_ids, "$.schema_ids", "schema ids are not the v1 set")
+    _require(dict(schema_ids) == expected_schema_ids, "$.schema_ids", "schema ids do not match the protocol version")
     eligibility = protocol["eligibility"]
     _require(eligibility["required_identity"] == _EXPECTED_REQUIRED_IDENTITY,
              "$.eligibility.required_identity", "candidate identity contract changed")
@@ -610,14 +706,16 @@ def validate_protocol_consistency(
     caps = protocol["analysis_caps"]
     cap_ids = [cap["token"] for cap in caps]
     _unique(cap_ids, "$.analysis_caps", "analysis cap tokens")
-    _require(caps == _EXPECTED_CAPS, "$.analysis_caps", "cap tokens or numeric values changed")
+    expected_caps = _EXPECTED_CAPS_V2 if is_v2 else _EXPECTED_CAPS_V1
+    _require(caps == expected_caps, "$.analysis_caps", "cap tokens or numeric values changed")
     _require(protocol["cap_accounting"] == _EXPECTED_CAP_ACCOUNTING,
              "$.cap_accounting", "cap accounting contract changed")
 
     providers = protocol["providers"]
     provider_ids = [provider["token"] for provider in providers]
     _unique(provider_ids, "$.providers", "provider tokens")
-    _require(providers == _EXPECTED_PROVIDERS, "$.providers", "provider matrix changed")
+    expected_providers = _EXPECTED_PROVIDERS_V2 if is_v2 else _EXPECTED_PROVIDERS_V1
+    _require(providers == expected_providers, "$.providers", "provider matrix changed")
     provider_map = {provider["token"]: provider for provider in providers}
     _require(provider_map.get("cuda", {}).get("purpose") == "selection",
              "$.providers", "CUDA must be the selection provider")
@@ -625,6 +723,13 @@ def validate_protocol_consistency(
              "$.providers", "CPU must be the correctness provider")
     _require(provider_map.get("coreml", {}).get("purpose") == "supporting",
              "$.providers", "CoreML must remain supporting only")
+
+    if is_v2:
+        _require(
+            protocol.get("candidate_constraints") == _EXPECTED_CANDIDATE_CONSTRAINTS_V2,
+            "$.candidate_constraints",
+            "candidate capability constraints changed",
+        )
 
     conditioning = protocol["conditioning"]
     conditioning_ids = [entry["token"] for entry in conditioning]
@@ -642,6 +747,55 @@ def validate_protocol_consistency(
     _require(protocol["metrics"] == _EXPECTED_METRICS, "$.metrics", "metric contract changed")
     if report_schema is not None:
         report_defs = _mapping(report_schema.get("$defs"), "$.report_schema.$defs")
+        if is_v2:
+            report_candidate = _mapping(report_defs.get("candidate"), "$.report_schema.$defs.candidate")
+            report_candidate_required = report_candidate.get("required", [])
+            _require(
+                "measurement_status" in report_candidate_required,
+                "$.report_schema.$defs.candidate.required",
+                "v2 candidate measurement_status is required",
+            )
+            report_candidate_properties = _mapping(
+                report_candidate.get("properties"), "$.report_schema.$defs.candidate.properties",
+            )
+            _require(
+                report_candidate_properties.get("measurement_status", {}).get("enum") == _EXPECTED_MEASUREMENT_STATUSES,
+                "$.report_schema.$defs.candidate.properties.measurement_status",
+                "candidate measurement status values changed",
+            )
+            _require(
+                "measurement_exclusion_reason" in report_candidate_properties,
+                "$.report_schema.$defs.candidate.properties",
+                "v2 candidate measurement_exclusion_reason is required",
+            )
+            candidate_branches = report_candidate.get("oneOf", [])
+            _require(
+                any(
+                    "measurement_providers" in branch.get("required", [])
+                    for branch in candidate_branches
+                    if isinstance(branch, Mapping)
+                ),
+                "$.report_schema.$defs.candidate.oneOf",
+                "v2 measurable candidates must declare qualified providers",
+            )
+            _require(
+                any(
+                    branch.get("not") == {"required": ["measurement_providers"]}
+                    for branch in candidate_branches
+                    if isinstance(branch, Mapping)
+                ),
+                "$.report_schema.$defs.candidate.oneOf",
+                "v2 unavailable candidates must not declare provider evidence",
+            )
+            measurement_provider_schema = _mapping(
+                report_candidate_properties.get("measurement_providers"),
+                "$.report_schema.$defs.candidate.properties.measurement_providers",
+            )
+            _require(
+                measurement_provider_schema.get("items", {}).get("enum") == ["cpu", "cuda", "coreml"],
+                "$.report_schema.$defs.candidate.properties.measurement_providers",
+                "candidate measurement provider values changed",
+            )
         report_metrics = _mapping(report_defs.get("metrics"), "$.report_schema.$defs.metrics")
         report_metric_properties = _mapping(
             report_metrics.get("properties"), "$.report_schema.$defs.metrics.properties",
@@ -703,7 +857,13 @@ def validate_corpus_consistency(
 
     validate(corpus, corpus_schema)
     _require(corpus.get("schema_version") == 1, "$.schema_version", "must be 1")
-    _require(corpus.get("protocol_id") == protocol["protocol_id"], "$.protocol_id", "does not match protocol")
+    corpus_protocol_matches = corpus.get("protocol_id") == protocol["protocol_id"]
+    # The v2 admission amendment does not change corpus semantics or frame identities, so it
+    # deliberately reuses the already-frozen corpus-v1 document/schema.  A v1 corpus therefore
+    # remains valid under the v2 protocol while every report still binds its exact corpus hash.
+    if protocol.get("protocol_id") == _V2_PROTOCOL_ID:
+        corpus_protocol_matches = corpus.get("protocol_id") == _V1_PROTOCOL_ID
+    _require(corpus_protocol_matches, "$.protocol_id", "does not match protocol")
     partitions = corpus["partitions"]
     partition_ids = [partition["id"] for partition in partitions]
     _unique(partition_ids, "$.partitions", "partition ids")
@@ -835,7 +995,13 @@ def validate_report_consistency(
     # its selected shot ids happen to be present.
     validate_corpus_consistency(corpus, protocol, corpus_schema)
     validate(report, report_schema)
-    _require(report.get("schema_version") == 1, "$.schema_version", "must be 1")
+    is_v2 = protocol.get("protocol_id") == _V2_PROTOCOL_ID
+    expected_report_version = 2 if is_v2 else 1
+    _require(
+        report.get("schema_version") == expected_report_version,
+        "$.schema_version",
+        f"must be {expected_report_version}",
+    )
     _require(report.get("protocol_id") == protocol["protocol_id"], "$.protocol_id", "does not match protocol")
     runner = report.get("runner")
     _require(isinstance(runner, Mapping), "$.runner", "must be an object")
@@ -856,9 +1022,78 @@ def validate_report_consistency(
     _unique(candidate_ids, "$.candidates", "candidate ids")
     candidate_map = {entry["candidate_id"]: entry for entry in candidate_entries}
     known_candidates = {entry["id"]: entry for entry in protocol["candidate_ids"]}
+    protocol_provider_tokens = {entry["token"] for entry in protocol["providers"]}
     for candidate_id, candidate in candidate_map.items():
         _require(candidate_id in known_candidates, "$.candidates", f"unknown candidate {candidate_id!r}")
+        if is_v2:
+            role = known_candidates[candidate_id]["role"]
+            measurement_status = candidate["measurement_status"]
+            _require(
+                measurement_status in set(_EXPECTED_MEASUREMENT_STATUSES),
+                f"$.candidates[{candidate_id}].measurement_status",
+                "measurement_status must be measurable or unavailable",
+            )
+            if measurement_status == "unavailable":
+                _require(
+                    "measurement_exclusion_reason" in candidate,
+                    f"$.candidates[{candidate_id}]",
+                    "unavailable candidate needs a typed measurement exclusion reason",
+                )
+                _require(
+                    "measurement_providers" not in candidate,
+                    f"$.candidates[{candidate_id}].measurement_providers",
+                    "unavailable candidate must not carry provider measurement evidence",
+                )
+            else:
+                _require(
+                    "measurement_exclusion_reason" not in candidate,
+                    f"$.candidates[{candidate_id}].measurement_exclusion_reason",
+                    "measurable candidate must not carry a measurement exclusion reason",
+                )
+            if candidate["status"] == "eligible":
+                _require(
+                    role == "shipping-candidate",
+                    f"$.candidates[{candidate_id}].status",
+                    "validation-baseline candidates cannot be shipping-eligible",
+                )
+                _require(
+                    measurement_status == "measurable",
+                    f"$.candidates[{candidate_id}].measurement_status",
+                    "shipping-eligible candidates must be measurable",
+                )
+            if measurement_status == "measurable":
+                for field in (*_EXPECTED_REQUIRED_IDENTITY, "manifest_sha256", "artifact_size_bytes"):
+                    _require(
+                        field in candidate,
+                        f"$.candidates[{candidate_id}]",
+                        f"measurable candidate needs {field}",
+                    )
+                measurement_providers = candidate.get("measurement_providers")
+                _require(
+                    isinstance(measurement_providers, list)
+                    and bool(measurement_providers)
+                    and len(measurement_providers) == len(set(measurement_providers))
+                    and all(provider in protocol_provider_tokens for provider in measurement_providers),
+                    f"$.candidates[{candidate_id}].measurement_providers",
+                    "measurable candidate must list unique known qualified providers",
+                )
+                if candidate["status"] == "excluded":
+                    for field in (
+                        "license_verdicts",
+                        "redistribution_permitted",
+                        "redistribution_terms_reviewed",
+                    ):
+                        _require(
+                            field in candidate,
+                            f"$.candidates[{candidate_id}]",
+                            f"excluded measurable candidate needs {field} for legal comparison evidence",
+                        )
         if candidate["status"] == "eligible":
+            _require(
+                "exclusion_reason" not in candidate,
+                f"$.candidates[{candidate_id}].exclusion_reason",
+                "shipping-eligible candidate must not carry a shipping exclusion reason",
+            )
             _require(
                 isinstance(candidate.get("source_commit"), str)
                 and re.fullmatch(r"[0-9a-f]{40}", candidate["source_commit"]) is not None,
@@ -917,9 +1152,16 @@ def validate_report_consistency(
     for candidate_index, candidate_id in enumerate(matrix_candidate_ids):
         _require(candidate_id in candidate_map, f"$.matrix.candidate_ids[{candidate_index}]",
                  "candidate is not declared in the report")
-        _require(candidate_map[candidate_id]["status"] == "eligible",
-                 f"$.matrix.candidate_ids[{candidate_index}]",
-                 "excluded candidates cannot be selected for measurement")
+        if is_v2:
+            _require(
+                candidate_map[candidate_id]["measurement_status"] == "measurable",
+                f"$.matrix.candidate_ids[{candidate_index}]",
+                "candidates without a measurable technical artifact cannot be selected for measurement",
+            )
+        else:
+            _require(candidate_map[candidate_id]["status"] == "eligible",
+                     f"$.matrix.candidate_ids[{candidate_index}]",
+                     "excluded candidates cannot be selected for measurement")
     for shot_index, shot_id in enumerate(matrix_shot_ids):
         if corpus_shots:
             _require(shot_id in corpus_shots, f"$.matrix.shot_ids[{shot_index}]",
@@ -953,6 +1195,47 @@ def validate_report_consistency(
                      f"$.matrix.cap_tokens[{cap_index}]",
                      f"provider does not support selected cap {cap_token!r}")
         matrix_provider_loads.extend((provider_token, host_load) for host_load in host_loads)
+
+    # Candidate constraints are checked before expanding the Cartesian matrix.  In particular,
+    # a fixed-shape NeuFlow row must never be emitted and then marked as a runtime failure for a
+    # cap, provider, or source geometry that the graph cannot represent.
+    candidate_constraints = _candidate_constraint_map(protocol) if is_v2 else {}
+    for candidate_index, candidate_id in enumerate(matrix_candidate_ids):
+        candidate = candidate_map[candidate_id]
+        measurement_providers = candidate.get("measurement_providers")
+        if is_v2 and isinstance(measurement_providers, list):
+            for provider_token in matrix_provider_tokens:
+                _require(
+                    provider_token in measurement_providers,
+                    f"$.matrix.candidate_ids[{candidate_index}]",
+                    f"candidate {candidate_id!r} has no technical measurement evidence for provider {provider_token!r}",
+                )
+        constraint = candidate_constraints.get(candidate_id)
+        if constraint is None:
+            continue
+        allowed_providers = constraint.get("providers", [])
+        allowed_caps = constraint.get("cap_tokens", [])
+        for provider_token in matrix_provider_tokens:
+            _require(
+                provider_token in allowed_providers,
+                f"$.matrix.providers",
+                f"candidate {candidate_id!r} does not support provider {provider_token!r}",
+            )
+        for cap_index, cap_token in enumerate(matrix_cap_tokens):
+            _require(
+                cap_token in allowed_caps,
+                f"$.matrix.cap_tokens[{cap_index}]",
+                f"candidate {candidate_id!r} does not support cap {cap_token!r}",
+            )
+            cap = cap_map[cap_token]
+            for shot_index, shot_id in enumerate(matrix_shot_ids):
+                shot = corpus_shots[shot_id]
+                valid, reason = _candidate_constraint_geometry_ok(constraint, shot, cap)
+                _require(
+                    valid,
+                    f"$.matrix.shot_ids[{shot_index}]",
+                    f"candidate {candidate_id!r} cannot use shot {shot_id!r} at cap {cap_token!r}: {reason}",
+                )
 
     hardware = report["hardware"]
     selected_provider_tokens = set(matrix_provider_tokens)
@@ -1205,18 +1488,32 @@ def _validate_result_measurement(
     _require(timing["steady_samples_ms"] == concatenated_steady,
              f"{path}.timing.steady_samples_ms",
              "top-level steady samples must equal the per-session concatenation")
-    _require(math.isclose(timing["session_creation_ms"],
-                          statistics.median(session["session_creation_ms"] for session in sessions),
-                          rel_tol=0.0, abs_tol=1e-9),
+    _require(math.isclose(
+        timing["session_creation_ms"],
+        metrics.linear_quantile(
+            [session["session_creation_ms"] for session in sessions], 0.5
+        ),
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    ),
              f"{path}.timing.session_creation_ms",
              "must be the median of per-session creation durations")
-    _require(math.isclose(timing["first_inference_ms"],
-                          statistics.median(session["first_inference_ms"] for session in sessions),
-                          rel_tol=0.0, abs_tol=1e-9),
+    _require(math.isclose(
+        timing["first_inference_ms"],
+        metrics.linear_quantile(
+            [session["first_inference_ms"] for session in sessions], 0.5
+        ),
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    ),
              f"{path}.timing.first_inference_ms",
              "must be the median of per-session first-inference durations")
-    _require(math.isclose(timing["steady_inference_ms"], statistics.median(concatenated_steady),
-                          rel_tol=0.0, abs_tol=1e-9),
+    _require(math.isclose(
+        timing["steady_inference_ms"],
+        metrics.linear_quantile(concatenated_steady, 0.5),
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    ),
              f"{path}.timing.steady_inference_ms",
              "must be the median of flattened steady samples")
     expected_total_pair_ms = (
@@ -1228,13 +1525,13 @@ def _validate_result_measurement(
                           rel_tol=0.0, abs_tol=1e-9),
              f"{path}.timing.total_pair_ms",
              "must equal preprocessing plus steady inference plus postprocessing")
-    metrics = result["metrics"]
-    not_applicable = metrics["not_applicable"]
-    _validate_metric_applicability(metrics, not_applicable, shot, path)
+    report_metrics = result["metrics"]
+    not_applicable = report_metrics["not_applicable"]
+    _validate_metric_applicability(report_metrics, not_applicable, shot, path)
 
-    _require(metrics["nonfinite_fraction"] <= protocol["hard_gates"]["nonfinite_fraction_max"],
+    _require(report_metrics["nonfinite_fraction"] <= protocol["hard_gates"]["nonfinite_fraction_max"],
              f"{path}.metrics.nonfinite_fraction", "pass result exceeds nonfinite gate")
-    _require(metrics["repeated_run_p99_delta_px"] <= protocol["hard_gates"]["repeated_run_p99_delta_px_max"],
+    _require(report_metrics["repeated_run_p99_delta_px"] <= protocol["hard_gates"]["repeated_run_p99_delta_px_max"],
              f"{path}.metrics.repeated_run_p99_delta_px", "pass result exceeds repeated-run gate")
     _require(result["resource"]["peak_incremental_device_memory_gib"] <= protocol["hard_gates"]["peak_incremental_device_memory_gib_max"],
              f"{path}.resource.peak_incremental_device_memory_gib", "pass result exceeds memory gate")
@@ -1325,21 +1622,25 @@ def validate_protocol_and_schemas(
     """Check schema IDs and the protocol's references before validating fixtures."""
 
     validate_protocol_consistency(protocol, protocol_schema, report_schema)
+    is_v2 = protocol.get("protocol_id") == _V2_PROTOCOL_ID
+    version = 2 if is_v2 else 1
+    suffix = "2" if is_v2 else "1"
     expected_ids = {
-        "protocol": "whitewater://schema/phase2.5/protocol-v1",
+        "protocol": f"whitewater://schema/phase2.5/protocol-v{suffix}",
         "corpus": "whitewater://schema/phase2.5/corpus-v1",
-        "report": "whitewater://schema/phase2.5/report-v1",
+        "report": f"whitewater://schema/phase2.5/report-v{suffix}",
     }
     schemas = {"protocol": protocol_schema, "corpus": corpus_schema, "report": report_schema}
     for name, schema in schemas.items():
-        _require(schema.get("$id") == expected_ids[name], f"$.schemas.{name}.$id", "schema id is not the v1 id")
+        _require(schema.get("$id") == expected_ids[name], f"$.schemas.{name}.$id", "schema id does not match the selected protocol version")
         _require(schema.get("$schema") == "https://json-schema.org/draft/2020-12/schema",
                  f"$.schemas.{name}.$schema", "schema dialect is not pinned")
-    _require(corpus_schema["properties"]["protocol_id"]["const"] == protocol["protocol_id"],
+    expected_corpus_protocol = _V1_PROTOCOL_ID if is_v2 else protocol["protocol_id"]
+    _require(corpus_schema["properties"]["protocol_id"]["const"] == expected_corpus_protocol,
              "$.schemas.corpus.protocol_id", "corpus schema protocol id diverges")
     _require(report_schema["properties"]["protocol_id"]["const"] == protocol["protocol_id"],
              "$.schemas.report.protocol_id", "report schema protocol id diverges")
     _require(corpus_schema["properties"]["schema_version"]["const"] == 1,
              "$.schemas.corpus.schema_version", "corpus schema version diverges")
-    _require(report_schema["properties"]["schema_version"]["const"] == 1,
+    _require(report_schema["properties"]["schema_version"]["const"] == version,
              "$.schemas.report.schema_version", "report schema version diverges")

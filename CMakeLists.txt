@@ -123,18 +123,79 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/check_searaft_manifest.py"
       "${CMAKE_SOURCE_DIR}/models/sea-raft-m.json")
+  add_test(NAME models::neuflow_manifest
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/check_neuflow_manifest.py"
+      "${CMAKE_SOURCE_DIR}/models/neuflow-v2.json")
+  add_test(NAME models::neuflow_export_contract
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/neuflow_export_tests.py")
+  add_test(NAME models::raft_manifest
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/check_raft_manifest.py"
+      "${CMAKE_SOURCE_DIR}/models/raft-original.json")
+  add_test(NAME models::p25_3_candidate_manifests
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/p25_3_candidate_manifest_tests.py")
+  add_test(NAME models::raft_export_framework
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/raft_export_tests.py")
   add_test(NAME models::artifact_framework
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/artifact_tests.py")
   add_test(NAME models::artifact_imports
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/models/artifact_import_tests.py")
+  add_test(NAME models::waft_twins_exclusion
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/check_waft_manifest.py")
+  add_test(NAME models::waft_twins_artifact
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/check_waft_artifact.py")
+  add_test(NAME models::waft_export_gates
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/waft_export_tests.py")
+  add_test(NAME models::exclusion_contract
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/models/exclusion_contract_tests.py")
   add_test(NAME bakeoff::protocol_schema
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/tools/bakeoff/schema_tests.py")
   add_test(NAME bakeoff::corpus_conditioning
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.corpus_conditioning_tests)
+  add_test(NAME bakeoff::metrics
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.metrics_tests)
+  add_test(NAME bakeoff::matrix
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.matrix_tests)
+  add_test(NAME bakeoff::resume
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.resume_tests)
+  add_test(NAME bakeoff::coordinator
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.coordinator_tests)
+  add_test(NAME bakeoff::session
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.session_tests)
+  add_test(NAME bakeoff::reporting
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.reporting_tests)
+  add_test(NAME bakeoff::measurement
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.measurement_tests)
+  add_test(NAME bakeoff::pfm
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.pfm_tests)
   set_tests_properties(bakeoff::corpus_conditioning
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::metrics
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::matrix
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::resume
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::coordinator
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::session
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::reporting
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::measurement
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::pfm
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 else()
   message(STATUS "SEA-RAFT manifest gate skipped (Python 3 not found)")
