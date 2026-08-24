@@ -13,7 +13,7 @@
     "repository": "https://github.com/princeton-vl/SEA-RAFT.git",
     "commit": "9137517ba24e628442aec097d3afe71d03503b75",
     "license": "BSD-3-Clause",
-    "license_audit": "not_audited"
+    "license_audit": "revision-bound audit 2026-08-23: LICENSE at commit 9137517ba24e628442aec097d3afe71d03503b75"
   },
   "checkpoint": {
     "repository": "https://huggingface.co/MemorySlices/Tartan-C-T-TSKH-spring540x960-M",
@@ -22,40 +22,43 @@
     "format": "safetensors",
     "size_bytes": 78778760,
     "sha256": "cb8cfbf14c5e0f6734b64add383708b7ff68cc6089a0007c67165d4761346102",
-    "license": "unknown",
-    "license_audit": "not_audited"
+    "license": "BSD-3-Clause",
+    "license_audit": "revision-bound audit 2026-08-23: model-card README at Hugging Face revision ea21e467a7076978b251e09d55751fcce166c2f8 declares bsd-3-clause"
   },
   "backbone": {
-    "applicable": true,
-    "identity": "torchvision ResNet-34 ImageNet initialization",
-    "provenance": "Constructed by the pinned SEA-RAFT source; complete SEA-RAFT checkpoint overwrites initialization",
-    "repository": "https://pytorch.org/vision/stable/models.html",
+    "applicable": false,
+    "identity": null,
+    "provenance": "No separate backbone artifact is carried: the pinned exporter disables torchvision pretrained initialization and the complete SEA-RAFT checkpoint supplies the model state; only the model's own ResNetFPN graph is exported",
+    "repository": null,
     "revision": null,
     "checkpoint_sha256": null,
-    "license": "BSD-3-Clause",
-    "license_audit": "not_audited"
+    "license": "not-applicable",
+    "license_audit": "audited 2026-08-23 from export_searaft.py and pinned checkpoint load; no backbone weights are shipped"
   },
   "licenses": {
     "code": {
       "license": "BSD-3-Clause",
-      "audit": "not_audited",
-      "commercial_use_permitted": "unknown",
-      "redistribution_permitted": "unknown",
-      "source": "upstream.license"
+      "audit": "revision-bound audit 2026-08-23: official LICENSE at source commit 9137517ba24e628442aec097d3afe71d03503b75",
+      "commercial_use_permitted": "yes",
+      "redistribution_permitted": "yes",
+      "source": "https://raw.githubusercontent.com/princeton-vl/SEA-RAFT/9137517ba24e628442aec097d3afe71d03503b75/LICENSE",
+      "notes": "The official README acknowledges other research projects; this verdict is limited to the pinned SEA-RAFT source surface used by the exporter."
     },
     "checkpoint": {
-      "license": "unknown",
-      "audit": "not_audited",
-      "commercial_use_permitted": "unknown",
-      "redistribution_permitted": "unknown",
-      "source": "checkpoint.license"
+      "license": "BSD-3-Clause",
+      "audit": "revision-bound audit 2026-08-23: official model-card README at checkpoint revision ea21e467a7076978b251e09d55751fcce166c2f8 declares bsd-3-clause",
+      "commercial_use_permitted": "yes",
+      "redistribution_permitted": "yes",
+      "source": "https://huggingface.co/MemorySlices/Tartan-C-T-TSKH-spring540x960-M/resolve/ea21e467a7076978b251e09d55751fcce166c2f8/README.md",
+      "notes": "The verdict is tied to the exact 78778760-byte model.safetensors SHA256 recorded above."
     },
     "backbone": {
-      "license": "BSD-3-Clause",
-      "audit": "not_audited",
-      "commercial_use_permitted": "unknown",
-      "redistribution_permitted": "unknown",
-      "source": "backbone.license"
+      "license": "not-applicable",
+      "audit": "audited 2026-08-23: no separate backbone checkpoint is loaded into the exported artifact",
+      "commercial_use_permitted": "yes",
+      "redistribution_permitted": "yes",
+      "source": "models/export_searaft.py",
+      "notes": "not a licence conclusion about torchvision; no torchvision backbone weights are part of this artifact."
     }
   },
   "model": {
