@@ -84,6 +84,27 @@ Three of those matter to us specifically, in this order:
 
 **The catch, and it is a real one: the code licence is not the checkpoint licence.**
 
+**P25-3E provenance result (2026-08-23):** `models/waft-twins.json` is a typed exclusion
+record, not an artifact manifest. The official WAFT `waftv2` source is pinned to commit
+`b152ff1cad1af8c185ee7b141997c48ff3334c87` and its BSD-3-Clause code terms are audited. The
+official A2 object is now pinned by Drive ID, 3,702,705,327-byte size and SHA256
+`23282e0bf25e29e182ccedba8dc11969654c0658d06407edfc3932663109f62b`; its
+`waftv2-ckpts/twins/zero-shot.pth` member is pinned at 544,230,582 bytes with SHA256
+`f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070`.
+Strict PyTorch loading reports 699 keys with zero missing/unexpected keys when the model is
+constructed with `timm` pretrained initialization disabled; 380 `encoder.backbone.*` keys
+prove the Twins tensors are bundled in that checkpoint, so no separate backbone artifact is
+needed. Those 380 tensors exactly match the official timm `twins_svt_large.in1k` Apache-2.0
+reference at its pinned revision, so the backbone surface is audited separately as Apache-2.0.
+The archive contains no README, LICENSE, NOTICE, or member-level terms for the WAFT checkpoint
+itself, leaving only its commercial-use and redistribution verdicts **unknown**. The
+evaluation-only artifact record `models/waft-twins-artifact.json` and explicit-input exporter
+`models/export_waft.py` now provide the deterministic qualification path (strict load, ONNX
+operator/domain gate, parity, identity, signed directions, dynamic shape, and hash/mode
+recording). No local checkout, checkpoint member, or ML export environment is present in this
+repository run, so no ONNX bytes or numerical qualification are claimed; the candidate remains
+excluded from shipping pending checkpoint terms.
+
 WAFT supports three backbones -- Twins, DAv2 (Depth Anything v2) and DINOv3 -- and the
 README states no licence for the weights separately from the BSD-3 code, nor which checkpoint
 uses which backbone. That mapping exists only inside the linked Google Drive folder. The
