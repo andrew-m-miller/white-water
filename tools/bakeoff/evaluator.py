@@ -843,9 +843,30 @@ def condition_and_pad_pair(
 def _onnxruntime() -> Any:
     try:
         import onnxruntime as ort  # type: ignore
-    except ImportError as exc:
-        raise DependencyFailure("runtime_error", "onnxruntime is required for evaluator verification") from exc
-    return ort
+        return ort
+    except ImportError:
+        # P25-5 deliberately carries Microsoft's official ORT 1.29.0 CUDA-12 C/C++ archive,
+        # rather than the PyPI 1.29 wheel (which is built for CUDA 13).  The native adapter is
+        # loaded only when the ordinary Python module is absent; a present module remains the
+        # explicit runtime selected by the caller.
+        native_module: Any
+        try:
+            from . import native_ort as native_module
+        except ImportError:
+            try:  # direct ``python tools/bakeoff/evaluator.py`` invocation
+                import native_ort as native_module  # type: ignore
+            except ImportError as exc:
+                raise DependencyFailure(
+                    "runtime_error",
+                    "onnxruntime Python module is absent and the native CUDA-12 bridge module could not be imported",
+                ) from exc
+        try:
+            return native_module.load_runtime()
+        except (native_module.NativeRuntimeUnavailable, OSError) as exc:
+            raise DependencyFailure(
+                "runtime_error",
+                "onnxruntime Python module is absent and the native CUDA-12 bridge could not be loaded",
+            ) from exc
 
 
 def _numpy_runtime() -> tuple[Any, Any]:

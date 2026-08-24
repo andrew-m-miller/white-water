@@ -178,8 +178,15 @@ class LegalReviewTests(unittest.TestCase):
         for token in (
             "p25_5_legal_review_file",
             "p25_5_legal_review_sha256",
+            "p25_5_candidate_license_input",
+            "p25_5_runtime_legal_review_file",
+            "p25_5_runtime_legal_review_sha256",
             "P25_5_LEGAL_REVIEW_FILE",
             "P25_5_LEGAL_REVIEW_SHA256",
+            "P25_5_CANDIDATE_LICENSE_INPUT",
+            "P25_5_RUNTIME_LICENSE_INPUT",
+            "P25_5_RUNTIME_LEGAL_REVIEW_FILE",
+            "P25_5_RUNTIME_LEGAL_REVIEW_SHA256",
             "--legal-review-file",
             "--legal-review-sha256",
         ):

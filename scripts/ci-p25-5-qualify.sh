@@ -11,6 +11,10 @@
 #   P25_5_ADMISSION_FILE       v2 candidate-admission JSON
 #   P25_5_LEGAL_REVIEW_FILE    exact operator legal-review JSON used to create admission
 #   P25_5_LEGAL_REVIEW_SHA256  SHA256 of that exact operator legal-review JSON
+#   P25_5_CANDIDATE_LICENSE_INPUT  checked-in candidate license/notice declaration
+#   P25_5_RUNTIME_LICENSE_INPUT    runtime license/notice declaration bound to the explicit lock
+#   P25_5_RUNTIME_LEGAL_DIR       generated runtime license/notice bundle directory
+#   P25_5_RUNTIME_LEGAL_REVIEW_FILE/SHA256  Andrew Miller approval bound to generated inventory
 #   P25_5_RUNTIME_ROOT         extracted, conda-unpacked runtime used by the evaluator
 #   P25_5_RUNTIME_ARCHIVE      exact conda-pack archive
 #   P25_5_RUNTIME_SHA256       SHA256 of that archive
@@ -76,6 +80,11 @@ for required in \
   P25_5_ADMISSION_FILE \
   P25_5_LEGAL_REVIEW_FILE \
   P25_5_LEGAL_REVIEW_SHA256 \
+  P25_5_CANDIDATE_LICENSE_INPUT \
+  P25_5_RUNTIME_LICENSE_INPUT \
+  P25_5_RUNTIME_LEGAL_DIR \
+  P25_5_RUNTIME_LEGAL_REVIEW_FILE \
+  P25_5_RUNTIME_LEGAL_REVIEW_SHA256 \
   P25_5_RUNTIME_ROOT \
   P25_5_RUNTIME_ARCHIVE \
   P25_5_RUNTIME_SHA256 \
@@ -112,6 +121,10 @@ copy_if_needed() {
 
 admission=$(resolve_repo_path "$P25_5_ADMISSION_FILE")
 legal_review_file=$(resolve_repo_path "$P25_5_LEGAL_REVIEW_FILE")
+candidate_license_input=$(resolve_repo_path "$P25_5_CANDIDATE_LICENSE_INPUT")
+runtime_license_input=$(resolve_repo_path "$P25_5_RUNTIME_LICENSE_INPUT")
+runtime_legal_review_file=$(resolve_repo_path "$P25_5_RUNTIME_LEGAL_REVIEW_FILE")
+runtime_legal_dir=$(resolve_repo_path "$P25_5_RUNTIME_LEGAL_DIR")
 qualifier=$(resolve_repo_path "$P25_5_QUALIFIER")
 packager=$(resolve_repo_path "$P25_5_PACKAGER")
 package_spec=$(resolve_repo_path "$P25_5_PACKAGE_SPEC")
@@ -124,6 +137,10 @@ runtime_closure=$(resolve_repo_path "$P25_5_RUNTIME_CLOSURE")
 
 require_regular "$admission" "P25-5 admission file"
 require_regular "$legal_review_file" "P25-5 legal-review file"
+require_regular "$candidate_license_input" "P25-5 candidate license input"
+require_regular "$runtime_license_input" "P25-5 runtime license input"
+require_regular "$runtime_legal_review_file" "P25-5 runtime legal-review file"
+require_directory "$runtime_legal_dir" "P25-5 generated runtime legal directory"
 require_regular "$qualifier" "P25-5 qualifier"
 require_regular "$packager" "P25-5 packager"
 require_regular "$package_spec" "P25-5 package specification"
@@ -141,6 +158,11 @@ require_regular "$runtime_closure" "P25-5 runtime dependency-closure audit"
 actual_legal_review_sha=$(sha256sum -- "$legal_review_file" | awk '{print $1}')
 [[ "$actual_legal_review_sha" == "$P25_5_LEGAL_REVIEW_SHA256" ]] ||
   fail "legal-review SHA256 mismatch: expected $P25_5_LEGAL_REVIEW_SHA256, got $actual_legal_review_sha"
+
+for legal_input in "$candidate_license_input" "$runtime_license_input" "$runtime_legal_review_file"; do
+  [[ "$(stat -c '%a' "$legal_input")" == 644 ]] ||
+    fail "license/review input must have mode 0644: $legal_input"
+done
 
 [[ "$P25_5_RUNTIME_SHA256" =~ ^[0-9a-f]{64}$ ]] ||
   fail "P25_5_RUNTIME_SHA256 must be a lowercase SHA256"
@@ -236,6 +258,42 @@ copy_if_needed "$runtime_sha_file" "$output/whitewater-p25-5-runtime.tar.gz.sha2
 copy_if_needed "$runtime_inventory" "$output/whitewater-p25-5-runtime.inventory"
 copy_if_needed "$runtime_closure" "$output/whitewater-p25-5-runtime-closure.txt"
 copy_if_needed "$package_spec" "$output/package-spec-template.json"
+
+# Candidate evidence is generated from the checked-in declaration only after the fresh export
+# and admission inputs are present.  It is a reproducible aggregate, not a legal conclusion.
+candidate_legal_dir="$output/legal-candidate"
+python3 "$root/tools/p25_5/licenses.py" candidate \
+  --input "$candidate_license_input" \
+  --output-dir "$candidate_legal_dir" \
+  --license-name SEA-RAFT-LICENSE.txt \
+  --notice-name SEA-RAFT-NOTICE.txt
+require_regular "$candidate_legal_dir/SEA-RAFT-LICENSE.txt" "P25-5 candidate license aggregate"
+require_regular "$candidate_legal_dir/SEA-RAFT-NOTICE.txt" "P25-5 candidate notice aggregate"
+require_regular "$candidate_legal_dir/candidate-license-inventory.json" "P25-5 candidate license inventory"
+copy_if_needed "$candidate_license_input" "$output/candidate-license-input.json"
+
+# The workflow creates this directory from the final conda-pack extraction.  Recheck the exact
+# generated files and the human approval here so a future caller cannot bypass the workflow gate
+# by invoking this seam directly.
+require_regular "$runtime_legal_dir/RUNTIME-LICENSES.txt" "P25-5 runtime license aggregate"
+require_regular "$runtime_legal_dir/RUNTIME-NOTICES.txt" "P25-5 runtime notice aggregate"
+runtime_legal_inventory="$runtime_legal_dir/runtime-license-inventory.json"
+require_regular "$runtime_legal_inventory" "P25-5 runtime license inventory"
+runtime_inventory_sha=$(sha256sum -- "$runtime_legal_inventory" | awk '{print $1}')
+if [[ -n "${P25_5_RUNTIME_LEGAL_INVENTORY_SHA256:-}" ]]; then
+  [[ "$P25_5_RUNTIME_LEGAL_INVENTORY_SHA256" == "$runtime_inventory_sha" ]] ||
+    fail "runtime legal inventory SHA256 mismatch: workflow=$P25_5_RUNTIME_LEGAL_INVENTORY_SHA256 actual=$runtime_inventory_sha"
+fi
+python3 "$root/tools/p25_5/licenses.py" validate-runtime-review \
+  --input "$runtime_legal_review_file" \
+  --sha256 "$P25_5_RUNTIME_LEGAL_REVIEW_SHA256" \
+  --inventory-sha256 "$runtime_inventory_sha"
+python3 "$root/tools/p25_5/licenses.py" verify-runtime-content \
+  --prefix "$runtime_root" \
+  --inventory "$runtime_legal_inventory" \
+  --inventory-sha256 "$runtime_inventory_sha"
+copy_if_needed "$runtime_license_input" "$output/runtime-license-input.json"
+copy_if_needed "$runtime_legal_review_file" "$output/runtime-legal-review.json"
 
 qualification_dir="$output/qualification"
 mkdir -p "$qualification_dir"
@@ -356,7 +414,8 @@ done < "$qualification_inputs"
 # patches only the tightly defined admission and runtime placeholders; candidate files are never
 # inferred from a directory listing.
 generated_package_spec="${package_spec%/*}/.whitewater-p25-5-generated-package-spec.json"
-python3 - "$package_spec" "$generated_package_spec" "$runtime_archive" "$P25_5_RUNTIME_SHA256" "$admission" <<'PY'
+python3 - "$package_spec" "$generated_package_spec" "$runtime_archive" "$P25_5_RUNTIME_SHA256" "$admission" \
+  "$candidate_legal_dir" "$runtime_legal_dir" "$runtime_legal_review_file" <<'PY'
 import json
 import os
 import re
@@ -369,6 +428,9 @@ generated_path = Path(sys.argv[2])
 runtime_path = Path(sys.argv[3])
 runtime_sha = sys.argv[4]
 admission_path = Path(sys.argv[5])
+candidate_legal_dir = Path(sys.argv[6])
+runtime_legal_dir = Path(sys.argv[7])
+runtime_review_path = Path(sys.argv[8])
 
 try:
     document = json.loads(template_path.read_text(encoding="utf-8"))
@@ -465,6 +527,36 @@ if re.fullmatch(r"[0-9a-f]{64}", runtime_sha) is None:
 runtime["source"] = str(runtime_path.resolve())
 runtime["sha256"] = runtime_sha
 runtime["size_bytes"] = runtime_stat.st_size
+
+bindings = {
+    "__P25_5_CANDIDATE_LICENSE_SOURCE__": candidate_legal_dir / "SEA-RAFT-LICENSE.txt",
+    "__P25_5_CANDIDATE_NOTICE_SOURCE__": candidate_legal_dir / "SEA-RAFT-NOTICE.txt",
+    "__P25_5_CANDIDATE_INVENTORY_SOURCE__": candidate_legal_dir / "candidate-license-inventory.json",
+    "__P25_5_RUNTIME_LICENSE_SOURCE__": runtime_legal_dir / "RUNTIME-LICENSES.txt",
+    "__P25_5_RUNTIME_NOTICE_SOURCE__": runtime_legal_dir / "RUNTIME-NOTICES.txt",
+    "__P25_5_RUNTIME_INVENTORY_SOURCE__": runtime_legal_dir / "runtime-license-inventory.json",
+    "__P25_5_RUNTIME_REVIEW_SOURCE__": runtime_review_path,
+}
+seen_bindings = {marker: 0 for marker in bindings}
+for index, item in enumerate(files):
+    if not isinstance(item, dict):
+        raise SystemExit(f"P25-5 package-spec files[{index}] must be an object")
+    source = item.get("source")
+    if source in bindings:
+        seen_bindings[source] += 1
+        target = bindings[source]
+        try:
+            info = target.lstat()
+        except OSError as exc:
+            raise SystemExit(f"P25-5 legal source is missing: {target}") from exc
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise SystemExit(f"P25-5 legal source must be a regular non-symlink file: {target}")
+        if stat.S_IMODE(info.st_mode) != 0o644:
+            raise SystemExit(f"P25-5 legal source must have mode 0644: {target}")
+        item["source"] = str(target.resolve())
+for marker, count in seen_bindings.items():
+    if count != 1:
+        raise SystemExit(f"P25-5 package-spec placeholder {marker} must appear exactly once (got {count})")
 
 # No unresolved CI marker may reach package.py. This catches a typo in a future template field
 # rather than letting a candidate package fail later with an opaque source/hash error.

@@ -1,0 +1,142 @@
+White Water P25-5 SEA-RAFT M evaluation package
+================================================
+
+This is an evaluation-only package for the pinned SEA-RAFT M artifact.  It is not an OFX
+shipping bundle, it does not select a model or assign an OFX choice index, and it does not
+authorize redistribution of the model or runtime.  Do not install the extracted directory into
+Flame as a product plugin.
+
+The package is self-contained apart from a writable directory for the relocated conda-pack
+environment.  It contains the evaluator, its explicitly listed Python support modules, the
+active protocol and schemas, the SEA-RAFT manifest and ONNX artifact, and the pinned runtime
+archive.  The archive also carries the exact license and notice files named by the package
+specification.  It carries deterministic candidate and runtime license/notice aggregates, their
+hash inventories, the checked-in technical runtime-input manifest, and the approved runtime
+review.  Generated legal declarations with build-local evidence paths remain CI sidecars.  The
+operator-supplied SEA-RAFT legal-review JSON is evidence for candidate admission; a separate
+Andrew Miller runtime legal-review JSON must
+approve the exact generated runtime inventory hash before CI packages anything.  Neither review
+is a substitute for the carried license or notice text.  The candidate aggregate files are
+`SEA-RAFT-LICENSE.txt` and `SEA-RAFT-NOTICE.txt`; runtime aggregates are `RUNTIME-LICENSES.txt`
+and `RUNTIME-NOTICES.txt`.
+
+The offline entrypoint is `scripts/ww-bakeoff-airgap`, the only 0755 regular file in the package.
+The bundled Python evaluator, support modules, schemas, manifests, legal text, and runtime
+archive are 0644 regular files; the wrapper invokes the evaluator with the unpacked runtime's
+Python and must not be replaced with a system-Python command.
+
+1. Verify the package archive before extraction
+
+From the directory containing the CI artifact files, run:
+
+    sha256sum -c whitewater-p25-5-el8.tar.gz.sha256
+
+The checksum file must name `whitewater-p25-5-el8.tar.gz`.  Keep these files together:
+
+    whitewater-p25-5-el8.tar.gz
+    whitewater-p25-5-el8.tar.gz.sha256
+    whitewater-p25-5-el8.inventory.json
+    legal-review.json                 # CI's hash-bound operator evidence
+    legal-review.json.sha256
+
+The first qualification run packs and relocates the runtime before generating
+`legal-runtime/runtime-license-inventory.json`, then uploads that final extracted-runtime
+inventory for review.  Its canonical payload identity includes conda-pack's activation and
+`conda-unpack` files.  It excludes only `conda-meta/`, `__pycache__/` directories, and files
+ending in `.pyc` (Python may create those during smoke tests).  Record its SHA256 in an Andrew
+Miller review document with schema
+`whitewater-p25-runtime-legal-review-v1`, reviewer `Andrew Miller`, `reviewed: true`, and the
+same `inventory_sha256`; rerun CI with that review file and its SHA256.  The package gate refuses
+to proceed if the review is absent, mismatched, or for a different runtime inventory.
+
+2. Extract without installing into Flame
+
+Choose a new, writable directory on the air-gapped machine and extract the archive there:
+
+    mkdir -p /path/to/whitewater-p25-5
+    tar -xzf whitewater-p25-5-el8.tar.gz -C /path/to/whitewater-p25-5
+    cd /path/to/whitewater-p25-5
+
+The archive has no symlinks and contains only regular files.  Its evaluator, model, protocol,
+schema, legal and instruction paths are fixed by the inventory; do not rename or replace them.
+
+3. Run the required CPU provider/session verification
+
+`scripts/ww-bakeoff-airgap` performs the offline conda-pack extraction, runs `conda-unpack` once,
+binds the writable runtime directory to the exact runtime archive SHA256, sanitizes network and
+Python search-path variables, and then execs the bundled evaluator.  Pick a fresh runtime
+directory for a different archive; the wrapper refuses to reuse a directory bound to another
+archive.
+
+    WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-p25-5-runtime.tar.gz \
+    WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-p25-5-runtime-env \
+    scripts/ww-bakeoff-airgap verify \
+      --manifest models/sea-raft-m/manifest.json \
+      --artifact models/sea-raft-m/sea-raft-m-opset17.onnx \
+      --protocol bakeoff/protocol-v2.json \
+      --provider cpu
+
+The command must exit 0 and print a JSON result whose requested provider is
+`CPUExecutionProvider`.  A missing dependency, provider mismatch, manifest/hash/mode mismatch,
+or unsupported tensor contract is a failed qualification; do not treat it as a pass or replace
+the evaluator with a system Python.
+
+4. Optional provider smoke check
+
+After the CPU verification passes, the same wrapper can run a strict RGB PFM pair.  The PFM
+files must already be on the air-gapped machine; this command does not download or discover
+inputs:
+
+    WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-p25-5-runtime.tar.gz \
+    WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-p25-5-runtime-env \
+    scripts/ww-bakeoff-airgap smoke \
+      --manifest models/sea-raft-m/manifest.json \
+      --artifact models/sea-raft-m/sea-raft-m-opset17.onnx \
+      --protocol bakeoff/protocol-v2.json \
+      --provider cuda \
+      --first-pfm /path/to/first.rgb.pfm \
+      --second-pfm /path/to/second.rgb.pfm \
+      --conditioning native-clamp01-v1 \
+      --cap mp0_5 \
+      --profile smoke \
+      --output /path/to/whitewater-p25-5-result.json
+
+Use `--provider cpu` when CUDA is unavailable.  A successful `verify` or smoke result is
+technical evaluation evidence only; it is not shipping approval.
+
+5. Preserve the evidence
+
+Record the exact archive SHA256, inventory, legal-review sidecar, carried
+`legal/runtime-legal-review.json`, and evaluator JSON result with the qualification record.  Do
+not copy production footage, checkpoints, or runtime files into a source repository.  Do not
+modify a carried manifest, model artifact, protocol, schema, license, notice, or runtime archive
+after hashing; rerun the package admission and archive verification if any one changes.
+
+Package-spec admission note
+---------------------------
+
+The checked-in template uses only the placeholders materialized by
+`scripts/ci-p25-5-qualify.sh`:
+
+    __P25_5_ADMISSION_CANDIDATES__
+    __P25_5_CANDIDATE_LICENSE_SOURCE__
+    __P25_5_CANDIDATE_NOTICE_SOURCE__
+    __P25_5_CANDIDATE_INVENTORY_SOURCE__
+    __P25_5_RUNTIME_LICENSE_SOURCE__
+    __P25_5_RUNTIME_NOTICE_SOURCE__
+    __P25_5_RUNTIME_INVENTORY_SOURCE__
+    __P25_5_RUNTIME_REVIEW_SOURCE__
+    __P25_5_RUNTIME_ARCHIVE__
+    __P25_5_RUNTIME_SHA256__
+    __P25_5_RUNTIME_SIZE_BYTES__
+
+All evaluator, support, protocol, schema, manifest, artifact, legal and instruction sources are
+explicit local paths.  The checked-in `candidate-license-input.json` binds the exact SEA-RAFT
+license/notice evidence and all three legal surfaces.  The runtime declaration binds every
+installed conda package to the explicit lock and may bind non-conda components (including the
+official ORT CUDA-12 payload and native bridge) by prefix payload hash and exact license/notice
+paths.  Runtime notice lists may be explicitly empty when a package has no separate notice; CI
+never synthesizes one.  The template intentionally does not invent runtime evidence or legal
+approval.  The generated runtime declaration and candidate declaration remain CI sidecars rather
+than archive files because their source paths point to the build prefix/repository; carry the
+aggregate files, inventories, and approval as the portable legal record.

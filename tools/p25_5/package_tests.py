@@ -6,10 +6,13 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -22,6 +25,12 @@ except ImportError:  # Direct execution: ``python tools/p25_5/package_tests.py``
     from package import PackageError, build_package, load_spec, verify_package  # type: ignore
 
 
+P25_5_RUNTIME_IDENTITY = (
+    "python-3.11;microsoft-onnxruntime-linux-x64-gpu_cuda12-1.29.0+whitewater-native-bridge;"
+    "conda-pack;el8-x86_64"
+)
+
+
 class PackageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="whitewater-p25-package-test-")
@@ -30,6 +39,7 @@ class PackageTests(unittest.TestCase):
         self.sources.mkdir()
         self._write("evaluator", b"#!/bin/sh\nexit 0\n", 0o755)
         self._write("evaluator_support.py", b"def run_case():\n    return None\n", 0o644)
+        self._write("evaluator_launcher", b"#!/bin/sh\nexit 0\n", 0o755)
         # This is intentionally just opaque bytes.  The outer package must not unpack or
         # rewrite a conda-pack runtime; its exact hash and size are admitted below.
         self._write("runtime.tar.gz", b"opaque-conda-pack-runtime\x00", 0o644)
@@ -259,10 +269,36 @@ class PackageTests(unittest.TestCase):
             self._build()
 
     def test_evaluator_support_is_global_0644_and_optional(self) -> None:
-        _, staging, _, _ = self._build()
+        _, staging, archive, inventory = self._build()
         support = staging / "evaluator/evaluator_support.py"
         self.assertTrue(support.is_file())
         self.assertEqual(stat.S_IMODE(support.stat().st_mode), 0o644)
+        with tarfile.open(archive, "r:gz") as stream:
+            member = stream.getmember("evaluator/evaluator_support.py")
+            self.assertEqual(stat.S_IMODE(member.mode), 0o644)
+        extracted = self.root / "extracted-support"
+        verify_package(archive, inventory, staging_dir=staging, extract_dir=extracted)
+        self.assertEqual(
+            stat.S_IMODE((extracted / "evaluator/evaluator_support.py").stat().st_mode),
+            0o644,
+        )
+
+        # Support is deliberately not an alternate entrypoint role: a 0755 support record is
+        # rejected at spec admission rather than being copied through as a second executable.
+        executable_support = self._spec_value()
+        support_entry = next(
+            item for item in executable_support["files"] if item["role"] == "evaluator-support"
+        )
+        support_entry["mode"] = "0755"
+        with self.assertRaisesRegex(
+            PackageError, r"role 'evaluator-support' requires one of modes 0644"
+        ):
+            load_spec(self._write_spec(executable_support, "executable-support.json"))
+
+        # A post-publication chmod is also rejected at the staged-copy boundary.
+        support.chmod(0o755)
+        with self.assertRaisesRegex(PackageError, "expected 0644"):
+            verify_package(archive, inventory, staging_dir=staging)
 
         without_support = self._spec_value()
         without_support["files"] = [
@@ -278,6 +314,22 @@ class PackageTests(unittest.TestCase):
         support_entry["candidate_id"] = "candidate-a"
         with self.assertRaisesRegex(PackageError, "must be package-global"):
             load_spec(self._write_spec(bound_support, "bound-support.json"))
+
+    def test_executable_support_source_cannot_be_declared_as_support(self) -> None:
+        value = self._spec_value()
+        value["files"].append(
+            {
+                "role": "evaluator-support",
+                "destination": "scripts/evaluator-launcher",
+                "source": str(self.sources / "evaluator_launcher"),
+                "candidate_id": None,
+                "mode": "0755",
+            }
+        )
+        with self.assertRaisesRegex(
+            PackageError, r"role 'evaluator-support' requires one of modes 0644"
+        ):
+            load_spec(self._write_spec(value, "executable-support.json"))
 
     def test_symlink_and_nonregular_sources_are_rejected(self) -> None:
         value = self._spec_value()
@@ -447,6 +499,227 @@ class PackageTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(verified.returncode, 0, verified.stderr)
+
+    def test_checked_in_searaft_template_has_explicit_closure_and_only_ci_markers(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        template_path = root / "bakeoff" / "p25-5" / "package-spec.json"
+        run_path = root / "bakeoff" / "p25-5" / "RUN-P25-5.txt"
+        template = json.loads(template_path.read_text(encoding="utf-8"))
+        self.assertEqual(template["schema_id"], "whitewater-p25-airgap-package-v1")
+        self.assertEqual(template["protocol_id"], "whitewater-p25-v2")
+        self.assertEqual(template["admission"]["candidates"], "__P25_5_ADMISSION_CANDIDATES__")
+        self.assertEqual(template["evaluator"]["runtime_identity"], P25_5_RUNTIME_IDENTITY)
+
+        runtime = [item for item in template["files"] if item.get("role") == "runtime"]
+        self.assertEqual(len(runtime), 1)
+        self.assertEqual(
+            runtime[0],
+            {
+                "role": "runtime",
+                "destination": "runtime/whitewater-p25-5-runtime.tar.gz",
+                "source": "__P25_5_RUNTIME_ARCHIVE__",
+                "candidate_id": None,
+                "mode": "0644",
+                "sha256": "__P25_5_RUNTIME_SHA256__",
+                "size_bytes": "__P25_5_RUNTIME_SIZE_BYTES__",
+            },
+        )
+
+        markers = sorted(set(re.findall(r"__P25_5_[A-Z0-9_]+__", json.dumps(template))))
+        self.assertEqual(
+            markers,
+            [
+                "__P25_5_ADMISSION_CANDIDATES__",
+                "__P25_5_CANDIDATE_INVENTORY_SOURCE__",
+                "__P25_5_CANDIDATE_LICENSE_SOURCE__",
+                "__P25_5_CANDIDATE_NOTICE_SOURCE__",
+                "__P25_5_RUNTIME_ARCHIVE__",
+                "__P25_5_RUNTIME_INVENTORY_SOURCE__",
+                "__P25_5_RUNTIME_LICENSE_SOURCE__",
+                "__P25_5_RUNTIME_NOTICE_SOURCE__",
+                "__P25_5_RUNTIME_REVIEW_SOURCE__",
+                "__P25_5_RUNTIME_SHA256__",
+                "__P25_5_RUNTIME_SIZE_BYTES__",
+            ],
+        )
+
+        by_destination = {item["destination"]: item for item in template["files"]}
+        required = {
+            "tools/bakeoff/evaluator.py",
+            "tools/bakeoff/native_ort.py",
+            "scripts/ww-bakeoff-airgap",
+            "tools/bakeoff/conditioning.py",
+            "tools/bakeoff/geometry.py",
+            "tools/bakeoff/measurement.py",
+            "tools/bakeoff/metrics.py",
+            "tools/bakeoff/padding.py",
+            "tools/bakeoff/pfm.py",
+            "tools/bakeoff/validator.py",
+            "models/artifact_workflow.py",
+            "models/exclusion_contract.py",
+            "models/artifact-v1.schema.json",
+            "bakeoff/corpus-v1.schema.json",
+            "bakeoff/protocol-v2.schema.json",
+            "bakeoff/report-v2.schema.json",
+            "bakeoff/protocol-v2.json",
+            "models/sea-raft-m/manifest.json",
+            "models/sea-raft-m/sea-raft-m-opset17.onnx",
+            "legal/SEA-RAFT-LICENSE.txt",
+            "legal/SEA-RAFT-NOTICE.txt",
+            "legal/candidate-license-inventory.json",
+            "legal/RUNTIME-LICENSES.txt",
+            "legal/RUNTIME-NOTICES.txt",
+            "legal/runtime-license-inventory.json",
+            "legal/runtime-inputs.json",
+            "legal/runtime-legal-review.json",
+            "RUN-P25-5.txt",
+            "runtime/whitewater-p25-5-runtime.tar.gz",
+        }
+        self.assertTrue(required.issubset(by_destination))
+        self.assertEqual(template["evaluator"]["entrypoint"], "scripts/ww-bakeoff-airgap")
+        self.assertEqual(by_destination["scripts/ww-bakeoff-airgap"]["mode"], "0755")
+        self.assertEqual(by_destination["scripts/ww-bakeoff-airgap"]["role"], "evaluator")
+        self.assertEqual(by_destination["tools/bakeoff/evaluator.py"]["mode"], "0644")
+        self.assertEqual(
+            by_destination["tools/bakeoff/evaluator.py"]["role"], "evaluator-support"
+        )
+        self.assertEqual(by_destination["tools/bakeoff/native_ort.py"]["mode"], "0644")
+        self.assertEqual(
+            by_destination["tools/bakeoff/native_ort.py"]["role"], "evaluator-support"
+        )
+        self.assertEqual(
+            by_destination["tools/bakeoff/native_ort.py"]["source"],
+            "../../tools/bakeoff/native_ort.py",
+        )
+        self.assertEqual(by_destination["models/artifact_workflow.py"]["mode"], "0644")
+        self.assertEqual(
+            [item["destination"] for item in template["files"] if item["mode"] == "0755"],
+            ["scripts/ww-bakeoff-airgap"],
+        )
+        self.assertEqual(
+            by_destination["legal/SEA-RAFT-LICENSE.txt"]["source"],
+            "__P25_5_CANDIDATE_LICENSE_SOURCE__",
+        )
+        self.assertEqual(
+            by_destination["legal/SEA-RAFT-NOTICE.txt"]["source"],
+            "__P25_5_CANDIDATE_NOTICE_SOURCE__",
+        )
+        self.assertNotIn("legal-review-sea-raft-m.json", {
+            item.get("source") for item in template["files"]
+        })
+
+        run_text = run_path.read_text(encoding="utf-8")
+        for required_text in (
+            "evaluation-only",
+            "scripts/ww-bakeoff-airgap verify",
+            "--manifest models/sea-raft-m/manifest.json",
+            "--artifact models/sea-raft-m/sea-raft-m-opset17.onnx",
+            "--protocol bakeoff/protocol-v2.json",
+            "__P25_5_ADMISSION_CANDIDATES__",
+            "__P25_5_RUNTIME_ARCHIVE__",
+            "__P25_5_RUNTIME_SHA256__",
+            "__P25_5_RUNTIME_SIZE_BYTES__",
+            "SEA-RAFT-LICENSE.txt",
+            "SEA-RAFT-NOTICE.txt",
+            "RUNTIME-LICENSES.txt",
+            "RUNTIME-NOTICES.txt",
+            "runtime-license-inventory.json",
+            "runtime-legal-review.json",
+        ):
+            self.assertIn(required_text, run_text)
+
+    def test_packaged_evaluator_import_uses_carried_native_adapter(self) -> None:
+        """Import the extracted evaluator and exercise its native-runtime fallback.
+
+        This is intentionally a package-level smoke rather than a native bridge test: it proves
+        the evaluator's relative ``native_ort`` import survives packaging while replacing the
+        loader with a sentinel, so no Linux ORT shared objects or GPU are required.
+        """
+
+        root = Path(__file__).resolve().parents[2]
+        template_path = root / "bakeoff" / "p25-5" / "package-spec.json"
+        template = json.loads(template_path.read_text(encoding="utf-8"))
+        by_destination = {item["destination"]: item for item in template["files"]}
+        required_support = {
+            "tools/bakeoff/__init__.py",
+            "tools/bakeoff/conditioning.py",
+            "tools/bakeoff/evaluator.py",
+            "tools/bakeoff/geometry.py",
+            "tools/bakeoff/measurement.py",
+            "tools/bakeoff/metrics.py",
+            "tools/bakeoff/native_ort.py",
+            "tools/bakeoff/padding.py",
+            "tools/bakeoff/pfm.py",
+            "tools/bakeoff/validator.py",
+        }
+        self.assertTrue(required_support.issubset(by_destination))
+
+        value = self._spec_value()
+        for index, destination in enumerate(sorted(required_support)):
+            template_entry = by_destination[destination]
+            source = (template_path.parent / template_entry["source"]).resolve()
+            self.assertTrue(source.is_file(), source)
+            fixture_source = self._write(
+                f"packaged-evaluator-support-{index}.py",
+                source.read_bytes(),
+                0o644,
+            )
+            value["files"].append(
+                {
+                    "role": "evaluator-support",
+                    "destination": destination,
+                    "source": str(fixture_source),
+                    "candidate_id": None,
+                    "mode": "0644",
+                }
+            )
+
+        _, staging, archive, inventory = self._build(value, suffix="-packaged-evaluator")
+        extracted = self.root / "packaged-evaluator-extracted"
+        verify_package(
+            archive,
+            inventory,
+            staging_dir=staging,
+            extract_dir=extracted,
+            verify_sources=True,
+        )
+
+        smoke = r'''
+import builtins
+import importlib
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(root))
+evaluator = importlib.import_module("tools.bakeoff.evaluator")
+native = importlib.import_module("tools.bakeoff.native_ort")
+assert Path(evaluator.__file__).resolve() == root / "tools/bakeoff/evaluator.py"
+assert Path(native.__file__).resolve() == root / "tools/bakeoff/native_ort.py"
+
+sentinel = object()
+native.load_runtime = lambda: sentinel
+real_import = builtins.__import__
+
+def blocked(name, globals=None, locals=None, fromlist=(), level=0):
+    if level == 0 and (name == "onnxruntime" or name.startswith("onnxruntime.")):
+        raise ImportError("onnxruntime intentionally blocked by package smoke")
+    return real_import(name, globals, locals, fromlist, level)
+
+builtins.__import__ = blocked
+assert evaluator._onnxruntime() is sentinel
+'''
+        environment = os.environ.copy()
+        environment.pop("PYTHONPATH", None)
+        result = subprocess.run(
+            [sys.executable, "-c", smoke, str(extracted)],
+            cwd=self.root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
 
 if __name__ == "__main__":

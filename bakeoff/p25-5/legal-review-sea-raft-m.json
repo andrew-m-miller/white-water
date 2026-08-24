@@ -1,0 +1,22 @@
+{
+  "candidate_identities": [
+    {
+      "candidate_id": "sea-raft-m",
+      "checkpoint_sha256": "cb8cfbf14c5e0f6734b64add383708b7ff68cc6089a0007c67165d4761346102",
+      "licenses_sha256": "d4262bea434c93bfd697abe90afea7a61f4807f0cc8b276f7d78be7e7e761af3",
+      "source_commit": "9137517ba24e628442aec097d3afe71d03503b75"
+    }
+  ],
+  "protocol_id": "whitewater-p25-v2",
+  "protocol_sha256": "9141a27d74fafcf34486e8bca95470e254eeef4153afd737858edcc123bc0ecb",
+  "reviewed": true,
+  "reviewed_at": "2026-08-24T19:04:00Z",
+  "reviewed_surfaces": [
+    "code",
+    "checkpoint",
+    "backbone"
+  ],
+  "reviewer": "Andrew Miller",
+  "schema_id": "whitewater-p25-legal-review-v1",
+  "statement": "I reviewed the pinned SEA-RAFT code, checkpoint, and backbone evidence. I confirm that the code and checkpoint are BSD-3-Clause with commercial use and redistribution permitted, and that no separate backbone weights are carried. I approve recording all three legal surfaces as reviewed for the P25-5 evaluation package."
+}

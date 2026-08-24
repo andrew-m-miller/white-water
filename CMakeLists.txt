@@ -181,12 +181,16 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.pfm_tests)
   add_test(NAME bakeoff::evaluator
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.evaluator_tests)
+  add_test(NAME bakeoff::native_ort
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.native_ort_tests)
   add_test(NAME p25_5::admission
     COMMAND "${Python3_EXECUTABLE}" -m tools.p25_5.admission_tests)
   add_test(NAME p25_5::legal_review
     COMMAND "${Python3_EXECUTABLE}" -m tools.p25_5.legal_review_tests)
   add_test(NAME p25_5::package
     COMMAND "${Python3_EXECUTABLE}" -m tools.p25_5.package_tests)
+  add_test(NAME p25_5::licenses
+    COMMAND "${Python3_EXECUTABLE}" -m tools.p25_5.licenses_tests)
   add_test(NAME p25_5::airgap_wrapper
     COMMAND "${CMAKE_SOURCE_DIR}/scripts/ww-bakeoff-airgap-tests.sh")
   set_tests_properties(bakeoff::corpus_conditioning
@@ -209,11 +213,15 @@ if(Python3_Interpreter_FOUND)
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::evaluator
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::native_ort
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(p25_5::admission
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(p25_5::legal_review
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(p25_5::package
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(p25_5::licenses
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(p25_5::airgap_wrapper
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

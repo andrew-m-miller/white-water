@@ -8,8 +8,10 @@ the independent shipping decision and is never used to admit a candidate by itse
 
 All supplied payloads are copied from local regular files.  No URL or download is accepted.  The
 evaluator is an explicit package entrypoint and its identity is declared in the specification; it
-is not inferred from repository source files.  Evaluator files are executable (0755), opaque
-runtime tarballs/shared-library payloads are regular 0644 files, and
+is not inferred from repository source files.  The evaluator entrypoint is executable (0755).
+Evaluator-support files are ordinary reader-readable modules and data (0644); the offline shell
+wrapper is the sole executable package entrypoint.  Opaque runtime tarballs/shared-library
+payloads are regular 0644 files, and
 model artifacts plus manifests, licences, notices and instructions are always 0644.
 
 The archive is a reproducible gzip-compressed ustar/PAX stream.  Source, staging, archived and
@@ -104,7 +106,7 @@ class FileRecord:
 _ROLE_ALLOWED_MODES: dict[str, frozenset[int]] = {
     "evaluator": frozenset({EXPECTED_EXECUTABLE_MODE}),
     "evaluator-support": frozenset({EXPECTED_FILE_MODE}),
-    # The evaluator is the only executable entrypoint.  A conda-pack runtime remains an opaque
+    # A conda-pack runtime remains an opaque
     # regular 0644 tarball; its internal executables are not outer package members.
     "runtime": frozenset({EXPECTED_FILE_MODE}),
     "model-artifact": frozenset({EXPECTED_FILE_MODE}),
