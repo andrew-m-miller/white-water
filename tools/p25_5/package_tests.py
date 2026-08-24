@@ -1,0 +1,453 @@
+#!/usr/bin/env python3
+"""Focused unit tests for the Phase 2.5 air-gap package builder/verifier."""
+
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+from pathlib import Path
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+try:
+    from . import package as package_module
+    from .package import PackageError, build_package, load_spec, verify_package
+except ImportError:  # Direct execution: ``python tools/p25_5/package_tests.py``.
+    import package as package_module  # type: ignore
+    from package import PackageError, build_package, load_spec, verify_package  # type: ignore
+
+
+class PackageTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="whitewater-p25-package-test-")
+        self.root = Path(self.temp.name)
+        self.sources = self.root / "sources"
+        self.sources.mkdir()
+        self._write("evaluator", b"#!/bin/sh\nexit 0\n", 0o755)
+        self._write("evaluator_support.py", b"def run_case():\n    return None\n", 0o644)
+        # This is intentionally just opaque bytes.  The outer package must not unpack or
+        # rewrite a conda-pack runtime; its exact hash and size are admitted below.
+        self._write("runtime.tar.gz", b"opaque-conda-pack-runtime\x00", 0o644)
+        self._write("model.onnx", b"model bytes\n", 0o644)
+        model_sha, model_size = self._sha_size(self.sources / "model.onnx")
+        candidate_manifest = {
+            "schema_id": "whitewater-p25-artifact-v1",
+            "candidate": {"id": "candidate-a", "role": "shipping-candidate"},
+            "export": {
+                "artifact": "model.onnx",
+                "sha256": model_sha,
+                "size_bytes": model_size,
+                "mode": "0644",
+                "platform": "fixture",
+                "platform_artifacts": [
+                    {
+                        "platform": "fixture",
+                        "artifact": "model.onnx",
+                        "sha256": model_sha,
+                        "size_bytes": model_size,
+                        "mode": "0644",
+                    }
+                ],
+            },
+        }
+        self._write(
+            "candidate.json",
+            (json.dumps(candidate_manifest, sort_keys=True) + "\n").encode("utf-8"),
+            0o644,
+        )
+        self._write("LICENSE.txt", b"license text\n", 0o644)
+        self._write("NOTICE.txt", b"notice text\n", 0o644)
+        self._write(
+            "RUN.md",
+            b"tar -xf runtime/conda-pack.tar.gz -C runtime-env\n"
+            b"runtime-env/bin/conda-unpack\n"
+            b"evaluator/ww-flow-eval\n",
+            0o644,
+        )
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def _write(self, name: str, content: bytes, mode: int) -> Path:
+        path = self.sources / name
+        path.write_bytes(content)
+        path.chmod(mode)
+        return path
+
+    def _sha_size(self, path: Path) -> tuple[str, int]:
+        content = path.read_bytes()
+        return hashlib.sha256(content).hexdigest(), len(content)
+
+    def _spec_value(self, *, measurement_status: str = "measurable", admitted: bool = True) -> dict:
+        runtime_sha, runtime_size = self._sha_size(self.sources / "runtime.tar.gz")
+        return {
+            "schema_id": "whitewater-p25-airgap-package-v1",
+            "protocol_id": "whitewater-p25-v2",
+            "package_id": "fixture-airgap",
+            "evaluator": {
+                "entrypoint": "evaluator/ww-flow-eval",
+                "runtime_identity": "conda-pack-opaque-fixture-v1",
+            },
+            "admission": {
+                "candidates": [
+                    {
+                        "candidate_id": "candidate-a",
+                        "measurement_status": measurement_status,
+                        "measurement_admitted": admitted,
+                        "status": "excluded",
+                        "exclusion_reason": "checkpoint_license_terms_unknown",
+                    }
+                ]
+            },
+            "files": [
+                {
+                    "role": "evaluator",
+                    "destination": "evaluator/ww-flow-eval",
+                    "source": str(self.sources / "evaluator"),
+                    "candidate_id": None,
+                    "mode": "0755",
+                },
+                {
+                    "role": "runtime",
+                    "destination": "runtime/conda-pack.tar.gz",
+                    "source": str(self.sources / "runtime.tar.gz"),
+                    "candidate_id": None,
+                    "mode": "0644",
+                    "sha256": runtime_sha,
+                    "size_bytes": runtime_size,
+                },
+                {
+                    "role": "evaluator-support",
+                    "destination": "evaluator/evaluator_support.py",
+                    "source": str(self.sources / "evaluator_support.py"),
+                    "candidate_id": None,
+                    "mode": "0644",
+                },
+                {
+                    "role": "model-artifact",
+                    "destination": "models/candidate-a/model.onnx",
+                    "source": str(self.sources / "model.onnx"),
+                    "candidate_id": "candidate-a",
+                    "mode": "0644",
+                },
+                {
+                    "role": "candidate-manifest",
+                    "destination": "models/candidate-a/manifest.json",
+                    "source": str(self.sources / "candidate.json"),
+                    "candidate_id": "candidate-a",
+                    "mode": "0644",
+                },
+                {
+                    "role": "license",
+                    "destination": "legal/LICENSE.txt",
+                    "source": str(self.sources / "LICENSE.txt"),
+                    "candidate_id": None,
+                    "mode": "0644",
+                },
+                {
+                    "role": "notice",
+                    "destination": "legal/NOTICE.txt",
+                    "source": str(self.sources / "NOTICE.txt"),
+                    "candidate_id": None,
+                    "mode": "0644",
+                },
+                {
+                    "role": "run-instructions",
+                    "destination": "RUN.md",
+                    "source": str(self.sources / "RUN.md"),
+                    "candidate_id": None,
+                    "mode": "0644",
+                },
+            ],
+        }
+
+    def _write_spec(self, value: dict, name: str = "package.json") -> Path:
+        path = self.root / name
+        path.write_text(json.dumps(value, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        path.chmod(0o644)
+        return path
+
+    def _build(self, value: dict | None = None, suffix: str = "") -> tuple[dict, Path, Path, Path]:
+        spec_path = self._write_spec(value or self._spec_value(), f"package{suffix}.json")
+        staging = self.root / f"staging{suffix}"
+        archive = self.root / f"package{suffix}.tar.gz"
+        inventory = self.root / f"package{suffix}.inventory.json"
+        result = build_package(
+            spec_path,
+            staging_dir=staging,
+            archive_path=archive,
+            inventory_path=inventory,
+        )
+        return result, staging, archive, inventory
+
+    def test_build_verifies_all_copies_and_keeps_runtime_opaque(self) -> None:
+        result, staging, archive, inventory = self._build()
+        self.assertEqual(result["archive_sha256"], hashlib.sha256(archive.read_bytes()).hexdigest())
+        self.assertEqual(stat.S_IMODE((staging / "evaluator/ww-flow-eval").stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE((staging / "runtime/conda-pack.tar.gz").stat().st_mode), 0o644)
+        self.assertEqual(stat.S_IMODE((staging / "models/candidate-a/model.onnx").stat().st_mode), 0o644)
+        verified = verify_package(
+            archive,
+            inventory,
+            staging_dir=staging,
+            extract_dir=self.root / "extracted",
+            verify_sources=True,
+        )
+        self.assertEqual(verified["file_count"], 9)  # 8 supplied files + generated admission record.
+        extracted_runtime = self.root / "extracted/runtime/conda-pack.tar.gz"
+        self.assertEqual(extracted_runtime.read_bytes(), (self.sources / "runtime.tar.gz").read_bytes())
+        self.assertEqual(stat.S_IMODE(extracted_runtime.stat().st_mode), 0o644)
+
+    def test_archive_is_deterministic(self) -> None:
+        _, _, archive_a, _ = self._build(suffix="-a")
+        _, _, archive_b, _ = self._build(suffix="-b")
+        self.assertEqual(archive_a.read_bytes(), archive_b.read_bytes())
+        self.assertEqual(
+            hashlib.sha256(archive_a.read_bytes()).hexdigest(),
+            hashlib.sha256(archive_b.read_bytes()).hexdigest(),
+        )
+
+    def test_excluded_but_measurable_candidate_is_admitted(self) -> None:
+        result, _, _, _ = self._build()
+        self.assertEqual(result["package_id"], "fixture-airgap")
+
+    def test_measurement_status_is_fail_closed(self) -> None:
+        unavailable = self._spec_value(measurement_status="unavailable")
+        with self.assertRaisesRegex(PackageError, "not technically measurable"):
+            load_spec(self._write_spec(unavailable))
+
+    def test_explicit_measurement_admission_is_required(self) -> None:
+        not_admitted = self._spec_value(admitted=False)
+        with self.assertRaisesRegex(PackageError, "lacks explicit measurement admission"):
+            load_spec(self._write_spec(not_admitted))
+
+    def test_shipping_status_does_not_substitute_for_measurement_admission(self) -> None:
+        not_admitted = self._spec_value(admitted=False)
+        not_admitted["admission"]["candidates"][0]["status"] = "eligible"
+        not_admitted["admission"]["candidates"][0].pop("exclusion_reason")
+        with self.assertRaisesRegex(PackageError, "lacks explicit measurement admission"):
+            load_spec(self._write_spec(not_admitted))
+
+    def test_runtime_sha256_and_size_are_required_and_checked(self) -> None:
+        value = self._spec_value()
+        runtime = next(item for item in value["files"] if item["role"] == "runtime")
+        runtime["sha256"] = "0" * 64
+        with self.assertRaisesRegex(PackageError, "runtime identity mismatch"):
+            self._build(value)
+
+        missing = self._spec_value()
+        missing_runtime = next(item for item in missing["files"] if item["role"] == "runtime")
+        del missing_runtime["size_bytes"]
+        with self.assertRaisesRegex(PackageError, "missing required fields: size_bytes"):
+            load_spec(self._write_spec(missing))
+
+    def test_model_mode_must_be_0644(self) -> None:
+        model = self.sources / "model.onnx"
+        model.chmod(0o600)
+        with self.assertRaisesRegex(PackageError, "expected 0644"):
+            self._build()
+
+    def test_evaluator_mode_is_distinct_and_must_be_0755(self) -> None:
+        evaluator = self.sources / "evaluator"
+        evaluator.chmod(0o644)
+        with self.assertRaisesRegex(PackageError, "expected 0755"):
+            self._build()
+
+    def test_evaluator_support_is_global_0644_and_optional(self) -> None:
+        _, staging, _, _ = self._build()
+        support = staging / "evaluator/evaluator_support.py"
+        self.assertTrue(support.is_file())
+        self.assertEqual(stat.S_IMODE(support.stat().st_mode), 0o644)
+
+        without_support = self._spec_value()
+        without_support["files"] = [
+            item for item in without_support["files"] if item["role"] != "evaluator-support"
+        ]
+        result, _, _, _ = self._build(without_support, suffix="-without-support")
+        self.assertEqual(result["package_id"], "fixture-airgap")
+
+        bound_support = self._spec_value()
+        support_entry = next(
+            item for item in bound_support["files"] if item["role"] == "evaluator-support"
+        )
+        support_entry["candidate_id"] = "candidate-a"
+        with self.assertRaisesRegex(PackageError, "must be package-global"):
+            load_spec(self._write_spec(bound_support, "bound-support.json"))
+
+    def test_symlink_and_nonregular_sources_are_rejected(self) -> None:
+        value = self._spec_value()
+        model = self.sources / "model.onnx"
+        model.unlink()
+        model.symlink_to(self.sources / "candidate.json")
+        with self.assertRaisesRegex(PackageError, "must not be a symlink"):
+            self._build(value)
+
+        model.unlink()
+        model.mkdir()
+        with self.assertRaisesRegex(PackageError, "must be a regular file"):
+            self._build(self._spec_value(), suffix="-nonregular")
+
+    def test_source_replacement_between_lstat_and_open_is_rejected(self) -> None:
+        value = self._spec_value()
+        source = self.sources / "model.onnx"
+        real_open = package_module.os.open
+
+        def replace_before_open(path, flags, *arguments, **keywords):
+            if Path(path) == source:
+                source.unlink()
+                source.symlink_to(self.sources / "candidate.json")
+            return real_open(path, flags, *arguments, **keywords)
+
+        with patch.object(package_module.os, "open", side_effect=replace_before_open):
+            with self.assertRaisesRegex(PackageError, "must not be a symlink"):
+                self._build(value, suffix="-source-race")
+
+    def test_candidate_manifest_must_match_carried_artifact_identity(self) -> None:
+        value = self._spec_value()
+        manifest_path = self.sources / "candidate.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["export"]["sha256"] = "0" * 64
+        manifest["export"]["platform_artifacts"][0]["sha256"] = "0" * 64
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+        manifest_path.chmod(0o644)
+        with self.assertRaisesRegex(PackageError, "does not match exactly one carried artifact"):
+            self._build(value, suffix="-manifest-mismatch")
+
+        # A stale selected platform record is also rejected before an archive can be emitted.
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        model_sha, model_size = self._sha_size(self.sources / "model.onnx")
+        manifest["export"]["sha256"] = model_sha
+        manifest["export"]["platform_artifacts"][0]["size_bytes"] = model_size + 1
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+        manifest_path.chmod(0o644)
+        with self.assertRaisesRegex(PackageError, "selected platform record"):
+            self._build(value, suffix="-platform-mismatch")
+
+    def test_destination_traversal_and_url_sources_are_rejected(self) -> None:
+        traversal = self._spec_value()
+        traversal["files"][2]["destination"] = "../model.onnx"
+        with self.assertRaisesRegex(PackageError, "must not contain"):
+            load_spec(self._write_spec(traversal))
+
+        url = self._spec_value()
+        url["files"][2]["source"] = "https://example.invalid/model.onnx"
+        with self.assertRaisesRegex(PackageError, "downloads are not permitted"):
+            load_spec(self._write_spec(url))
+
+    def test_archive_and_staging_tampering_are_detected(self) -> None:
+        _, staging, archive, inventory = self._build()
+        model_stage = staging / "models/candidate-a/model.onnx"
+        model_stage.write_bytes(b"tampered\n")
+        model_stage.chmod(0o644)
+        with self.assertRaisesRegex(PackageError, "staged identity mismatch"):
+            verify_package(archive, inventory, staging_dir=staging)
+
+        # Rebuild fresh, then alter the archive after its SHA was recorded.
+        _, _, archive, inventory = self._build(self._spec_value(), suffix="-tamper")
+        bytes_value = bytearray(archive.read_bytes())
+        bytes_value[-1] ^= 0x01
+        archive.write_bytes(bytes(bytes_value))
+        archive.chmod(0o644)
+        with self.assertRaisesRegex(PackageError, "archive SHA256 or size"):
+            verify_package(archive, inventory)
+
+    def test_archive_and_inventory_modes_are_checked(self) -> None:
+        _, _, archive, inventory = self._build()
+        archive.chmod(0o600)
+        with self.assertRaisesRegex(PackageError, "expected 0644"):
+            verify_package(archive, inventory)
+        archive.chmod(0o644)
+        inventory.chmod(0o600)
+        with self.assertRaisesRegex(PackageError, "expected 0644"):
+            verify_package(archive, inventory)
+
+    def test_staging_tree_must_not_contain_unlisted_files(self) -> None:
+        _, staging, archive, inventory = self._build()
+        extra = staging / "unexpected.bin"
+        extra.write_bytes(b"extra")
+        extra.chmod(0o644)
+        with self.assertRaisesRegex(PackageError, "unexpected file"):
+            verify_package(archive, inventory, staging_dir=staging)
+
+    def test_inventory_rechecks_candidate_binding_and_admission_record(self) -> None:
+        _, _, archive, inventory = self._build()
+        value = json.loads(inventory.read_text(encoding="utf-8"))
+        model = next(item for item in value["files"] if item["role"] == "model-artifact")
+        model["candidate_id"] = "not-admitted"
+        inventory.write_text(json.dumps(value, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        inventory.chmod(0o644)
+        with self.assertRaisesRegex(PackageError, "unadmitted candidate"):
+            verify_package(archive, inventory)
+
+        # Rebuild before the second mutation so the first malformed inventory does not affect
+        # the archive, then alter only the carried admission decision in the inventory.
+        _, _, archive, inventory = self._build(self._spec_value(), suffix="-admission-tamper")
+        value = json.loads(inventory.read_text(encoding="utf-8"))
+        value["admission"]["candidates"][0]["status"] = "eligible"
+        value["admission"]["candidates"][0].pop("exclusion_reason")
+        inventory.write_text(json.dumps(value, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        inventory.chmod(0o644)
+        with self.assertRaisesRegex(PackageError, "admission record does not match"):
+            verify_package(archive, inventory)
+
+    def test_existing_extraction_directory_is_not_overwritten(self) -> None:
+        _, _, archive, inventory = self._build()
+        extraction = self.root / "already-there"
+        extraction.mkdir()
+        (extraction / "keep").write_bytes(b"keep")
+        with self.assertRaisesRegex(PackageError, "must be empty"):
+            verify_package(archive, inventory, extract_dir=extraction)
+
+    def test_cli_build_and_verify_round_trip(self) -> None:
+        spec = self._write_spec(self._spec_value(), "cli-package.json")
+        staging = self.root / "cli-staging"
+        archive = self.root / "cli-package.tar.gz"
+        inventory = self.root / "cli-package.inventory.json"
+        script = Path(__file__).with_name("package.py")
+        built = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "build",
+                str(spec),
+                "--staging-dir",
+                str(staging),
+                "--archive",
+                str(archive),
+                "--inventory",
+                str(inventory),
+            ],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(built.returncode, 0, built.stderr)
+        verified = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "verify",
+                str(archive),
+                str(inventory),
+                "--staging-dir",
+                str(staging),
+                "--extract-dir",
+                str(self.root / "cli-extracted"),
+                "--verify-sources",
+            ],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

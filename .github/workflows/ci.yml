@@ -1,5 +1,5 @@
 name: build
-run-name: Human test build — ${{ inputs.purpose }} (${{ github.ref_name }})
+run-name: Human test build — ${{ inputs.purpose }} [${{ inputs.lane }}] (${{ github.ref_name }})
 
 on:
   # Intentionally manual-only. Local build and tests are the routine merge gate; this
@@ -10,6 +10,52 @@ on:
       purpose:
         description: Human test that needs a fresh installable build
         required: true
+        type: string
+      lane:
+        description: Build lane; p25-5 requires all explicit evaluator/runtime inputs below
+        required: true
+        type: choice
+        default: standard
+        options:
+          - standard
+          - p25-5
+      p25_5_admission_file:
+        description: Optional repository-relative SEA-RAFT-only candidate plan/template; admission is generated after export
+        required: false
+        type: string
+      p25_5_conda_installer_url:
+        description: SHA-pinned EL8 x86_64 Miniconda installer URL (required for p25-5)
+        required: false
+        type: string
+      p25_5_conda_installer_sha256:
+        description: SHA256 of the explicit Miniconda installer (required for p25-5)
+        required: false
+        type: string
+      p25_5_conda_lock_file:
+        description: Repository-relative SHA-pinned conda explicit package spec (required for p25-5)
+        required: false
+        type: string
+      p25_5_conda_lock_sha256:
+        description: SHA256 of the explicit conda environment lock/spec (required for p25-5)
+        required: false
+        type: string
+      p25_5_qualifier:
+        description: Actual Python evaluator entry point implementing verify --manifest --artifact --protocol --provider (required for p25-5)
+        required: false
+        type: string
+        default: tools/bakeoff/evaluator.py
+      p25_5_packager:
+        description: Python evaluation-only packager entry point (required for p25-5)
+        required: false
+        type: string
+        default: tools/p25_5/package.py
+      p25_5_package_spec:
+        description: Local package-spec template; admission and runtime use documented P25-5 placeholders (required for p25-5)
+        required: false
+        type: string
+      p25_5_run_instructions:
+        description: Local evaluation-only run instructions carried in and beside the archive (required for p25-5)
+        required: false
         type: string
 
 jobs:
@@ -29,6 +75,7 @@ jobs:
   # cost is gcc-toolset, since EL8's default gcc is 8 -- and that also supplies its own
   # static libstdc++, so the CRB/libstdc++-static dance an EL9 build needs disappears too.
   linux:
+    if: ${{ inputs.lane == 'standard' }}
     name: linux (EL8 / glibc 2.28)
     runs-on: ubuntu-latest
     container:
@@ -383,6 +430,7 @@ jobs:
           if-no-files-found: error
 
   macos:
+    if: ${{ inputs.lane == 'standard' }}
     name: macos (arm64)
     runs-on: macos-latest
     steps:
@@ -486,4 +534,381 @@ jobs:
           path: |
             whitewater-macos-*.tar.gz
             whitewater-macos-*.tar.gz.sha256
+          if-no-files-found: error
+
+  # P25-5 is an explicitly selected lane. It is deliberately separate from the ordinary
+  # human-test artifacts above: this job carries an evaluation-only conda-pack runtime and
+  # refuses to pretend that P25-4's callback-based session library is a runnable evaluator.
+  # The lane remains manual-only because the target measurement machine is airgapped and the
+  # conda/evaluator/package inputs are supplied by the operator for that concrete test. The
+  # technical admission itself is generated from the freshly exported SEA-RAFT artifact below.
+  p25_5:
+    if: ${{ inputs.lane == 'p25-5' }}
+    name: p25-5 qualification (EL8 / glibc 2.28)
+    runs-on: ubuntu-latest
+    container:
+      image: almalinux:8
+    env:
+      P25_5_ADMISSION_PLAN: ${{ inputs.p25_5_admission_file }}
+      P25_5_CONDA_INSTALLER_URL: ${{ inputs.p25_5_conda_installer_url }}
+      P25_5_CONDA_INSTALLER_SHA256: ${{ inputs.p25_5_conda_installer_sha256 }}
+      P25_5_CONDA_LOCK_FILE: ${{ inputs.p25_5_conda_lock_file }}
+      P25_5_CONDA_LOCK_SHA256: ${{ inputs.p25_5_conda_lock_sha256 }}
+      P25_5_QUALIFIER: ${{ inputs.p25_5_qualifier }}
+      P25_5_PACKAGER: ${{ inputs.p25_5_packager }}
+      P25_5_PACKAGE_SPEC: ${{ inputs.p25_5_package_spec }}
+      P25_5_RUN_INSTRUCTIONS: ${{ inputs.p25_5_run_instructions }}
+      P25_5_OUTPUT_DIR: p25-5-output
+    steps:
+      - name: Install EL8 build and runtime prerequisites
+        run: |
+          dnf -y install git make cmake binutils tar gzip curl bzip2 xz file findutils
+          dnf -y install gcc-toolset-12 python3.11 python3.11-pip
+          echo "CC=/opt/rh/gcc-toolset-12/root/usr/bin/gcc" >> "$GITHUB_ENV"
+          echo "CXX=/opt/rh/gcc-toolset-12/root/usr/bin/g++" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Fail closed on missing P25-5 inputs
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64 || {
+            echo "P25-5 runtime must be built on EL8 x86_64 (got $(uname -m))" >&2; exit 1; }
+          for name in \
+            P25_5_CONDA_INSTALLER_URL \
+            P25_5_CONDA_INSTALLER_SHA256 \
+            P25_5_CONDA_LOCK_FILE \
+            P25_5_CONDA_LOCK_SHA256 \
+            P25_5_QUALIFIER \
+            P25_5_PACKAGER \
+            P25_5_PACKAGE_SPEC \
+            P25_5_RUN_INSTRUCTIONS; do
+            test -n "${!name:-}" || {
+              if [ "$name" = P25_5_QUALIFIER ]; then
+                echo "P25-5 evaluator entry point is not supplied: P25-4 session.py is callback-only and cannot be packaged as a runnable evaluator" >&2
+              else
+                echo "P25-5 requires explicit $name; no evaluator/runtime may be invented" >&2
+              fi
+              exit 1; }
+          done
+          [[ "$P25_5_CONDA_INSTALLER_URL" =~ ^https?:// ]] || {
+            echo "P25-5 conda installer URL must be explicit HTTPS/HTTP" >&2; exit 1; }
+          lock_file="$GITHUB_WORKSPACE/$P25_5_CONDA_LOCK_FILE"
+          case "$P25_5_CONDA_LOCK_FILE" in
+            /*|*..*|*//*|"")
+              echo "P25-5 conda lock file must be a repository-relative path without traversal" >&2
+              exit 1 ;;
+          esac
+          test -f "$lock_file" || {
+            echo "P25-5 explicit conda lock/spec is missing: $P25_5_CONDA_LOCK_FILE" >&2; exit 1; }
+          test ! -L "$lock_file" || {
+            echo "P25-5 conda lock/spec must not be a symlink" >&2; exit 1; }
+          [[ "$P25_5_CONDA_INSTALLER_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "P25-5 conda installer SHA256 must be lowercase 64-hex" >&2; exit 1; }
+          [[ "$P25_5_CONDA_LOCK_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "P25-5 conda lock/spec SHA256 must be lowercase 64-hex" >&2; exit 1; }
+
+          if [ -n "${P25_5_ADMISSION_PLAN:-}" ]; then
+            case "$P25_5_ADMISSION_PLAN" in
+              /*|*..*|*//*|"")
+                echo "P25-5 candidate plan must be a repository-relative path without traversal" >&2
+                exit 1 ;;
+            esac
+            plan_file="$GITHUB_WORKSPACE/$P25_5_ADMISSION_PLAN"
+            test -f "$plan_file" || {
+              echo "P25-5 candidate plan is missing: $P25_5_ADMISSION_PLAN" >&2; exit 1; }
+            test ! -L "$plan_file" || {
+              echo "P25-5 candidate plan must not be a symlink" >&2; exit 1; }
+            python3.11 - "$plan_file" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          try:
+              document = json.loads(path.read_text(encoding="utf-8"))
+          except (OSError, UnicodeError, ValueError) as exc:
+              raise SystemExit(f"P25-5 candidate plan is not valid JSON: {exc}")
+          if not isinstance(document, dict):
+              raise SystemExit("P25-5 candidate plan must be a JSON object")
+          raw = document.get("candidate_ids")
+          if raw is None:
+              raw = document.get("candidates")
+              if isinstance(raw, list):
+                  ids = []
+                  for index, item in enumerate(raw):
+                      if not isinstance(item, dict) or not isinstance(item.get("candidate_id"), str):
+                          raise SystemExit(
+                              f"P25-5 candidate plan candidates[{index}] must contain candidate_id"
+                          )
+                      ids.append(item["candidate_id"])
+              else:
+                  ids = None
+          else:
+              ids = raw
+          if not isinstance(ids, list) or not all(isinstance(item, str) and item for item in ids):
+              raise SystemExit(
+                  "P25-5 candidate plan must contain candidate_ids or candidates[].candidate_id"
+              )
+          if len(ids) != len(set(ids)) or sorted(set(ids)) != ["sea-raft-m"]:
+              raise SystemExit(
+                  "P25-5 currently admits only sea-raft-m; RAFT/NeuFlow/WAFT are not silently admitted"
+              )
+          print("P25-5 candidate plan: SEA-RAFT M only")
+          PY
+          fi
+
+      - name: Report EL8 toolchain
+        run: |
+          "$CXX" --version
+          cmake --version
+          ldd --version | head -1
+
+      # The ONNX payload is ignored by git. Reproduce the exact pinned SEA-RAFT M export before
+      # admission; the generated Linux row carries the current artifact/environment hashes and
+      # is the only candidate this lane may package automatically.
+      - name: Export pinned SEA-RAFT M measurement artifact
+        run: |
+          set -euo pipefail
+          dnf -y install python3.11 python3.11-pip
+          python3.11 -m venv "$RUNNER_TEMP/searaft-export-venv"
+          py="$RUNNER_TEMP/searaft-export-venv/bin/python"
+          "$py" -m pip install --upgrade pip
+          "$py" -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            torch==2.2.0 torchvision==0.17.0
+          grep -vE '^(torch|torchvision)==' models/requirements-searaft-export.txt \
+            > "$RUNNER_TEMP/searaft-export-requirements.txt"
+          "$py" -m pip install -r "$RUNNER_TEMP/searaft-export-requirements.txt"
+
+          upstream="$RUNNER_TEMP/SEA-RAFT"
+          checkpoint="$RUNNER_TEMP/sea-raft-m.safetensors"
+          commit=$("$py" -c \
+            'import json; print(json.load(open("models/sea-raft-m.json"))["upstream"]["commit"])')
+          checkpoint_url=$("$py" -c \
+            'import json; print(json.load(open("models/sea-raft-m.json"))["checkpoint"]["url"])')
+          git init "$upstream"
+          git -C "$upstream" remote add origin https://github.com/princeton-vl/SEA-RAFT.git
+          git -C "$upstream" fetch --depth=1 origin "$commit"
+          git -C "$upstream" checkout --detach FETCH_HEAD
+          curl --fail --location --retry 3 --retry-all-errors -o "$checkpoint" "$checkpoint_url"
+
+          "$py" models/export_searaft.py \
+            --upstream "$upstream" \
+            --checkpoint "$checkpoint" \
+            --output models/sea-raft-m-opset17.onnx \
+            --platform linux-x86_64 \
+            --update-manifest
+          "$py" models/check_searaft_artifact.py \
+            models/sea-raft-m.json models/sea-raft-m-opset17.onnx
+
+      - name: Generate SEA-RAFT CPU measurement admission
+        run: |
+          set -euo pipefail
+          mkdir -p "$P25_5_OUTPUT_DIR"
+          python3.11 tools/p25_5/admission.py \
+            --protocol bakeoff/protocol-v2.json \
+            --candidate models/sea-raft-m.json models/sea-raft-m-opset17.onnx linux-x86_64 \
+            --provider cpu \
+            --reviewed-surface code \
+            --reviewed-surface checkpoint \
+            --reviewed-surface backbone \
+            --output "$P25_5_OUTPUT_DIR/sea-raft-admission.json"
+          candidate_ids=$(python3.11 - "$P25_5_OUTPUT_DIR/sea-raft-admission.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          print(" ".join(entry.get("candidate_id", "") for entry in document.get("candidates", [])))
+          PY
+          )
+          if [ "$candidate_ids" != "sea-raft-m" ]; then
+            echo "P25-5 clean-checkout lane may admit only sea-raft-m (got: $candidate_ids)" >&2
+            exit 1
+          fi
+          echo "generated SEA-RAFT admission: $P25_5_OUTPUT_DIR/sea-raft-admission.json"
+          echo "P25_5_ADMISSION_FILE=$P25_5_OUTPUT_DIR/sea-raft-admission.json" >> "$GITHUB_ENV"
+
+      # Keep the ordinary repository suite in the P25-5 lane. This is independent of the
+      # evaluator runtime and catches regressions in the host-free flow algebra and OFX bundle.
+      - name: Configure ordinary gates
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build ordinary gates
+        run: cmake --build build -j$(nproc)
+
+      - name: Test ordinary gates
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+
+      # These are the candidate/export contract gates, kept visible in the workflow even though
+      # CTest also registers most of them. They validate provenance, schema, hash/mode, tensor,
+      # direction and operator rules without treating any candidate as a shipping choice.
+      - name: Run candidate export and contract gates
+        run: |
+          python3.11 models/check_searaft_manifest.py models/sea-raft-m.json
+          python3.11 models/check_raft_manifest.py models/raft-original.json
+          python3.11 models/check_neuflow_manifest.py models/neuflow-v2.json
+          python3.11 models/check_waft_manifest.py
+          python3.11 models/p25_3_candidate_manifest_tests.py
+          python3.11 models/artifact_tests.py
+          python3.11 models/artifact_import_tests.py
+          python3.11 models/neuflow_export_tests.py
+          python3.11 models/raft_export_tests.py
+          python3.11 models/waft_export_tests.py
+
+      - name: Fetch explicit conda bootstrap and environment lock
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p25-5-inputs"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output "$RUNNER_TEMP/p25-5-inputs/miniconda.sh" "$P25_5_CONDA_INSTALLER_URL"
+          printf '%s  %s\n' "$P25_5_CONDA_INSTALLER_SHA256" \
+            "$RUNNER_TEMP/p25-5-inputs/miniconda.sh" | sha256sum --check --status
+          lock_file="$GITHUB_WORKSPACE/$P25_5_CONDA_LOCK_FILE"
+          cp -- "$lock_file" "$RUNNER_TEMP/p25-5-inputs/environment.lock"
+          printf '%s  %s\n' "$P25_5_CONDA_LOCK_SHA256" \
+            "$RUNNER_TEMP/p25-5-inputs/environment.lock" | sha256sum --check --status
+          bash "$RUNNER_TEMP/p25-5-inputs/miniconda.sh" -b -p "$RUNNER_TEMP/miniconda"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/miniconda/etc/profile.d/conda.sh"
+          conda config --system --set always_yes true
+          conda --version
+          # This is an explicit conda package spec (the format consumed by `conda create
+          # --file`), not an environment YAML. It is hash-bound before the solver runs.
+          conda create --prefix "$RUNNER_TEMP/p25-5-conda-env" \
+            --file "$RUNNER_TEMP/p25-5-inputs/environment.lock"
+          test -x "$RUNNER_TEMP/p25-5-conda-env/bin/python"
+          test -x "$RUNNER_TEMP/p25-5-conda-env/bin/conda-pack" || {
+            echo "the locked evaluator environment must carry conda-pack" >&2; exit 1; }
+          "$RUNNER_TEMP/p25-5-conda-env/bin/conda-pack" --version
+          "$RUNNER_TEMP/p25-5-conda-env/bin/python" - <<'PY'
+          import importlib.metadata
+          import onnxruntime
+          import sys
+
+          if sys.version_info[:2] != (3, 11):
+              raise SystemExit(f"expected pinned Python 3.11, got {sys.version}")
+          if onnxruntime.__version__ != "1.29.0":
+              raise SystemExit(f"expected onnxruntime-gpu 1.29.0, got {onnxruntime.__version__}")
+          try:
+              distribution = importlib.metadata.distribution("onnxruntime-gpu")
+          except importlib.metadata.PackageNotFoundError as exc:
+              raise SystemExit("the runtime must contain onnxruntime-gpu, not only onnxruntime") from exc
+          if distribution.version != "1.29.0":
+              raise SystemExit(f"expected onnxruntime-gpu 1.29.0, got {distribution.version}")
+          if "CUDAExecutionProvider" not in onnxruntime.get_available_providers():
+              raise SystemExit("onnxruntime-gpu does not advertise CUDAExecutionProvider")
+          print("runtime Python/onnxruntime-gpu/CPU+CUDA provider identity: PASS")
+          PY
+
+      - name: Pack and relocate the qualified conda runtime
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p25-5-runtime-extracted" "$P25_5_OUTPUT_DIR"
+          runtime_archive="$RUNNER_TEMP/whitewater-p25-5-runtime.tar.gz"
+          "$RUNNER_TEMP/p25-5-conda-env/bin/conda-pack" \
+            --prefix "$RUNNER_TEMP/p25-5-conda-env" \
+            --format tar.gz \
+            --output "$runtime_archive"
+          runtime_sha=$(sha256sum -- "$runtime_archive" | awk '{print $1}')
+          printf '%s  %s\n' "$runtime_sha" "$(basename "$runtime_archive")" \
+            > "$P25_5_OUTPUT_DIR/whitewater-p25-5-runtime.tar.gz.sha256"
+          "$RUNNER_TEMP/miniconda/bin/conda" list --prefix "$RUNNER_TEMP/p25-5-conda-env" --explicit \
+            > "$P25_5_OUTPUT_DIR/whitewater-p25-5-runtime.inventory"
+          "$RUNNER_TEMP/miniconda/bin/conda" list --prefix "$RUNNER_TEMP/p25-5-conda-env" --json \
+            > "$P25_5_OUTPUT_DIR/whitewater-p25-5-runtime.inventory.json"
+          tar --extract --gzip --file "$runtime_archive" \
+            --directory "$RUNNER_TEMP/p25-5-runtime-extracted"
+          test -x "$RUNNER_TEMP/p25-5-runtime-extracted/bin/conda-unpack"
+          "$RUNNER_TEMP/p25-5-runtime-extracted/bin/conda-unpack"
+          test -x "$RUNNER_TEMP/p25-5-runtime-extracted/bin/python"
+          # The packed environment is the exact carried runtime; this smoke import catches a
+          # broken relocation before the evaluator is allowed to run.
+          "$RUNNER_TEMP/p25-5-runtime-extracted/bin/python" - <<'PY'
+          import onnxruntime
+          if onnxruntime.__version__ != "1.29.0":
+              raise SystemExit("relocated runtime changed its ORT version")
+          if "CUDAExecutionProvider" not in onnxruntime.get_available_providers():
+              raise SystemExit("relocated runtime lost CUDAExecutionProvider")
+          print("relocated runtime smoke import: PASS")
+          PY
+          echo "P25_5_RUNTIME_ROOT=$RUNNER_TEMP/p25-5-runtime-extracted" >> "$GITHUB_ENV"
+          echo "P25_5_RUNTIME_ARCHIVE=$runtime_archive" >> "$GITHUB_ENV"
+          echo "P25_5_RUNTIME_SHA256=$runtime_sha" >> "$GITHUB_ENV"
+          echo "P25_5_RUNTIME_SHA256_FILE=$P25_5_OUTPUT_DIR/whitewater-p25-5-runtime.tar.gz.sha256" >> "$GITHUB_ENV"
+          echo "P25_5_RUNTIME_INVENTORY=$P25_5_OUTPUT_DIR/whitewater-p25-5-runtime.inventory" >> "$GITHUB_ENV"
+
+      - name: Check glibc 2.28 baseline for runtime and evaluator ELFs
+        run: |
+          set -euo pipefail
+          check_tree() {
+            local tree="$1"
+            [ -e "$tree" ] || return 0
+            if [ -f "$tree" ]; then
+              candidates=("$tree")
+            else
+              mapfile -d '' candidates < <(find "$tree" -type f -print0)
+            fi
+            for candidate in "${candidates[@]}"; do
+              if file -b -- "$candidate" | grep -q 'ELF'; then
+                scripts/check-glibc-baseline.sh "$candidate" 2.28
+              fi
+            done
+          }
+          check_tree "$P25_5_RUNTIME_ROOT"
+          check_tree "$GITHUB_WORKSPACE/$P25_5_QUALIFIER"
+          package_spec="$GITHUB_WORKSPACE/$P25_5_PACKAGE_SPEC"
+          test -f "$package_spec" || {
+            echo "P25-5 package specification is missing: $P25_5_PACKAGE_SPEC" >&2; exit 1; }
+          while IFS= read -r evaluator_source; do
+            [ -n "$evaluator_source" ] && check_tree "$evaluator_source"
+          done < <(python3.11 - "$package_spec" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          spec_path = Path(sys.argv[1]).resolve()
+          document = json.loads(spec_path.read_text(encoding="utf-8"))
+          for item in document.get("files", []):
+              if item.get("role") == "evaluator":
+                  source = Path(item["source"])
+                  if not source.is_absolute():
+                      source = spec_path.parent / source
+                  print(source.resolve())
+          PY
+          )
+
+      - name: Audit full conda environment closure without claiming target CUDA libraries
+        run: |
+          set -euo pipefail
+          ort_capi=$(find "$P25_5_RUNTIME_ROOT" -type d -path '*/onnxruntime/capi' -print -quit)
+          test -n "$ort_capi" || { echo "onnxruntime/capi payload not found" >&2; exit 1; }
+          test -f "$ort_capi/libonnxruntime_providers_cuda.so" || {
+            echo "onnxruntime-gpu CUDA provider payload is absent; refusing CUDA qualification" >&2
+            exit 1; }
+          set +e
+          # Audit the whole relocated environment, not only ORT's capi directory. This catches
+          # CUDA/cuDNN/cuBLAS wheels carried under site-packages/nvidia as well as the provider.
+          scripts/report-ort-closure.sh "$P25_5_RUNTIME_ROOT" \
+            > "$P25_5_OUTPUT_DIR/whitewater-p25-5-runtime-closure.txt" 2>&1
+          closure_status=$?
+          set -e
+          cat "$P25_5_OUTPUT_DIR/whitewater-p25-5-runtime-closure.txt"
+          if [ "$closure_status" -ne 0 ]; then
+            echo "CUDA closure has unresolved host libraries; this lane will run CPU correctness only."
+            echo "CUDA provider qualification remains open; no CUDA shipping claim is made."
+          else
+            echo "CUDA provider closure is fully resolved in the EL8 build image."
+          fi
+          echo "P25_5_RUNTIME_CLOSURE=$P25_5_OUTPUT_DIR/whitewater-p25-5-runtime-closure.txt" >> "$GITHUB_ENV"
+
+      - name: Run P25-5 export, qualification and evaluation-only packaging
+        run: scripts/ci-p25-5-qualify.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: whitewater-p25-5-el8-${{ github.sha }}
+          path: p25-5-output
           if-no-files-found: error

@@ -286,6 +286,25 @@ may ship one model and omit the `model` choice rather than publish a meaningless
 
 ---
 
+## Session 12 — 2026-08-24 — P25-5 portable runtime boundary
+
+P25-5 carries its Python/ONNX Runtime user-space environment as an opaque, hash-bound
+`conda-pack` archive built in the EL8 CI lane. The airgapped wrapper extracts it only into a
+writable operator-selected directory, runs `conda-unpack` once, sanitizes Python/conda/pip and
+proxy state, and invokes the carried evaluator without installing or downloading anything. The
+target still owns the NVIDIA kernel driver and `libcuda`; CUDA, cuDNN and other user-space
+dependencies must either resolve inside the packed environment or remain an explicit failed
+closure gate.
+
+This is evaluation infrastructure, not a shipping decision. The deterministic outer package
+records source, staged, archive and extracted identities and keeps measurement admission separate
+from licence eligibility. The CI lane intentionally cannot emit the final tarball until its
+explicit conda lock, package specification, run instructions, and complete candidate/runtime
+licence-and-notice set have been reviewed. In particular, a passing local CPU/provider check does
+not close the CUDA target qualification and does not select an OFX model or choice index.
+
+---
+
 ## Decisions
 
 ### Vendored from warp-drive rather than submoduled

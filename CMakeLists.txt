@@ -179,6 +179,14 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.measurement_tests)
   add_test(NAME bakeoff::pfm
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.pfm_tests)
+  add_test(NAME bakeoff::evaluator
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.evaluator_tests)
+  add_test(NAME p25_5::admission
+    COMMAND "${Python3_EXECUTABLE}" -m tools.p25_5.admission_tests)
+  add_test(NAME p25_5::package
+    COMMAND "${Python3_EXECUTABLE}" -m tools.p25_5.package_tests)
+  add_test(NAME p25_5::airgap_wrapper
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/ww-bakeoff-airgap-tests.sh")
   set_tests_properties(bakeoff::corpus_conditioning
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::metrics
@@ -196,6 +204,14 @@ if(Python3_Interpreter_FOUND)
   set_tests_properties(bakeoff::measurement
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::pfm
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::evaluator
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(p25_5::admission
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(p25_5::package
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(p25_5::airgap_wrapper
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 else()
   message(STATUS "SEA-RAFT manifest gate skipped (Python 3 not found)")

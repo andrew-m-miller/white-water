@@ -16,6 +16,13 @@ through PR #13. No production target measurement, ranking decision, shipping mod
 order has been selected. P25-5 local/CI qualification is next; broader closeout for Phases 2 and
 2.5 remains deferred while the bake-off is open.
 
+P25-5 implementation is in review. Its EL8 lane builds a hash-pinned conda environment, relocates
+it with `conda-pack`, and places the opaque runtime archive behind an offline bootstrap wrapper.
+The lane remains fail-closed until an explicit conda lock, complete runtime/candidate
+licence-and-notice inputs, and a concrete package
+specification are reviewed. That implementation state is not the P25-5 exit: no carried tarball or
+target result exists yet.
+
 ## Exit
 
 Phase 2.5 exits when:
