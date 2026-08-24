@@ -1225,6 +1225,7 @@ jobs:
             --inventory-sha256 "$inventory_sha"
 
       - name: Check glibc 2.28 baseline for runtime and evaluator ELFs
+        shell: bash
         run: |
           set -euo pipefail
           check_tree() {

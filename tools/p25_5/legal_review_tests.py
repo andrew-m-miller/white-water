@@ -214,6 +214,15 @@ class LegalReviewTests(unittest.TestCase):
             workflow,
         )
 
+    def test_workflow_runs_the_glibc_tree_gate_with_bash(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            "- name: Check glibc 2.28 baseline for runtime and evaluator ELFs\n"
+            "        shell: bash\n"
+            "        run: |",
+            workflow,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
