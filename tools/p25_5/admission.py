@@ -30,6 +30,21 @@ import sys
 import tempfile
 from typing import Any, Mapping, Sequence
 
+try:
+    from .legal_review import (  # type: ignore
+        LegalReview,
+        LegalReviewError,
+        load_legal_review,
+        validate_candidate_identities,
+    )
+except ImportError:  # pragma: no cover - direct CLI execution
+    from legal_review import (  # type: ignore
+        LegalReview,
+        LegalReviewError,
+        load_legal_review,
+        validate_candidate_identities,
+    )
+
 
 ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PROTOCOL_ID = "whitewater-p25-v2"
@@ -167,11 +182,23 @@ def _provider_tokens(protocol: Mapping[str, Any], providers: Sequence[str]) -> l
         raise AdmissionError("at least one explicitly measured provider token is required")
     if len(set(providers)) != len(providers):
         raise AdmissionError("measured provider tokens must be unique")
-    known = {entry["token"] for entry in protocol["providers"]}
+    protocol_tokens = [entry["token"] for entry in protocol["providers"]]
+    unrepresented = sorted(set(protocol_tokens) - set(_PROVIDER_ORDER))
+    if unrepresented:
+        raise AdmissionError(
+            "active protocol provider token(s) are missing from deterministic order: "
+            + ", ".join(unrepresented)
+        )
+    known = set(protocol_tokens)
     unknown = sorted(set(providers) - known)
     if unknown:
         raise AdmissionError(f"unknown measured provider token(s): {', '.join(unknown)}")
-    return [token for token in _PROVIDER_ORDER if token in providers]
+    ordered = [token for token in _PROVIDER_ORDER if token in providers]
+    if len(ordered) != len(providers):
+        # Keep this seam fail-closed if its protocol validation is ever weakened: an accepted
+        # provider must never disappear merely because it was omitted from the canonical order.
+        raise AdmissionError("measured provider token cannot be represented in deterministic order")
+    return ordered
 
 
 def _reviewed_surface_tokens(reviewed_surfaces: Sequence[str]) -> list[str]:
@@ -251,7 +278,8 @@ def _legal_surfaces(
             raise AdmissionError(f"licenses.{surface}.redistribution_permitted is invalid")
         # artifact-v1 requires ``audit`` as evidence text, but it does not define that free-text
         # field as a boolean attestation of the v2 redistribution review decision.  Only the
-        # caller's explicit ``--reviewed-surface`` attestations may produce true here.
+        # caller's explicit surface tokens or a validated hash-bound legal-review attestation
+        # may produce true here.
         commercial[surface] = _COMMERCIAL_MAP[commercial_value]
         redistribution[surface] = _REDISTRIBUTION_MAP[redistribution_value]
         reviewed[surface] = surface in reviewed_surfaces
@@ -449,19 +477,40 @@ def generate_admission(
     *,
     allow_missing: bool = False,
     reviewed_surfaces: Sequence[str] = (),
+    legal_review_file: Path | str | None = None,
+    legal_review_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Generate a deterministic candidate-admission document from exact local inputs."""
 
     protocol_file = Path(protocol_path)
     protocol, protocol_sha256, report_schema = _load_protocol(protocol_file)
     measurement_providers = _provider_tokens(protocol, providers)
-    reviewed_surface_order = _reviewed_surface_tokens(reviewed_surfaces)
+    legal_review: LegalReview | None = None
+    if legal_review_file is not None:
+        if reviewed_surfaces:
+            raise AdmissionError(
+                "pass either explicit reviewed-surface tokens or a legal-review file, not both"
+            )
+        try:
+            legal_review = load_legal_review(
+                legal_review_file,
+                legal_review_sha256,
+                protocol_path=protocol_file,
+            )
+        except LegalReviewError as exc:
+            raise AdmissionError(f"invalid legal-review attestation: {exc}") from exc
+        reviewed_surface_order = list(legal_review.reviewed_surfaces)
+    else:
+        if legal_review_sha256 is not None:
+            raise AdmissionError("legal-review SHA256 requires a legal-review file")
+        reviewed_surface_order = _reviewed_surface_tokens(reviewed_surfaces)
     reviewed_surface_set = set(reviewed_surface_order)
     if not candidates:
         raise AdmissionError("at least one exact manifest/artifact input is required")
 
     known_ids = {entry["id"]: entry["role"] for entry in protocol["candidate_ids"]}
     entries: dict[str, dict[str, Any]] = {}
+    candidate_manifests: dict[str, Mapping[str, Any]] = {}
     for candidate_input in candidates:
         manifest_path = Path(candidate_input.manifest_path)
         artifact_path = Path(candidate_input.artifact_path)
@@ -479,6 +528,7 @@ def generate_admission(
             raise AdmissionError(f"candidate {candidate_id!r} is not in active protocol-v2")
         if candidate_id in entries:
             raise AdmissionError(f"duplicate candidate input: {candidate_id}")
+        candidate_manifests[candidate_id] = manifest
         protocol_role = known_ids[candidate_id]
         _validate_role(protocol_role, candidate.get("role"), candidate_id)
         selected = _selected_export(manifest, candidate_input.platform)
@@ -522,15 +572,26 @@ def generate_admission(
         )
         _validate_v2_candidate_entry(entries[candidate_id], report_schema, candidate_id)
 
+    if legal_review is not None:
+        try:
+            validate_candidate_identities(legal_review, candidate_manifests)
+        except LegalReviewError as exc:
+            raise AdmissionError(f"legal-review attestation is not bound to candidates: {exc}") from exc
+
     protocol_order = {entry["id"]: index for index, entry in enumerate(protocol["candidate_ids"])}
     ordered_entries = [entries[candidate_id] for candidate_id in sorted(entries, key=protocol_order.__getitem__)]
-    return {
+    document: dict[str, Any] = {
         "schema_id": ADMISSION_SCHEMA_ID,
         "protocol_id": ACTIVE_PROTOCOL_ID,
         "protocol_sha256": protocol_sha256,
         "measurement_providers": measurement_providers,
         "candidates": ordered_entries,
     }
+    if legal_review is not None:
+        # Preserve only the immutable evidence pointer, not reviewer-supplied prose or personal
+        # metadata.  The source attestation is carried beside the admission output by CI.
+        document["legal_review_sha256"] = legal_review.sha256
+    return document
 
 
 def _check_existing_destination(destination: Path, *, replace: bool) -> None:
@@ -659,6 +720,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="SURFACE",
         help="explicitly attest legal review for code, checkpoint and backbone (all required; repeatable)",
     )
+    parser.add_argument(
+        "--legal-review-file",
+        type=Path,
+        help="hash-bound operator legal-review JSON; mutually exclusive with --reviewed-surface",
+    )
+    parser.add_argument(
+        "--legal-review-sha256",
+        help="SHA256 supplied by the operator for --legal-review-file (required with the file)",
+    )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument(
         "--replace",
@@ -677,6 +747,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.provider,
             allow_missing=args.allow_missing,
             reviewed_surfaces=args.reviewed_surface,
+            legal_review_file=args.legal_review_file,
+            legal_review_sha256=args.legal_review_sha256,
         )
         write_admission(args.output, document, replace=args.replace)
         print(json.dumps({"output": str(args.output.resolve()), "candidate_count": len(document["candidates"])}, sort_keys=True))

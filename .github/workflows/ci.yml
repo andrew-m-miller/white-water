@@ -23,6 +23,14 @@ on:
         description: Optional repository-relative SEA-RAFT-only candidate plan/template; admission is generated after export
         required: false
         type: string
+      p25_5_legal_review_file:
+        description: Repository-relative human legal-review attestation JSON (required for p25-5)
+        required: false
+        type: string
+      p25_5_legal_review_sha256:
+        description: SHA256 of the exact legal-review attestation JSON (required for p25-5)
+        required: false
+        type: string
       p25_5_conda_installer_url:
         description: SHA-pinned EL8 x86_64 Miniconda installer URL (required for p25-5)
         required: false
@@ -550,6 +558,8 @@ jobs:
       image: almalinux:8
     env:
       P25_5_ADMISSION_PLAN: ${{ inputs.p25_5_admission_file }}
+      P25_5_LEGAL_REVIEW_FILE: ${{ inputs.p25_5_legal_review_file }}
+      P25_5_LEGAL_REVIEW_SHA256: ${{ inputs.p25_5_legal_review_sha256 }}
       P25_5_CONDA_INSTALLER_URL: ${{ inputs.p25_5_conda_installer_url }}
       P25_5_CONDA_INSTALLER_SHA256: ${{ inputs.p25_5_conda_installer_sha256 }}
       P25_5_CONDA_LOCK_FILE: ${{ inputs.p25_5_conda_lock_file }}
@@ -581,6 +591,8 @@ jobs:
             P25_5_CONDA_INSTALLER_SHA256 \
             P25_5_CONDA_LOCK_FILE \
             P25_5_CONDA_LOCK_SHA256 \
+            P25_5_LEGAL_REVIEW_FILE \
+            P25_5_LEGAL_REVIEW_SHA256 \
             P25_5_QUALIFIER \
             P25_5_PACKAGER \
             P25_5_PACKAGE_SPEC \
@@ -609,6 +621,30 @@ jobs:
             echo "P25-5 conda installer SHA256 must be lowercase 64-hex" >&2; exit 1; }
           [[ "$P25_5_CONDA_LOCK_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
             echo "P25-5 conda lock/spec SHA256 must be lowercase 64-hex" >&2; exit 1; }
+          [[ "$P25_5_LEGAL_REVIEW_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "P25-5 legal-review SHA256 must be lowercase 64-hex" >&2; exit 1; }
+
+          case "$P25_5_LEGAL_REVIEW_FILE" in
+            /*|*..*|*//*|"")
+              echo "P25-5 legal-review file must be a repository-relative path without traversal" >&2
+              exit 1 ;;
+          esac
+          legal_review_file="$GITHUB_WORKSPACE/$P25_5_LEGAL_REVIEW_FILE"
+          test -f "$legal_review_file" || {
+            echo "P25-5 legal-review file is missing: $P25_5_LEGAL_REVIEW_FILE" >&2; exit 1; }
+          test ! -L "$legal_review_file" || {
+            echo "P25-5 legal-review file must not be a symlink" >&2; exit 1; }
+          test "$(stat -c '%a' "$legal_review_file")" = 644 || {
+            echo "P25-5 legal-review file must have mode 0644: $P25_5_LEGAL_REVIEW_FILE" >&2; exit 1; }
+          actual_legal_review_sha=$(sha256sum -- "$legal_review_file" | awk '{print $1}')
+          test "$actual_legal_review_sha" = "$P25_5_LEGAL_REVIEW_SHA256" || {
+            echo "P25-5 legal-review SHA256 mismatch: expected $P25_5_LEGAL_REVIEW_SHA256, got $actual_legal_review_sha" >&2
+            exit 1; }
+          python3.11 tools/p25_5/legal_review.py \
+            --protocol bakeoff/protocol-v2.json \
+            --manifest sea-raft-m models/sea-raft-m.json \
+            --review "$legal_review_file" \
+            --sha256 "$P25_5_LEGAL_REVIEW_SHA256"
 
           if [ -n "${P25_5_ADMISSION_PLAN:-}" ]; then
             case "$P25_5_ADMISSION_PLAN" in
@@ -711,9 +747,8 @@ jobs:
             --protocol bakeoff/protocol-v2.json \
             --candidate models/sea-raft-m.json models/sea-raft-m-opset17.onnx linux-x86_64 \
             --provider cpu \
-            --reviewed-surface code \
-            --reviewed-surface checkpoint \
-            --reviewed-surface backbone \
+            --legal-review-file "$P25_5_LEGAL_REVIEW_FILE" \
+            --legal-review-sha256 "$P25_5_LEGAL_REVIEW_SHA256" \
             --output "$P25_5_OUTPUT_DIR/sea-raft-admission.json"
           candidate_ids=$(python3.11 - "$P25_5_OUTPUT_DIR/sea-raft-admission.json" <<'PY'
           import json

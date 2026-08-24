@@ -214,7 +214,7 @@ def _dtype_token(value: Any) -> str:
     return {
         "tensor(float)": "float32",
         "float": "float32",
-        "<class' numpy.float32'>": "float32",
+        "<class'numpy.float32'>": "float32",
         "float32": "float32",
     }.get(token, token)
 
@@ -437,7 +437,7 @@ class Evaluator:
         self,
         artifact: ValidatedArtifact,
         runtime: RuntimeModule,
-        arrays: ArrayModule,
+        arrays: ArrayModule | None,
         *,
         clock: Callable[[], float] = time.perf_counter,
     ) -> None:
@@ -498,6 +498,9 @@ class Evaluator:
     ) -> dict[str, Any]:
         """Run an already-conditioned/padded pair and return raw seam-compatible data."""
 
+        arrays = self.arrays
+        if arrays is None:
+            _fail("runtime_error", "array module is required to run an inference")
         if profile not in PROFILES:
             _fail("runtime_error", f"unknown timing profile: {profile!r}")
         first_shape = tuple(int(value) for value in getattr(first, "shape", ()))
@@ -524,7 +527,7 @@ class Evaluator:
                 raise EvaluatorFailure("runtime_error", f"first inference failed: {exc}") from exc
             first_ms = (self.clock() - first_start) * 1000.0
             output = _one_output(first_output)
-            _validate_runtime_output(output, self.arrays, analysis_width, analysis_height, padded_width, padded_height)
+            _validate_runtime_output(output, arrays, analysis_width, analysis_height, padded_width, padded_height)
             warmup_recorded = counts["warmups_per_session"] == 1
             session_record: dict[str, Any] = {
                 "session_index": session_index,
@@ -539,7 +542,7 @@ class Evaluator:
                     warm_output = _one_output(session.run([output_name], feeds))
                 except Exception as exc:
                     raise EvaluatorFailure("runtime_error", f"warm-up inference failed: {exc}") from exc
-                _validate_runtime_output(warm_output, self.arrays, analysis_width, analysis_height, padded_width, padded_height)
+                _validate_runtime_output(warm_output, arrays, analysis_width, analysis_height, padded_width, padded_height)
                 session_record["warmup_ms"] = (self.clock() - warm_start) * 1000.0
             for _ in range(counts["steady_samples_per_session"]):
                 steady_start = self.clock()
@@ -548,12 +551,12 @@ class Evaluator:
                 except Exception as exc:
                     raise EvaluatorFailure("runtime_error", f"steady inference failed: {exc}") from exc
                 duration_ms = (self.clock() - steady_start) * 1000.0
-                _validate_runtime_output(steady_output, self.arrays, analysis_width, analysis_height, padded_width, padded_height)
+                _validate_runtime_output(steady_output, arrays, analysis_width, analysis_height, padded_width, padded_height)
                 session_record["steady_samples_ms"].append(duration_ms)
                 steady_outputs.append(steady_output)
             raw_sessions.append(session_record)
         post_start = self.clock()
-        flows = [_crop_flow(output, self.arrays, analysis_width, analysis_height, padded_width, padded_height) for output in steady_outputs]
+        flows = [_crop_flow(output, arrays, analysis_width, analysis_height, padded_width, padded_height) for output in steady_outputs]
         postprocessing_ms = (self.clock() - post_start) * 1000.0
         if not flows:
             _fail("runtime_error", "runtime returned no steady output")
@@ -697,10 +700,10 @@ def frame_from_pfm(path: Path | str, *, frame_number: int = 0, pixel_aspect_rati
     }
 
 
-def _resize_bilinear(rows: Sequence[Sequence[Sequence[float]]], out_width: int, out_height: int, pixel_aspect_ratio: float) -> tuple[tuple[tuple[float, ...], ...], ...]:
+def _resize_bilinear(rows: Sequence[Sequence[Sequence[float]]], out_width: int, out_height: int) -> tuple[tuple[tuple[float, ...], ...], ...]:
     source_height = len(rows)
     source_width = len(rows[0])
-    scale_x = out_width / (source_width * pixel_aspect_ratio)
+    scale_x = out_width / source_width
     scale_y = out_height / source_height
 
     def sample(x: float, y: float) -> tuple[float, ...]:
@@ -716,7 +719,7 @@ def _resize_bilinear(rows: Sequence[Sequence[Sequence[float]]], out_width: int, 
         )
 
     return tuple(
-        tuple(sample((x + 0.5) / (scale_x * pixel_aspect_ratio) - 0.5, (y + 0.5) / scale_y - 0.5) for x in range(out_width))
+        tuple(sample((x + 0.5) / scale_x - 0.5, (y + 0.5) / scale_y - 0.5) for x in range(out_width))
         for y in range(out_height)
     )
 
@@ -753,7 +756,7 @@ def _condition_and_pad_pair_impl(
         _fail("unsupported_tensor_contract", f"unsupported normalization location: {location!r}")
 
     def pack(rows: Any) -> tuple[tuple[tuple[float, ...], ...], ...]:
-        resized = _resize_bilinear(rows, analysis_width, analysis_height, par)
+        resized = _resize_bilinear(rows, analysis_width, analysis_height)
         packed = tuple(
             tuple(
                 tuple(
@@ -837,16 +840,20 @@ def condition_and_pad_pair(
         raise EvaluatorFailure("input_invalid", str(exc)) from exc
 
 
+def _onnxruntime() -> Any:
+    try:
+        import onnxruntime as ort  # type: ignore
+    except ImportError as exc:
+        raise DependencyFailure("runtime_error", "onnxruntime is required for evaluator verification") from exc
+    return ort
+
+
 def _numpy_runtime() -> tuple[Any, Any]:
     try:
         import numpy as np  # type: ignore
     except ImportError as exc:
         raise DependencyFailure("runtime_error", "NumPy is required for PFM smoke") from exc
-    try:
-        import onnxruntime as ort  # type: ignore
-    except ImportError as exc:
-        raise DependencyFailure("runtime_error", "onnxruntime is required for PFM smoke") from exc
-    return np, ort
+    return np, _onnxruntime()
 
 
 def _to_numpy(np: Any, value: Any) -> Any:
@@ -870,7 +877,10 @@ def _cap_value(protocol: Mapping[str, Any], token: str) -> float:
 def _run_cli(args: argparse.Namespace) -> dict[str, Any]:
     protocol = load_json(Path(args.protocol))
     artifact = validate_manifest_artifact(args.manifest, args.artifact, platform=args.platform, protocol_path=Path(args.protocol))
-    np, ort = _numpy_runtime()
+    if args.command == "smoke":
+        np, ort = _numpy_runtime()
+    else:
+        np, ort = None, _onnxruntime()
     evaluator = Evaluator(artifact, ort, np)
     result = evaluator.verify(args.provider)
     if args.command == "smoke":

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 import copy
 import json
@@ -12,9 +13,13 @@ import struct
 import tempfile
 from typing import Any
 
+from . import evaluator as evaluator_module
 from .evaluator import (
     Evaluator,
     EvaluatorFailure,
+    _dtype_token,
+    _resize_bilinear,
+    _run_cli,
     _write_json_result,
     condition_and_pad_pair,
     frame_from_pfm,
@@ -228,6 +233,50 @@ def _test_provider_and_contract() -> None:
         _expect("unsupported_tensor_contract", lambda: bad_io.verify("cpu"))
 
 
+def _test_numpy_float32_dtype_token() -> None:
+    assert _dtype_token("<class 'numpy.float32'>") == "float32"
+
+
+def _test_resize_geometry() -> None:
+    rows = (((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),)
+    resized = _resize_bilinear(rows, 4, 1)
+    assert tuple(pixel[0] for pixel in resized[0]) == (0.0, 0.25, 0.75, 1.0)
+
+
+def _test_verify_does_not_load_numpy() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-verify-imports-") as temporary:
+        manifest, artifact = _artifact_fixture(Path(temporary))
+        runtime = _FakeRuntime()
+        calls = {"onnxruntime": 0, "numpy": 0}
+        original_onnxruntime = evaluator_module._onnxruntime
+        original_numpy_runtime = evaluator_module._numpy_runtime
+
+        def fake_onnxruntime() -> _FakeRuntime:
+            calls["onnxruntime"] += 1
+            return runtime
+
+        def unexpected_numpy_runtime() -> Any:
+            calls["numpy"] += 1
+            raise AssertionError("verify must not load NumPy")
+
+        evaluator_module._onnxruntime = fake_onnxruntime
+        evaluator_module._numpy_runtime = unexpected_numpy_runtime  # type: ignore[assignment]
+        try:
+            result = _run_cli(argparse.Namespace(
+                command="verify",
+                manifest=manifest,
+                artifact=artifact,
+                protocol=V2_PROTOCOL,
+                platform=None,
+                provider="cpu",
+            ))
+        finally:
+            evaluator_module._onnxruntime = original_onnxruntime
+            evaluator_module._numpy_runtime = original_numpy_runtime
+        assert result["requested_provider"] == "CPUExecutionProvider"
+        assert calls == {"onnxruntime": 1, "numpy": 0}
+
+
 def _test_conditioning_padding_and_execution() -> None:
     with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-run-") as temporary:
         directory = Path(temporary)
@@ -306,6 +355,9 @@ def _test_atomic_json_output() -> None:
 def main() -> int:
     _test_artifact_identity()
     _test_provider_and_contract()
+    _test_numpy_float32_dtype_token()
+    _test_resize_geometry()
+    _test_verify_does_not_load_numpy()
     _test_conditioning_padding_and_execution()
     _test_nonfinite_output()
     _test_pfm_adapter()

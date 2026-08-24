@@ -9,6 +9,8 @@
 #
 # Required environment:
 #   P25_5_ADMISSION_FILE       v2 candidate-admission JSON
+#   P25_5_LEGAL_REVIEW_FILE    exact operator legal-review JSON used to create admission
+#   P25_5_LEGAL_REVIEW_SHA256  SHA256 of that exact operator legal-review JSON
 #   P25_5_RUNTIME_ROOT         extracted, conda-unpacked runtime used by the evaluator
 #   P25_5_RUNTIME_ARCHIVE      exact conda-pack archive
 #   P25_5_RUNTIME_SHA256       SHA256 of that archive
@@ -72,6 +74,8 @@ require_directory() {
 
 for required in \
   P25_5_ADMISSION_FILE \
+  P25_5_LEGAL_REVIEW_FILE \
+  P25_5_LEGAL_REVIEW_SHA256 \
   P25_5_RUNTIME_ROOT \
   P25_5_RUNTIME_ARCHIVE \
   P25_5_RUNTIME_SHA256 \
@@ -107,6 +111,7 @@ copy_if_needed() {
 }
 
 admission=$(resolve_repo_path "$P25_5_ADMISSION_FILE")
+legal_review_file=$(resolve_repo_path "$P25_5_LEGAL_REVIEW_FILE")
 qualifier=$(resolve_repo_path "$P25_5_QUALIFIER")
 packager=$(resolve_repo_path "$P25_5_PACKAGER")
 package_spec=$(resolve_repo_path "$P25_5_PACKAGE_SPEC")
@@ -118,6 +123,7 @@ runtime_inventory=$(resolve_repo_path "$P25_5_RUNTIME_INVENTORY")
 runtime_closure=$(resolve_repo_path "$P25_5_RUNTIME_CLOSURE")
 
 require_regular "$admission" "P25-5 admission file"
+require_regular "$legal_review_file" "P25-5 legal-review file"
 require_regular "$qualifier" "P25-5 qualifier"
 require_regular "$packager" "P25-5 packager"
 require_regular "$package_spec" "P25-5 package specification"
@@ -127,6 +133,14 @@ require_regular "$runtime_archive" "P25-5 conda-pack runtime archive"
 require_regular "$runtime_sha_file" "P25-5 runtime SHA256 file"
 require_regular "$runtime_inventory" "P25-5 runtime package inventory"
 require_regular "$runtime_closure" "P25-5 runtime dependency-closure audit"
+
+[[ "$(stat -c '%a' "$legal_review_file")" == 644 ]] ||
+  fail "P25-5 legal-review file must have mode 0644: $legal_review_file"
+[[ "$P25_5_LEGAL_REVIEW_SHA256" =~ ^[0-9a-f]{64}$ ]] ||
+  fail "P25_5_LEGAL_REVIEW_SHA256 must be a lowercase SHA256"
+actual_legal_review_sha=$(sha256sum -- "$legal_review_file" | awk '{print $1}')
+[[ "$actual_legal_review_sha" == "$P25_5_LEGAL_REVIEW_SHA256" ]] ||
+  fail "legal-review SHA256 mismatch: expected $P25_5_LEGAL_REVIEW_SHA256, got $actual_legal_review_sha"
 
 [[ "$P25_5_RUNTIME_SHA256" =~ ^[0-9a-f]{64}$ ]] ||
   fail "P25_5_RUNTIME_SHA256 must be a lowercase SHA256"
@@ -141,7 +155,7 @@ actual_runtime_sha=$(sha256sum -- "$runtime_archive" | awk '{print $1}')
 # decision: the explicit package spec is validated for measurement admission, and this lane
 # never invokes a shipping-bundle builder.
 admitted_ids_file="$output/.p25-5-admitted-candidate-ids"
-python3 - "$admission" "$admitted_ids_file" <<'PY'
+python3 - "$admission" "$admitted_ids_file" "$P25_5_LEGAL_REVIEW_SHA256" <<'PY'
 import json
 import re
 import stat
@@ -150,6 +164,7 @@ from pathlib import Path
 
 admission_path = Path(sys.argv[1])
 ids_path = Path(sys.argv[2])
+expected_legal_review_sha = sys.argv[3]
 try:
     document = json.loads(admission_path.read_text(encoding="utf-8"))
 except (OSError, ValueError) as exc:
@@ -157,6 +172,10 @@ except (OSError, ValueError) as exc:
 
 if not isinstance(document, dict) or document.get("protocol_id") != "whitewater-p25-v2":
     raise SystemExit("admission file must be a whitewater-p25-v2 document")
+if document.get("legal_review_sha256") != expected_legal_review_sha:
+    raise SystemExit(
+        "admission legal_review_sha256 does not match the operator-supplied legal-review input"
+    )
 candidates = document.get("candidates")
 if not isinstance(candidates, list) or not candidates:
     raise SystemExit("admission file must contain a non-empty candidates array")
@@ -208,6 +227,9 @@ for candidate_id in sorted(ids):
 PY
 
 copy_if_needed "$admission" "$output/admission.json"
+copy_if_needed "$legal_review_file" "$output/legal-review.json"
+printf '%s  %s\n' "$P25_5_LEGAL_REVIEW_SHA256" "legal-review.json" > "$output/legal-review.json.sha256"
+chmod 0644 "$output/legal-review.json.sha256"
 copy_if_needed "$admitted_ids_file" "$output/admitted-candidates.txt"
 copy_if_needed "$runtime_archive" "$output/whitewater-p25-5-runtime.tar.gz"
 copy_if_needed "$runtime_sha_file" "$output/whitewater-p25-5-runtime.tar.gz.sha256"

@@ -18,9 +18,11 @@ from .admission import (
     ACTIVE_PROTOCOL_ID,
     AdmissionError,
     CandidateInput,
+    _provider_tokens,
     generate_admission,
     write_admission,
 )
+from .legal_review import canonical_sha256
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -181,6 +183,11 @@ class AdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(AdmissionError, "unique"):
             self._generate(providers=("cpu", "cpu"))
 
+    def test_provider_tokens_reject_protocol_provider_without_canonical_order(self) -> None:
+        protocol = {"providers": [{"token": "cpu"}, {"token": "vulkan"}]}
+        with self.assertRaisesRegex(AdmissionError, "missing from deterministic order: vulkan"):
+            _provider_tokens(protocol, ["cpu"])
+
     def test_legal_review_attestations_are_explicit_and_complete(self) -> None:
         with self.assertRaisesRegex(AdmissionError, "every legal surface"):
             generate_admission(PROTOCOL, [self._input()], ["cpu"])
@@ -198,6 +205,48 @@ class AdmissionTests(unittest.TestCase):
                 ["cpu"],
                 reviewed_surfaces=("code", "checkpoint", "backbone", "terms"),
             )
+
+    def test_hash_bound_legal_review_drives_admission(self) -> None:
+        manifest = self._read_manifest()
+        review = self.root / "legal-review.json"
+        review.write_text(
+            json.dumps(
+                {
+                    "schema_id": "whitewater-p25-legal-review-v1",
+                    "protocol_id": ACTIVE_PROTOCOL_ID,
+                    "protocol_sha256": hashlib.sha256(PROTOCOL.read_bytes()).hexdigest(),
+                    "candidate_identities": [
+                        {
+                            "candidate_id": "sea-raft-m",
+                            "source_commit": manifest["upstream"]["commit"],
+                            "checkpoint_sha256": manifest["checkpoint"]["sha256"],
+                            "licenses_sha256": canonical_sha256(manifest["licenses"]),
+                        }
+                    ],
+                    "reviewed_surfaces": ["code", "checkpoint", "backbone"],
+                    "reviewed": True,
+                    "reviewer": "operator@example.invalid",
+                    "reviewed_at": "2026-08-24T12:00:00Z",
+                    "statement": "I reviewed the exact candidate legal surfaces.",
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        review.chmod(0o644)
+        review_sha = hashlib.sha256(review.read_bytes()).hexdigest()
+        document = generate_admission(
+            PROTOCOL,
+            [self._input()],
+            ["cpu"],
+            legal_review_file=review,
+            legal_review_sha256=review_sha,
+        )
+        self.assertEqual(document["legal_review_sha256"], review_sha)
+        self.assertTrue(document["candidates"][0]["redistribution_terms_reviewed"]["code"])
 
     def test_multiple_candidates_are_ordered_by_protocol_and_output_is_deterministic(self) -> None:
         second_manifest = self.root / "second.json"
