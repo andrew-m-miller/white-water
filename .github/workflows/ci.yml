@@ -833,6 +833,9 @@ jobs:
       - name: Export pinned SEA-RAFT M measurement artifact
         run: |
           set -euo pipefail
+          checked_in_manifest="$RUNNER_TEMP/p25-5-checked-in-sea-raft-m.json"
+          cp -- models/sea-raft-m.json "$checked_in_manifest"
+          echo "P25_5_CHECKED_IN_MANIFEST=$checked_in_manifest" >> "$GITHUB_ENV"
           dnf -y install python3.11 python3.11-pip
           python3.11 -m venv "$RUNNER_TEMP/searaft-export-venv"
           py="$RUNNER_TEMP/searaft-export-venv/bin/python"
@@ -940,7 +943,7 @@ jobs:
           generated_artifact="$RUNNER_TEMP/p25-5-generated-sea-raft-m-opset17.onnx"
           cp -- models/sea-raft-m.json "$generated_manifest"
           mv -- models/sea-raft-m-opset17.onnx "$generated_artifact"
-          git restore --source=HEAD --worktree -- models/sea-raft-m.json
+          cp -- "$P25_5_CHECKED_IN_MANIFEST" models/sea-raft-m.json
           test ! -e models/sea-raft-m-opset17.onnx
           echo "P25_5_GENERATED_MANIFEST=$generated_manifest" >> "$GITHUB_ENV"
           echo "P25_5_GENERATED_ARTIFACT=$generated_artifact" >> "$GITHUB_ENV"
