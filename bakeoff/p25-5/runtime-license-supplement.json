@@ -1,0 +1,65 @@
+{
+  "packages": [
+    {
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/libgcc-16.1.0-ha9f2e26_3.RUNTIME.LIBRARY.EXCEPTION",
+          "sha256": "28e85c5aa4af9b4f1dfe6b4817aa3eefb3eaaee7fd735045016f29ccf50276a1"
+        }
+      ],
+      "notice_files": [],
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libgomp-16.1.0-he0feb66_3.conda#5998d3e2ef3ffcae6cd794c87f12acdd7220e69f7685a8ccef3cd2c5f6252831"
+    },
+    {
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/libgcc-16.1.0-ha9f2e26_3.RUNTIME.LIBRARY.EXCEPTION",
+          "sha256": "28e85c5aa4af9b4f1dfe6b4817aa3eefb3eaaee7fd735045016f29ccf50276a1"
+        }
+      ],
+      "notice_files": [],
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.1.0-ha9f2e26_3.conda#af35751596409fc1a1a81a32b7f1e195bca7f648dfe7c64f8ec4848b3a5003f8"
+    },
+    {
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/libgcc-16.1.0-ha9f2e26_3.RUNTIME.LIBRARY.EXCEPTION",
+          "sha256": "28e85c5aa4af9b4f1dfe6b4817aa3eefb3eaaee7fd735045016f29ccf50276a1"
+        }
+      ],
+      "notice_files": [],
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libgfortran5-16.1.0-h79bb938_3.conda#879e354ea894fe36c18160b000e35316cb3f196ff597f30dca209027ecf0fac2"
+    },
+    {
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/libgcc-16.1.0-ha9f2e26_3.RUNTIME.LIBRARY.EXCEPTION",
+          "sha256": "28e85c5aa4af9b4f1dfe6b4817aa3eefb3eaaee7fd735045016f29ccf50276a1"
+        }
+      ],
+      "notice_files": [],
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-16.1.0-h934c35e_3.conda#6e98c0283244b5f8bbc0e86f7cba4d4921136bfbabf8da42b898a7a1f10be949"
+    },
+    {
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/libgcc-16.1.0-ha9f2e26_3.RUNTIME.LIBRARY.EXCEPTION",
+          "sha256": "28e85c5aa4af9b4f1dfe6b4817aa3eefb3eaaee7fd735045016f29ccf50276a1"
+        }
+      ],
+      "notice_files": [],
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libgfortran-16.1.0-h69a702a_3.conda#0731a92037731af603b3653a67ffc98e07efc65765ebb603aa2e8fd1250ef21b"
+    },
+    {
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/SQLITE-BLESSING.txt",
+          "sha256": "9c6479123f32a1ed50d9a0af203dfe8972e65035b0cdeef436b5f8d0924517fe"
+        }
+      ],
+      "notice_files": [],
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libsqlite-3.53.4-h13e7031_1.conda#f20d70da54e5b31dd4a51fb1efeaafafd5ab6dd8d7ac9d1438eaa2526ac4ed3d"
+    }
+  ],
+  "schema_id": "whitewater-p25-runtime-license-supplement-v1"
+}

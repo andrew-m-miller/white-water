@@ -1,0 +1,15 @@
+SEA-RAFT M backbone evidence
+============================
+
+Candidate: sea-raft-m
+Exporter: models/export_searaft.py
+Manifest source: models/sea-raft-m.json
+
+The pinned exporter disables separate torchvision pretrained initialization and loads the
+complete pinned SEA-RAFT checkpoint.  The exported candidate therefore carries no separate
+backbone checkpoint or backbone weight file.  The manifest records this surface as
+license=not-applicable and does not make a license conclusion about torchvision.
+
+This evidence is bound to the Andrew Miller P25-5 legal-review attestation and the exact
+manifest licenses SHA256 d4262bea434c93bfd697abe90afea7a61f4807f0cc8b276f7d78be7e7e761af3.
+It is an identity/provenance notice for the no-separate-backbone surface, not a license grant.

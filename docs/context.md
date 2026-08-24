@@ -286,6 +286,43 @@ may ship one model and omit the `model` choice rather than publish a meaningless
 
 ---
 
+## Session 12 — 2026-08-24 — P25-5 portable runtime boundary
+
+P25-5 carries its Python/ONNX Runtime user-space environment as an opaque, hash-bound
+`conda-pack` archive built in the EL8 CI lane. The airgapped wrapper extracts it only into a
+writable operator-selected directory, runs `conda-unpack` once, sanitizes Python/conda/pip and
+proxy state, and invokes the carried evaluator without installing or downloading anything. The
+target still owns the NVIDIA kernel driver and `libcuda`; CUDA, cuDNN and other user-space
+dependencies must either resolve inside the packed environment or remain an explicit failed
+closure gate.
+
+This is evaluation infrastructure, not a shipping decision. The deterministic outer package
+records source, staged, archive and extracted identities and keeps measurement admission separate
+from licence eligibility. The CI lane intentionally cannot emit the final tarball until its
+explicit conda lock, package specification, run instructions, and complete candidate/runtime
+licence-and-notice set have been reviewed. In particular, a passing local CPU/provider check does
+not close the CUDA target qualification and does not select an OFX model or choice index.
+
+---
+
+## Session 13 — 2026-08-24 — P25-5 qualification exit
+
+Andrew Miller approved both the pinned SEA-RAFT legal surfaces and the generated runtime legal
+inventory. Workflow-dispatch run `32780658875` then passed the ordinary suite, exact export and
+admission checks, conda-pack relocation, native ONNX Runtime 1.29.0 CPU session, runtime licence
+inventory, glibc 2.28 ELF floor, dependency-closure audit, package construction and artifact
+upload. The reviewed runtime inventory SHA256 is
+`49ef6e85b032f64b8bfa62b939274aeee9d59c55a0f83f6fddb03d7d9aadecee`.
+
+The uploaded artifact `whitewater-p25-5-el8-adfd4fb85ce319bfc76468a9d097f514901405c9`
+contains the 638,391,000-byte evaluation tarball whose SHA256 is
+`53b4e7192496a5ee8be1e0af6085980b59e287afc03599f953e2bb9a65eb8850`. An independent download
+revalidated its checksum and package inventory and verified all 31 carried files after extraction.
+This satisfies the P25-5 exit. It makes no target CUDA, performance, shipping-default, or
+persistent OFX choice claim; those remain P25-6 and later decisions.
+
+---
+
 ## Decisions
 
 ### Vendored from warp-drive rather than submoduled

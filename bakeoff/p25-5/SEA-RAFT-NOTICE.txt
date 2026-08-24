@@ -1,0 +1,40 @@
+SEA-RAFT M evaluation artifact notice
+=====================================
+
+This evaluation package carries an ONNX export of the pinned SEA-RAFT M candidate.  It is
+measurement-only evidence; it is not a shipping decision or an authorization to redistribute
+the model or runtime.
+
+Code attribution
+----------------
+Project: SEA-RAFT
+Repository: https://github.com/princeton-vl/SEA-RAFT.git
+Pinned source commit: 9137517ba24e628442aec097d3afe71d03503b75
+License: BSD-3-Clause
+License source: https://raw.githubusercontent.com/princeton-vl/SEA-RAFT/9137517ba24e628442aec097d3afe71d03503b75/LICENSE
+
+Checkpoint attribution
+----------------------
+Repository: https://huggingface.co/MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+Pinned revision: ea21e467a7076978b251e09d55751fcce166c2f8
+Checkpoint: model.safetensors
+Checkpoint SHA256: cb8cfbf14c5e0f6734b64add383708b7ff68cc6089a0007c67165d4761346102
+Checkpoint size: 78778760 bytes
+Model-card license declaration: bsd-3-clause
+Model-card source: https://huggingface.co/MemorySlices/Tartan-C-T-TSKH-spring540x960-M/resolve/ea21e467a7076978b251e09d55751fcce166c2f8/README.md
+
+Backbone evidence
+-----------------
+The exporter disables separate torchvision pretrained initialization and loads the complete
+pinned checkpoint.  No separate backbone checkpoint or backbone weight file is carried by this
+candidate.  See SEA-RAFT-BACKBONE-EVIDENCE.txt for the exact manifest-bound evidence record.
+
+Review binding
+--------------
+The code, checkpoint and backbone surfaces above were reviewed by Andrew Miller for the P25-5
+evaluation package.  The exact attestation is bakeoff/p25-5/legal-review-sea-raft-m.json and is
+bound to protocol SHA256 9141a27d74fafcf34486e8bca95470e254eeef4153afd737858edcc123bc0ecb
+and legal-review SHA256 eedbe1874dce8044299db5a57b7fa62104f651174d902b3a9a3fe715a9c11b7b.
+
+The BSD-3-Clause text required for this package is carried in SEA-RAFT-LICENSE.txt.  This file
+is an attribution and identity notice; it is not a new license grant or legal opinion.

@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# Bootstrap and invoke the bundled, offline Phase 2.5 evaluator.
+#
+# This wrapper intentionally does not install, solve, or download anything.  The runtime is an
+# opaque conda-pack archive prepared by CI.  A runtime directory is permanently bound to the
+# archive SHA256 by .ww-bakeoff-unpack.sha256; changing archives requires a fresh runtime-env.
+
+set -euo pipefail
+IFS=$'\n\t'
+
+die() {
+  printf 'ww-bakeoff-airgap: %s\n' "$*" >&2
+  exit 2
+}
+
+SCRIPT_PATH=${BASH_SOURCE[0]}
+SCRIPT_DIR=$(CDPATH= cd -P -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P) || die "cannot locate script directory"
+PACKAGE_ROOT=$(CDPATH= cd -P -- "$SCRIPT_DIR/.." && pwd -P) || die "cannot locate package root"
+[[ -d "$PACKAGE_ROOT" ]] || die "package root is not a directory: $PACKAGE_ROOT"
+
+resolve_from_package() {
+  local value=$1
+  if [[ "$value" = /* ]]; then
+    printf '%s\n' "$value"
+  else
+    printf '%s/%s\n' "$PACKAGE_ROOT" "$value"
+  fi
+}
+
+resolve_runtime_dir() {
+  local value=$1 candidate parent base
+  candidate=$(resolve_from_package "$value")
+  if [[ -L "$candidate" ]]; then
+    die "runtime environment must not be a symlink: $candidate"
+  fi
+  if [[ -e "$candidate" ]]; then
+    [[ -d "$candidate" ]] || die "runtime environment is not a directory: $candidate"
+    CDPATH= cd -P -- "$candidate" && pwd -P
+    return
+  fi
+  parent=$(CDPATH= cd -P -- "$(dirname -- "$candidate")" && pwd -P) || die "runtime environment parent is unavailable"
+  base=$(basename -- "$candidate")
+  [[ "$base" != . && "$base" != .. && -n "$base" ]] || die "unsafe runtime environment path: $candidate"
+  printf '%s/%s\n' "$parent" "$base"
+}
+
+archive_sha256() {
+  local archive=$1 digest
+  if command -v sha256sum >/dev/null 2>&1; then
+    digest=$(sha256sum -- "$archive" | awk '{print $1}')
+  elif command -v shasum >/dev/null 2>&1; then
+    digest=$(shasum -a 256 -- "$archive" | awk '{print $1}')
+  else
+    die "neither sha256sum nor shasum is available"
+  fi
+  [[ "$digest" =~ ^[0-9a-fA-F]{64}$ ]] || die "could not compute archive SHA256: $archive"
+  printf '%s\n' "$digest" | tr '[:upper:]' '[:lower:]'
+}
+
+archive_tar_args() {
+  case "$1" in
+    *.tar.zst|*.tzst)
+      command -v zstd >/dev/null 2>&1 || die "zstd is required for a .tar.zst runtime archive"
+      printf '%s\n' '--use-compress-program=zstd'
+      ;;
+    *.tar.gz|*.tgz)
+      printf '%s\n' '-z'
+      ;;
+    *.tar)
+      ;;
+    *)
+      die "runtime archive must be .tar, .tar.gz/.tgz, or .tar.zst/.tzst: $1"
+      ;;
+  esac
+}
+
+archive_tar_list() {
+  local archive=$1 flag
+  flag=$(archive_tar_args "$archive")
+  if [[ -n "$flag" ]]; then
+    tar "$flag" -tf "$archive"
+  else
+    tar -tf "$archive"
+  fi
+}
+
+archive_tar_extract() {
+  local archive=$1 destination=$2 flag
+  flag=$(archive_tar_args "$archive")
+  if [[ -n "$flag" ]]; then
+    tar "$flag" -xf "$archive" -C "$destination"
+  else
+    tar -xf "$archive" -C "$destination"
+  fi
+}
+
+validate_archive_members() {
+  local archive=$1 member normalized
+  while IFS= read -r member; do
+    normalized=$member
+    while [[ "$normalized" == ./* ]]; do
+      normalized=${normalized#./}
+    done
+    [[ -n "$normalized" ]] || continue
+    case "$normalized" in
+      /*|..|../*|*/../*|*/..)
+        die "runtime archive contains an unsafe member path: $member"
+        ;;
+    esac
+  done < <(archive_tar_list "$archive")
+}
+
+validate_runtime_links() {
+  local runtime_env=$1 link target parent candidate normalized item
+  local -a parts=()
+  while IFS= read -r -d '' link; do
+    target=$(readlink -- "$link") || die "cannot inspect runtime symlink: $link"
+    [[ "$target" != /* ]] || die "runtime symlink is absolute: $link -> $target"
+    parent=$(dirname -- "$link")
+    candidate="$parent/$target"
+    normalized=''
+    IFS='/' read -r -a parts <<< "$candidate"
+    local -a stack=()
+    for item in "${parts[@]}"; do
+      case "$item" in
+        ''|.) ;;
+        ..)
+          ((${#stack[@]} > 0)) || die "runtime symlink escapes package root: $link -> $target"
+          unset "stack[${#stack[@]}-1]"
+          ;;
+        *) stack+=("$item") ;;
+      esac
+    done
+    normalized='/'
+    for item in "${stack[@]}"; do normalized="$normalized$item/"; done
+    normalized=${normalized%/}
+    [[ "$normalized" == "$runtime_env" || "$normalized" == "$runtime_env/"* ]] || die "runtime symlink escapes runtime-env: $link -> $target"
+  done < <(find "$runtime_env" -type l -print0)
+}
+
+sanitize_environment() {
+  unset PYTHONPATH PYTHONHOME PYTHONUSERBASE PYTHONSTARTUP PYTHONINSPECT PYTHONEXECUTABLE
+  unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_EXE CONDA_SHLVL CONDA_PROMPT_MODIFIER
+  unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL PIP_TRUSTED_HOST PIP_CONFIG_FILE PIP_FIND_LINKS
+  unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy NO_PROXY no_proxy
+  export PYTHONNOUSERSITE=1
+  export PIP_NO_INDEX=1
+  export PATH="$RUNTIME_ENV/bin:/usr/bin:/bin"
+}
+
+[[ -f "$PACKAGE_ROOT/tools/bakeoff/evaluator.py" ]] || die "evaluator entrypoint is missing from package: $PACKAGE_ROOT/tools/bakeoff/evaluator.py"
+
+if [[ -n "${WW_BAKEOFF_RUNTIME_ARCHIVE:-}" ]]; then
+  RUNTIME_ARCHIVE=$(resolve_from_package "$WW_BAKEOFF_RUNTIME_ARCHIVE")
+else
+  RUNTIME_ARCHIVE=''
+  for candidate in \
+    "$PACKAGE_ROOT/runtime/whitewater-p25-conda-el8-x86_64.tar.zst" \
+    "$PACKAGE_ROOT/runtime/whitewater-p25-conda-el8-x86_64.tar.gz" \
+    "$PACKAGE_ROOT/runtime/whitewater-p25-conda-el8-x86_64.tar" \
+    "$PACKAGE_ROOT/runtime/runtime.tar.zst" \
+    "$PACKAGE_ROOT/runtime/runtime.tar.gz" \
+    "$PACKAGE_ROOT/runtime/runtime.tar"; do
+    if [[ -f "$candidate" ]]; then RUNTIME_ARCHIVE=$candidate; break; fi
+  done
+fi
+[[ -n "$RUNTIME_ARCHIVE" ]] || die "no bundled conda-pack runtime archive found"
+[[ -f "$RUNTIME_ARCHIVE" && ! -L "$RUNTIME_ARCHIVE" ]] || die "runtime archive must be a regular non-symlink file: $RUNTIME_ARCHIVE"
+
+RUNTIME_ENV=$(resolve_runtime_dir "${WW_BAKEOFF_RUNTIME_ENV:-runtime-env}")
+[[ "$RUNTIME_ENV" != "$PACKAGE_ROOT" ]] || die "runtime environment must not be the package root"
+if [[ -e "$RUNTIME_ENV" && ! -d "$RUNTIME_ENV" ]]; then die "runtime environment is not a directory: $RUNTIME_ENV"; fi
+mkdir -p -- "$RUNTIME_ENV"
+[[ ! -L "$RUNTIME_ENV" ]] || die "runtime environment must not be a symlink: $RUNTIME_ENV"
+
+ARCHIVE_SHA=$(archive_sha256 "$RUNTIME_ARCHIVE")
+MARKER="$RUNTIME_ENV/.ww-bakeoff-unpack.sha256"
+NEEDS_UNPACK=1
+if [[ -e "$MARKER" ]]; then
+  [[ -f "$MARKER" && ! -L "$MARKER" ]] || die "runtime unpack marker must be a regular file: $MARKER"
+  [[ "$(cat -- "$MARKER")" == "$ARCHIVE_SHA" ]] || die "runtime-env is bound to a different archive; choose a fresh runtime-env"
+  NEEDS_UNPACK=0
+else
+  if [[ -n "$(find "$RUNTIME_ENV" -mindepth 1 -print -quit)" ]]; then
+    die "runtime-env is non-empty without an archive marker; refusing to overwrite it: $RUNTIME_ENV"
+  fi
+fi
+
+sanitize_environment
+if ((NEEDS_UNPACK)); then
+  validate_archive_members "$RUNTIME_ARCHIVE"
+  archive_tar_extract "$RUNTIME_ARCHIVE" "$RUNTIME_ENV"
+  validate_runtime_links "$RUNTIME_ENV"
+  [[ -x "$RUNTIME_ENV/bin/conda-unpack" ]] || die "conda-pack runtime is missing executable bin/conda-unpack"
+  [[ -x "$RUNTIME_ENV/bin/python" ]] || die "conda-pack runtime is missing executable bin/python"
+  "$RUNTIME_ENV/bin/conda-unpack" || die "conda-unpack failed"
+  marker_tmp="$RUNTIME_ENV/.ww-bakeoff-unpack.sha256.tmp.$$"
+  (umask 022; printf '%s\n' "$ARCHIVE_SHA" > "$marker_tmp"; chmod 0644 "$marker_tmp")
+  mv -- "$marker_tmp" "$MARKER"
+else
+  [[ -x "$RUNTIME_ENV/bin/python" ]] || die "marked runtime-env is missing executable bin/python"
+fi
+
+exec "$RUNTIME_ENV/bin/python" "$PACKAGE_ROOT/tools/bakeoff/evaluator.py" "$@"

@@ -1,0 +1,27 @@
+{
+  "candidate_id": "sea-raft-m",
+  "licenses_sha256": "d4262bea434c93bfd697abe90afea7a61f4807f0cc8b276f7d78be7e7e761af3",
+  "manifest": "../../models/sea-raft-m.json",
+  "manifest_sha256": "ad097912708c56e5a4b2d70dce78f72205fa3e88c78c6daf5d1d49a6a8d3d25e",
+  "schema_id": "whitewater-p25-candidate-license-input-v1",
+  "surfaces": {
+    "backbone": {
+      "license_file": "SEA-RAFT-BACKBONE-EVIDENCE.txt",
+      "license_sha256": "0752c7699a6647a2890a982b6e42da41a4279c8228d3c524a510d567b4a5afcb",
+      "notice_file": "SEA-RAFT-BACKBONE-EVIDENCE.txt",
+      "notice_sha256": "0752c7699a6647a2890a982b6e42da41a4279c8228d3c524a510d567b4a5afcb"
+    },
+    "checkpoint": {
+      "license_file": "SEA-RAFT-LICENSE.txt",
+      "license_sha256": "0e520c4dceb832fce5af43cdaa5c9328b7fff4809aa25f9b7a962fc8cb38e141",
+      "notice_file": "SEA-RAFT-NOTICE.txt",
+      "notice_sha256": "a40682a52b5441e59f0e183162038af15277b108eaf9ecfe5df2689408b2dcdb"
+    },
+    "code": {
+      "license_file": "SEA-RAFT-LICENSE.txt",
+      "license_sha256": "0e520c4dceb832fce5af43cdaa5c9328b7fff4809aa25f9b7a962fc8cb38e141",
+      "notice_file": "SEA-RAFT-NOTICE.txt",
+      "notice_sha256": "a40682a52b5441e59f0e183162038af15277b108eaf9ecfe5df2689408b2dcdb"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "inventory_sha256": "49ef6e85b032f64b8bfa62b939274aeee9d59c55a0f83f6fddb03d7d9aadecee",
+  "reviewed": true,
+  "reviewed_at": "2026-08-24T21:20:24Z",
+  "reviewer": "Andrew Miller",
+  "schema_id": "whitewater-p25-runtime-legal-review-v1",
+  "statement": "I, Andrew Miller, reviewed the generated P25-5 runtime license and notice inventory with SHA256 49ef6e85b032f64b8bfa62b939274aeee9d59c55a0f83f6fddb03d7d9aadecee, including its 36 conda packages, ONNX Runtime 1.29.0, and White Water native ORT bridge. I approve this exact runtime inventory for P25-5 evaluation-only use."
+}
