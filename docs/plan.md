@@ -29,7 +29,7 @@ which are wrong in both directions.
 | Inference runtime | **ONNX Runtime** — CUDA EP on Linux, CoreML/CPU on macOS, CPU everywhere as fallback |
 | Model weights | **Bundled in `Contents/Resources/models/`, with env var + param override** |
 | Analysis trigger | **On-demand caching by default, plus an explicit `Precache` button with progress.** **v1 is RAM-only, no persistence** (decided 2026-08-22): 0C measured final render as a separate process, but the facility renders almost everything in the foreground and uses single-node Burn rarely, so RAM covers it. A durable disk cache is a future option gated on Burn renders fanning out across a farm |
-| Model | **Selectable behind one `PairwiseFlowEstimator`.** The default is chosen by the Phase 2.5 bake-off — *not named in advance*, because choice index is API. SEA-RAFT is the leading candidate |
+| Model | **One selected artifact behind `PairwiseFlowEstimator`; selectable only if more than one shipping model qualifies.** The default is chosen by the Phase 2.5 bake-off — *not named in advance*, because choice index is API. A one-model release is valid; a fast alternative is added only if it passes every gate. SEA-RAFT is the leading candidate |
 | ST map | **Its own float-only plugin descriptor**, not an output mode of the main effect — see *Two descriptors*. Absolute normalized UV (default) or relative pixel offset; origin toggle |
 | Occlusion handling | **Forward-backward consistency check, parameter-gated, off by default** (2× inference cost) |
 
@@ -423,7 +423,7 @@ action, and in Flame that means a plugin that simply is not there.
 
 | Script name | Type | Label | Notes |
 |---|---|---|---|
-| `model` | Choice | `Model` | Options and their order are fixed by the Phase 2.5 bake-off. **Do not guess an index here** — a saved setup stores it |
+| `model` | Choice | `Model` | Present only if more than one shipping model passes Phase 2.5. Options and order are then fixed by the bake-off. **Do not guess an index here** — a saved setup stores it |
 | `refFrame` | Int | `Ref Frame` | OFX time — 0-based within the Flame batch |
 | `setRef` | Push | `Set Ref` | writes `args.time` into `refFrame`; the only honest way for an artist to set it given Flame's 0-based time |
 | `output` | Choice | `Output` | Composite (default), Warped Insert. **ST Map is not here** — it is a separate float-only descriptor |
@@ -663,10 +663,10 @@ thresholds tied to the exact model and runtime hashes.
 | **0C** | Flame ST round trip, and instance/process lifetime | **Closed 2026-08-21.** ST convention measured (item 1); final render is a separate process — Burn (item 2); render scale, rowBytes/sub-window and anamorphic tiling closed at PAR 1 and PAR 2 (items 3–5). **`Precache` decided 2026-08-22: RAM-only, no persistence** (facility is foreground / single-node Burn); durable disk cache deferred until Burn renders fan out |
 | **1** | Vendor, CMake, **two descriptors**, bundle, harness, `describe`/`describeInContext`, passthrough render | **Closed 2026-08-22.** PR #1 merged at `5fa267f`. All eleven Release CTest gates pass; exact exports and both dependency boundaries are enforced. Flame 2026.2 verified sockets, parameter separation, Set Ref, Current/Reference routing, colour/matte fallbacks, partial renders, native ST round-trip and load diagnostics. The empty-menu grouping found on-box was corrected before merge; its replacement artifact was deliberately not reinstalled because the fix is a standard property matching both probes |
 | **2** | `src/core/flow` complete, `NullPairwiseEstimator`, `ww-flow`, full unit + harness coverage | **Closed 2026-08-22 through PR #4.** Separable lattice transform; typed flow links; confidence propagation; generation-safe caches; deterministic CLI; concurrency, unit and host-harness coverage are present |
-| **2.5** | Model and export bake-off in `ww-flow` | **In progress. P25-0 is implemented and under review in PR #6:** protocol decision record, versioned corpus/report schemas, dependency-light validator, fixtures and CTest gate. Candidate manifests/exports, target measurements, ranking, a shipping default/fast alternative, persistent `model`/`inputCurve` option order, and publication or explicit deferment of the measured `analysisScale` option order remain open |
+| **2.5** | Model and export bake-off in `ww-flow` | **In progress. P25-0 through P25-4 are merged:** protocol/schemas, artifact validation, corpus/conditioning, candidate export/evidence, offline runner, and active protocol v2 are present. P25-5 qualification, target measurement, ranking, a shipping default, any qualifying fast alternative, persistent choice order, and the measured `analysisScale` decision remain open |
 | **3** | Runtime loader, `ModelRegistry`, `OrtEnvironment`, selected estimators, library packaging | No link-time ORT dependency; `ORT_API_MANUAL_INIT`; CPU/CUDA/CoreML qualified; packaging baseline passes for every shipped library |
 | **4** | `FlowPreparation` wired into render; on-demand pulls, abort, progress, Precache/Clear, persistent messages | A real shot tracks in Flame from a reference frame; cancellation, invalidation, OOM fallback and reference-boundary behaviour all verified |
-| **5** | The second model behind `PairwiseFlowEstimator` | Model parameter switches cleanly; both paths covered |
+| **5** | Optional second model behind `PairwiseFlowEstimator` | If Phase 2.5 selects a second shipping model, the Model parameter switches cleanly and both paths are covered; otherwise this phase is omitted and no one-option Model choice is published |
 | **6** | FB check, smoothing, input curves, perf gate, CI packaging | Perf threshold recorded; tarball installs on the airgapped box |
 
 ---

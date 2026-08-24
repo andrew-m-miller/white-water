@@ -32,13 +32,15 @@ render behavior and process lifetime, and settled v1 on an instance-lifetime RAM
 persistence. **Phase 1 closed on 2026-08-22:** Flame 2026.2 verified the two descriptors,
 parameter and reference-time contracts, Source/Insert fallbacks, matte propagation, partial
 renders, native ST round-trip and load diagnostics. Phase 2 merged through PR #4 with the
-host-free flow algebra, deterministic null estimator,
-`ww-flow` CLI and expanded unit/harness coverage. P25-0 of Phase 2.5 is implemented and under
-review in [PR #6](https://github.com/andrew-m-miller/white-water/pull/6): the versioned protocol,
-corpus/report schemas, dependency-light validator, fixtures and CTest gate are present. No
-shipping model/default or persistent OFX choice order has been selected; later P25 packages and
-production inference remain open. See [docs/host-notes.md](docs/host-notes.md),
-[docs/context.md](docs/context.md), and *Phasing* in [docs/plan.md](docs/plan.md).
+host-free flow algebra, deterministic null estimator, `ww-flow` CLI and expanded unit/harness
+coverage. Phase 2.5 P25-0, P25-1 and P25-2 merged through PRs #6, #8 and #7 respectively: the
+frozen protocol and schemas, candidate-neutral artifact framework, and deterministic
+corpus/conditioning package are present. P25-3 candidate export/evidence work merged through PRs
+#11, #10 and #12, and the P25-4 offline runner and active protocol v2 merged through PR #13. No
+shipping model/default or persistent OFX choice order has been selected; P25-5 qualification,
+target measurement, ranking and production inference remain open.
+See [docs/host-notes.md](docs/host-notes.md), [docs/context.md](docs/context.md), and *Phasing* in
+[docs/plan.md](docs/plan.md).
 
 ## Documents
 

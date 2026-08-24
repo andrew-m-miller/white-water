@@ -8,19 +8,20 @@ backbone terms.
 
 This phase starts from Phase 2 at merge `4495224`: the host-free flow algebra, caches,
 preprocessing, `PairwiseFlowEstimator`, `NullPairwiseEstimator`, and the ORT-free `ww-flow`
-PFM CLI are present. **P25-0 is implemented and under review in PR #6.** It adds the frozen
-protocol decision record, versioned corpus/report schemas, standard-library validator and CLI,
-positive/negative fixtures, and the `bakeoff::protocol_schema` CTest gate. No candidate artifact
-manifest, export, production measurement, ranking decision, shipping model, or OFX choice order
-has been selected; those remain in the later packages. Broader closeout for Phases 2 and 2.5
-remains deferred while the bake-off is open.
+PFM CLI are present. **P25-0, P25-1 and P25-2 are merged through PRs #6, #8 and #7
+respectively.** They provide the frozen protocol and schemas, candidate-neutral artifact
+framework, and deterministic corpus/conditioning package. P25-3 candidate export/evidence work
+merged through PRs #11, #10 and #12, and the P25-4 offline runner and active protocol v2 merged
+through PR #13. No production target measurement, ranking decision, shipping model, or OFX choice
+order has been selected. P25-5 local/CI qualification is next; broader closeout for Phases 2 and
+2.5 remains deferred while the bake-off is open.
 
 ## Exit
 
 Phase 2.5 exits when:
 
-- one quality-first default and one genuinely faster alternative have passed the exact-artifact,
-  licence, quality and target-resource gates;
+- one quality-first default has passed the exact-artifact, licence, quality and target-resource
+  gates, and a genuinely faster alternative is selected only if it passes the same gates;
 - the model artifacts, manifests, runtime and measurement environment are identified by hashes
   rather than model-family names;
 - the input-conditioning formulas and common artist-visible option order are fixed;
@@ -29,9 +30,10 @@ Phase 2.5 exits when:
   order is published; and
 - the selected manifests and reports form a complete, explicit handoff to Phase 3.
 
-If no candidate satisfies the fast-alternative gate, do not invent a second option. Record the
-failed exit and extend the candidate search. Choice option order is saved-setup API and must not
-encode a result the measurements did not produce.
+If no candidate satisfies the fast-alternative gate, do not invent a second option or delay a
+sound one-model release indefinitely. Record the failed fast-candidate search and omit the
+artist-visible `model` choice. Choice option order is saved-setup API and must not encode a result
+the measurements did not produce.
 
 ## Decisions fixed before implementation
 
@@ -102,13 +104,18 @@ Start with:
 - original RAFT as a validation baseline, not an assumed shipping candidate.
 
 Candidate failure is a result. Unsupported operators, unavailable or unverifiable checkpoints,
-wrong direction, non-reproducible export, unacceptable resource use, or unresolved licence terms
-produce a checked-in exclusion report rather than a silent omission.
+wrong direction, non-reproducible export, or unacceptable resource use produce a checked-in
+technical exclusion rather than a silent omission. Shipping admission is separate: unresolved or
+restrictive licence terms exclude a candidate from packaging and selection but do not by
+themselves erase a technically qualified evaluation result. Original RAFT is a validation
+baseline, and RAFT, NeuFlow and WAFT may be compared during the bake-off even if the final plugin
+ships only SEA-RAFT.
 
 AllTracker remains a future `ReferenceFlowEstimator` investigation. MemFlow's temporal state does
 not fit arbitrary OFX render order. RIFE is not admitted merely because it exports. Non-commercial
 models or backbones remain excluded from commercial production use even when the plugin is used
-only inside the facility.
+only inside the facility. They may be used in a clearly separated non-commercial research test
+when their terms permit it, but never become shipping artifacts by inference from a bake-off row.
 
 ## Work packages and Luna-max delegation
 
@@ -117,7 +124,7 @@ without human review.
 
 ### P25-0 - Protocol and report schema - Luna A
 
-**Status: implementation complete; PR #6 is under review.**
+**Status: merged through PR #6 at `035bd99`.**
 
 Freeze before measurement:
 
@@ -133,6 +140,8 @@ Exit: a one-page decision record plus machine-validated schema fixtures. It assi
 OFX option indices.
 
 ### P25-1 - Candidate-neutral artifact framework - Luna B
+
+**Status: merged through PR #8 at `f73b2e5`.**
 
 Generalize the SEA-RAFT-specific workflow while preserving the Phase 0B manifest's meaning.
 Every candidate manifest records:
@@ -158,6 +167,8 @@ Exit: dependency-light schema validators, positive and negative fixtures, and a 
 
 ### P25-2 - Evaluation corpus and conditioning - Luna C
 
+**Status: merged through PR #7 at `2208165`.**
+
 Build three partitions:
 
 1. Deterministic synthetic identity, signed translations, affine/spatial motion, borders,
@@ -181,6 +192,9 @@ annotation schemas.
 
 ### P25-3 - Candidate export spikes - Lunas D, E and F
 
+**Status: merged through PRs #11 (SEA-RAFT/original RAFT), #10 (WAFT) and #12 (NeuFlow) at
+`5b7e059`, `2ab6121` and `366a9fc`.**
+
 Run three independent workstreams after P25-1:
 
 - D: SEA-RAFT requalification and original RAFT baseline;
@@ -195,6 +209,8 @@ Exit: an exact artifact and manifest or an explicit exclusion report. Candidate 
 OFX choice parameters.
 
 ### P25-4 - Offline bake-off runner and metrics - Luna G
+
+**Status: merged through PR #13 at `efc350f`.**
 
 Add a self-contained offline runner in the `tools/ww-flow` family. It executes the Cartesian
 product selected by the protocol:
@@ -262,9 +278,10 @@ target cells.
 ### P25-5 - Local and CI qualification - Luna H
 
 Run export, schema, hash, permission, tensor-contract, direction, operator and CPU-correctness
-gates locally and in CI. Build the EL8 airgap tarball containing only approved candidates plus
-their manifests, licences/notices, runtime and evaluator. Verify the source, staged, archived and
-extracted copies by hash, size, regular-file status and mode `0644`.
+gates locally and in CI. Build the EL8 airgap tarball containing only explicitly admitted
+measurement candidates plus their manifests, licences/notices, runtime and evaluator. Evaluation
+admission does not authorize any candidate for the shipping bundle. Verify the source, staged,
+archived and extracted copies by hash, size, regular-file status and mode `0644`.
 
 CPU is a correctness path at manageable sizes, not a full production-resolution performance
 sweep. Phase 0B measured SEA-RAFT M at roughly 56 seconds per 1080p CPU inference; repeating that
@@ -313,15 +330,17 @@ Apply the pre-registered gates and ranking without changing weights after result
 Review anonymous local production comparisons where automated metrics are not trustworthy around
 occlusions, lighting changes or reflections.
 
-Exit: the report names the exact default and fast artifact hashes, selected input-conditioning
-options/formulas, analysis caps, known weak categories, licence verdicts and the rationale for the
-decision. Human approval is required before the next package.
+Exit: the report names the exact default artifact hash and, only if it passes every gate, the fast
+artifact hash; it also records selected input-conditioning options/formulas, analysis caps, known
+weak categories, licence verdicts and the rationale for the decision. Human approval is required
+before the next package.
 
 ### P25-8 - API and combined Phase 2/2.5 closeout - Luna K
 
 Only after P25-7:
 
-- publish permanent `model` and `inputCurve` option order/defaults;
+- publish `inputCurve` order/defaults and, only when multiple shipping models qualified, a
+  permanent `model` option order/default;
 - publish or explicitly defer the measured `analysisScale` option order;
 - update raw host-harness assertions for exact labels, order and defaults;
 - verify all options are common to both selected models or have documented deterministic fallback;
