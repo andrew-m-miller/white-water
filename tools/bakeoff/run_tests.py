@@ -30,7 +30,7 @@ from . import run as run_module
 from . import synthetic as synthetic_module
 from .exr import ExrFailure
 from .matrix import build_matrix
-from .nvml import NVML_CSV_HEADER, NvmlSampler
+from .nvml import NVML_CSV_HEADER, NvmlFailure, NvmlSampler
 from .resume import mark_in_progress
 from .run import CudaMeasurementResult, DriverFailure, RunConfig, run_bakeoff
 from .validator import canonical_sha256, load_json, validate_report_consistency
@@ -785,10 +785,12 @@ def test_identity_differs_between_profiles_for_an_otherwise_identical_selection(
 
         identity_smoke = run_module._compute_identity(
             protocol, corpus, plan, "el8-x86_64", "smoke", artifacts, runner_section, hardware, (1, 2, 4, 8),
+            candidate_entries=_candidate_entries(), report_schema=REPORT_SCHEMA, corpus_schema=CORPUS_SCHEMA,
             device_index=0, poll_interval_s=0.05, nvml_enabled=False,
         )
         identity_screen = run_module._compute_identity(
             protocol, corpus, plan, "el8-x86_64", "screen", artifacts, runner_section, hardware, (1, 2, 4, 8),
+            candidate_entries=_candidate_entries(), report_schema=REPORT_SCHEMA, corpus_schema=CORPUS_SCHEMA,
             device_index=0, poll_interval_s=0.05, nvml_enabled=False,
         )
         # matrix_sha256 itself does not encode profile -- this is exactly the gap Fix A closes.
@@ -798,6 +800,7 @@ def test_identity_differs_between_profiles_for_an_otherwise_identical_selection(
         identity_diff_evaluator = run_module._compute_identity(
             protocol, corpus, plan, "el8-x86_64", "smoke", artifacts,
             {**runner_section, "evaluator_sha256": "f" * 64}, hardware, (1, 2, 4, 8),
+            candidate_entries=_candidate_entries(), report_schema=REPORT_SCHEMA, corpus_schema=CORPUS_SCHEMA,
             device_index=0, poll_interval_s=0.05, nvml_enabled=False,
         )
         assert canonical_sha256(identity_smoke) != canonical_sha256(identity_diff_evaluator)
@@ -1033,6 +1036,7 @@ def test_interrupted_cell_resume_does_not_duplicate_sidecar_rows() -> None:
         identity = run_module._compute_identity(
             config.protocol, config.corpus, plan, config.selection["environment"], config.selection["profile"],
             artifacts, runner_section, hardware, config.chain_offsets,
+            candidate_entries=config.candidate_entries, report_schema=config.report_schema, corpus_schema=config.corpus_schema,
             device_index=config.device_index, poll_interval_s=config.poll_interval_s,
             nvml_enabled=config.nvml_backend_factory is not None,
         )
@@ -1290,7 +1294,11 @@ def test_identity_differs_for_measurement_config_changes() -> None:
         base_hardware = {"platform": "linux", "architecture": "x86_64", "gpu": "gpu-a", "driver": "driver-1"}
 
         def identity(hardware=base_hardware, **kwargs):
-            resolved = {"device_index": 0, "poll_interval_s": 0.05, "nvml_enabled": True, **kwargs}
+            resolved = {
+                "candidate_entries": _candidate_entries(), "report_schema": REPORT_SCHEMA,
+                "corpus_schema": CORPUS_SCHEMA, "device_index": 0, "poll_interval_s": 0.05,
+                "nvml_enabled": True, **kwargs,
+            }
             return run_module._compute_identity(
                 protocol, corpus, plan, "el8-x86_64", "smoke", artifacts, runner_section, hardware, (1, 2, 4, 8),
                 **resolved,
@@ -1326,6 +1334,7 @@ def test_identity_binds_protocol_content_not_just_protocol_id() -> None:
         def identity(proto):
             return run_module._compute_identity(
                 proto, corpus, plan, "el8-x86_64", "smoke", artifacts, runner_section, hardware, (1, 2, 4, 8),
+                candidate_entries=_candidate_entries(), report_schema=REPORT_SCHEMA, corpus_schema=CORPUS_SCHEMA,
                 device_index=0, poll_interval_s=0.05, nvml_enabled=True,
             )
 
@@ -2040,6 +2049,164 @@ def test_review_preview_write_failure_degrades_to_logged_skip_not_a_cell_failure
         assert not (preview_dir / "offset_1_warped.pfm").exists()
 
 
+def test_identity_binds_candidate_entries_report_schema_and_corpus_schema() -> None:
+    # Surface A: candidate admission/legal evidence and the two validation-contract schemas each
+    # change the report's content or acceptance, so each must change the identity.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-identity-entries-") as tmp:
+        directory = Path(tmp)
+        protocol = _protocol()
+        corpus = _corpus()
+        selection_axes = {
+            "candidate_ids": [CANDIDATE_ID], "shot_ids": ["syn-identity"],
+            "conditioning_tokens": ["native-clamp01-v1"], "cap_tokens": ["mp0_5"],
+            "providers": [{"token": "cpu", "host_loads": ["not_applicable"]}],
+        }
+        plan = build_matrix(protocol, corpus, _candidate_entries(), selection_axes, "smoke", "el8-x86_64")
+        artifacts = run_module._validate_selected_artifacts(plan, _artifact_map(directory), V2_PROTOCOL_PATH)
+        runner_section = _report_metadata()["runner"]
+        hardware = {"platform": "linux", "architecture": "x86_64"}
+
+        def ident(candidate_entries=None, report_schema=REPORT_SCHEMA, corpus_schema=CORPUS_SCHEMA):
+            return run_module._compute_identity(
+                protocol, corpus, plan, "el8-x86_64", "smoke", artifacts, runner_section, hardware, (1, 2, 4, 8),
+                candidate_entries=candidate_entries if candidate_entries is not None else _candidate_entries(),
+                report_schema=report_schema, corpus_schema=corpus_schema,
+                device_index=0, poll_interval_s=0.05, nvml_enabled=False,
+            )
+
+        baseline = canonical_sha256(ident())
+        entries_changed = copy.deepcopy(_candidate_entries())
+        entries_changed[0]["exclusion_reason"]["message"] = "an updated legal-review verdict"
+        assert baseline != canonical_sha256(ident(candidate_entries=entries_changed))
+        assert baseline != canonical_sha256(ident(report_schema={**REPORT_SCHEMA, "x-extra-rule": True}))
+        assert baseline != canonical_sha256(ident(corpus_schema={**CORPUS_SCHEMA, "x-extra-rule": True}))
+
+
+def test_changed_excluded_candidate_legal_evidence_is_refused_on_reuse() -> None:
+    # Codex's exact repro: editing only an excluded-but-measurable candidate's legal-review
+    # message and rerunning the same completed state must NOT hand back report.json with the OLD
+    # legal evidence -- report-v2 requires the report to carry each excluded candidate's verdict.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-legal-evidence-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        candidate = first.report["candidates"][0]
+        assert candidate["exclusion_reason"]["message"] == "test fixture, not a shipping claim"
+
+        config2 = copy.copy(config)
+        config2.runtime_module = _FakeRuntime()
+        changed_entries = copy.deepcopy(config.candidate_entries)
+        changed_entries[0]["exclusion_reason"]["message"] = "UPDATED verdict: redistribution now cleared"
+        config2.candidate_entries = changed_entries
+        try:
+            run_bakeoff(config2)
+        except DriverFailure as exc:
+            assert "identity" in str(exc).lower()
+        else:
+            raise AssertionError("a changed candidate legal surface must be refused on reuse, not silently reused")
+
+
+def _pid_gated_failing_backend_factory():
+    """Factory whose backend succeeds inside the forked child (a different pid) but raises
+    NvmlFailure at the PARENT's post-exit device query (the original pid)."""
+
+    parent_pid = os.getpid()
+
+    class _PidGatedBackend:
+        def device_handle(self, device_index: int) -> Any:
+            return device_index
+
+        def device_used_mib(self, handle: Any) -> float:
+            if os.getpid() == parent_pid:
+                raise NvmlFailure("query_failed", "simulated parent post-exit device query failure")
+            return 1234.0
+
+        def process_used_mib(self, handle: Any, pid: int):
+            return None
+
+    return lambda: _PidGatedBackend()
+
+
+def test_post_exit_nvml_query_failure_is_a_typed_cell_failure_not_a_whole_run_abort() -> None:
+    # Surface B / finding 2: the PARENT's post-join NVML reading (outside the fork-start mapping)
+    # must never escape. A device-query failure there becomes a typed runtime_error cell failure;
+    # the matrix still completes. Guarded with a timeout (drives the real subprocess entry point).
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-postexit-nvml-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["syn-identity"], provider="cuda", host_loads=["idle", "live_flame"],
+            nvml_backend_factory=_pid_gated_failing_backend_factory(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+            cuda_measurement_runner=run_module.run_cuda_measurement_in_subprocess,
+        )
+        result = _call_with_timeout(lambda: run_bakeoff(config), 90.0)
+        assert not result.incomplete, "a post-exit NVML failure must not abort the whole matrix"
+        results = result.report["results"]
+        assert len(results) == 2
+        assert all(r["status"] == "fail" for r in results), results
+        assert all(r["failure"]["type"] == "runtime_error" for r in results), results
+
+
+def test_nvml_sidecar_write_failure_is_a_typed_cell_failure_not_a_whole_run_abort() -> None:
+    # Surface B: a CUDA cell's REQUIRED nvml sidecar write failing mid-run (e.g. disk full) must
+    # become a typed cell failure, never an uncaught OSError that aborts the matrix nor a silently
+    # missing sidecar row.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-sidecar-fail-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["syn-identity"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        original = run_module._write_nvml_sidecar
+
+        def _failing_sidecar(*args: Any, **kwargs: Any) -> None:
+            raise OSError(errno.ENOSPC, "simulated full disk while writing NVML sidecar")
+
+        run_module._write_nvml_sidecar = _failing_sidecar
+        try:
+            result = run_bakeoff(config)
+        finally:
+            run_module._write_nvml_sidecar = original
+
+        assert not result.incomplete
+        cell_result = result.report["results"][0]
+        assert cell_result["status"] == "fail"
+        assert cell_result["failure"]["type"] == "runtime_error"
+        assert "NVML sidecar" in cell_result["failure"]["message"]
+
+
+def test_partial_preview_write_leaves_no_file_behind() -> None:
+    # Finding 3: synthetic_write_pfm writes to a same-dir temp; a mid-write failure must leave NO
+    # file at the final path (no truncated PFM for review.csv to advertise). The cell still passes.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-partial-preview-") as tmp:
+        config = _config(Path(tmp), shot_ids=["prod-sample"], exr_decoder=_fake_exr_decoder(8, 6))
+        original = run_module.synthetic_write_pfm
+
+        def _partial_then_fail(path: Any, rows: Any, width: int, height: int) -> None:
+            # Write a truncated (header-only) PFM to the target, then fail mid-write.
+            Path(path).write_bytes(f"PF\n{width} {height}\n-1.0\n".encode("ascii") + b"\x00\x00")
+            raise OSError(errno.EIO, "simulated mid-write failure")
+
+        run_module.synthetic_write_pfm = _partial_then_fail
+        try:
+            result = run_bakeoff(config)
+        finally:
+            run_module.synthetic_write_pfm = original
+
+        assert not result.incomplete
+        cell_result = result.report["results"][0]
+        assert cell_result["status"] == "pass", "a partial preview write must not fail the measured cell"
+        review_path = config.output_dir / "review.csv"
+        assert review_path.is_file()
+        with review_path.open(newline="", encoding="utf-8") as stream:
+            rows = list(csv.reader(stream))
+        preview_dir = Path(rows[1][7])
+        # No final PFM and no leftover staging temp for the failed offset.
+        assert not (preview_dir / "offset_1_warped.pfm").exists()
+        assert not (preview_dir / "offset_1_flow.pfm").exists()
+        leftovers = list(preview_dir.glob("*.tmp")) if preview_dir.exists() else []
+        assert leftovers == [], f"leftover staging temp files: {leftovers}"
+
+
 def main() -> int:
     test_cap_megapixels_looks_up_token_and_rejects_unknown()
     test_review_label_is_deterministic_and_does_not_embed_candidate_id()
@@ -2090,6 +2257,11 @@ def main() -> int:
     test_cuda_fork_start_failure_is_a_typed_cell_failure_not_a_whole_run_abort()
     test_nonfinite_derived_metric_degrades_to_not_applicable_not_a_whole_run_abort()
     test_review_preview_write_failure_degrades_to_logged_skip_not_a_cell_failure()
+    test_identity_binds_candidate_entries_report_schema_and_corpus_schema()
+    test_changed_excluded_candidate_legal_evidence_is_refused_on_reuse()
+    test_post_exit_nvml_query_failure_is_a_typed_cell_failure_not_a_whole_run_abort()
+    test_nvml_sidecar_write_failure_is_a_typed_cell_failure_not_a_whole_run_abort()
+    test_partial_preview_write_leaves_no_file_behind()
     print("P25-6 profile driver tests passed")
     return 0
 

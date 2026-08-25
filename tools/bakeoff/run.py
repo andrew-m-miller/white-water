@@ -543,14 +543,39 @@ def _write_offset_preview(
     :func:`metrics.visible_warp_residual` scores) rather than duplicating the bilinear-advection
     math here. Filenames carry only the offset number, never the candidate id -- the directory
     itself (``_review_preview_dir``) is already keyed by the anonymized label.
+
+    Crash-safe for the caller's degradation path: each PFM is written to a same-directory temp
+    file first, and the pair is renamed into place only after BOTH temps are fully written, so a
+    mid-write ENOSPC/permission error (or a ``ValueError`` from the writer) never leaves a
+    TRUNCATED ``offset_N_*.pfm`` at the final path for review.csv to advertise as reviewable
+    evidence. On any failure every temp AND every final path for this offset is removed, so a
+    skipped preview leaves NO file behind rather than masquerading as a real one.
     """
 
     destination = _review_preview_dir(review_dir, cell)
     destination.mkdir(parents=True, exist_ok=True)
     all_visible = [[True] * width for _ in range(height)]
     warped = metrics_module.warp_forward_samples(image2, flow, all_visible)
-    synthetic_write_pfm(destination / f"offset_{offset}_warped.pfm", _grid_or_zero(warped, width, height), width, height)
-    synthetic_write_pfm(destination / f"offset_{offset}_flow.pfm", _flow_visualization_grid(flow, width, height), width, height)
+    outputs = (
+        (destination / f"offset_{offset}_warped.pfm", _grid_or_zero(warped, width, height)),
+        (destination / f"offset_{offset}_flow.pfm", _flow_visualization_grid(flow, width, height)),
+    )
+    staged: list[tuple[Path, Path]] = []
+    try:
+        for final_path, grid in outputs:
+            temporary = final_path.with_name(final_path.name + ".tmp")
+            synthetic_write_pfm(temporary, grid, width, height)
+            staged.append((temporary, final_path))
+        for temporary, final_path in staged:
+            os.replace(temporary, final_path)
+    except BaseException:
+        # Remove every temp AND every final for this offset -- including a temp that was being
+        # written when the failure hit (not yet in ``staged``), and any final an earlier rename
+        # already installed -- so a skipped preview leaves NO file, partial or whole, behind.
+        for final_path, _ in outputs:
+            final_path.with_name(final_path.name + ".tmp").unlink(missing_ok=True)
+            final_path.unlink(missing_ok=True)
+        raise
 
 
 # --------------------------------------------------------------------------------------------
@@ -645,6 +670,22 @@ def _map_child_failure_kind(kind: str | None) -> str:
     return "runtime_error"
 
 
+def _resource_exhaustion_or_runtime_kind(exc: BaseException) -> str:
+    """Map an infrastructure error (a failed fork, an NVML device-query failure) onto a permitted
+    coordinator failure kind: ``out_of_memory`` for a resource-exhaustion errno (ENOMEM/EAGAIN --
+    the realistic live_flame memory-pressure signature), otherwise ``runtime_error``.
+
+    Shared by both CUDA-subprocess boundaries the parent owns -- the ``process.start()`` fork and
+    the post-``join()`` device reading -- so a failure at either becomes a TYPED per-cell failure
+    (via ``_run_cell``'s ``except DriverFailure``) instead of an uncaught exception that aborts the
+    whole matrix. Both kinds are in ``_RESULT_FAILURE_TYPES`` and the coordinator's own permitted
+    set.
+    """
+
+    errno_value = getattr(exc, "errno", None)
+    return "out_of_memory" if errno_value in (errno.ENOMEM, errno.EAGAIN) else "runtime_error"
+
+
 def _drain_child_outcome(process: Any, result_queue: Any, *, poll_interval_s: float = 0.05) -> tuple | None:
     """Wait for the child's queued outcome without ever blocking indefinitely (Fix H).
 
@@ -717,13 +758,11 @@ def run_cuda_measurement_in_subprocess(
         # A failed fork()/clone() (no child was ever created, so there is nothing to reap) must
         # be a TYPED per-cell failure, not an uncaught OSError that aborts the whole matrix --
         # realistic on the documented live_flame final run, where measuring CUDA beside a live
-        # Flame Batch puts the box under memory pressure. Resource-exhaustion errnos map to
-        # out_of_memory; anything else to runtime_error. _run_cell's existing `except
+        # Flame Batch puts the box under memory pressure. _run_cell's existing `except
         # DriverFailure` turns this into a _CellFail with the same coordinator-permitted kind,
         # exactly as it already does for a child that dies mid-measurement (Fix H).
-        kind = "out_of_memory" if exc.errno in (errno.ENOMEM, errno.EAGAIN) else "runtime_error"
         raise DriverFailure(
-            kind,
+            _resource_exhaustion_or_runtime_kind(exc),
             f"CUDA measurement subprocess could not be started (fork failed, errno={exc.errno}): {exc}",
         ) from exc
     outcome = _drain_child_outcome(process, result_queue)
@@ -740,9 +779,23 @@ def run_cuda_measurement_in_subprocess(
         raise DriverFailure(_map_child_failure_kind(kind), f"[{stage}] CUDA measurement subprocess failed: {message}")
     _, payload, samples = outcome
 
-    exit_backend = nvml_backend_factory()
-    handle = exit_backend.device_handle(device_index)
-    used_mib = exit_backend.device_used_mib(handle)
+    # The measured work already succeeded in the child; this is the PARENT's own post-join
+    # device reading (the true "process_exit" evidence, taken only after the CUDA context has
+    # actually torn down). Constructing the backend, resolving the handle, or querying device
+    # memory can all raise -- an NVML query_failed/device_unavailable, a pynvml import/init
+    # error, or an OSError. None of those may escape to abort the whole matrix: like the
+    # fork-start boundary above, they become a TYPED per-cell failure that _run_cell maps to a
+    # permitted cell failure. (per-process accounting for an already-exited pid stays best-effort
+    # and degrades to None, since a recycled/absent pid legitimately has no reading.)
+    try:
+        exit_backend = nvml_backend_factory()
+        handle = exit_backend.device_handle(device_index)
+        used_mib = exit_backend.device_used_mib(handle)
+    except Exception as exc:  # noqa: BLE001 - NvmlFailure/OSError/any device-query failure is contained
+        raise DriverFailure(
+            _resource_exhaustion_or_runtime_kind(exc),
+            f"post-exit NVML device reading failed for device {device_index}: {exc}",
+        ) from exc
     try:
         process_used_mib = exit_backend.process_used_mib(handle, process.pid)
     except Exception:  # noqa: BLE001 - per-process accounting for an exited pid is best-effort
@@ -1040,7 +1093,16 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
         # Durable, not incremental: overwrites this cell's own prior attempt (if any); the
         # operator-facing nvml.csv itself is assembled once, from every cell's sidecar, only
         # after every cell in the plan is complete (see _regenerate_sidecar_outputs). See Fix E.
-        _write_nvml_sidecar(ctx.output_dir, cell, nvml_rows)
+        # A CUDA cell's resource evidence is REQUIRED; if it cannot be durably persisted (e.g. an
+        # OSError such as a full disk mid-run), the cell is not a complete measurement, so this is
+        # a TYPED cell failure rather than an uncaught OSError that would abort the whole matrix or
+        # -- worse -- a silently missing sidecar row that lets the cell pass without its evidence.
+        try:
+            _write_nvml_sidecar(ctx.output_dir, cell, nvml_rows)
+        except OSError as exc:
+            raise _CellFail(
+                _failure(_resource_exhaustion_or_runtime_kind(exc), f"could not persist NVML sidecar: {exc}", stage="measurement")
+            ) from exc
     else:
         try:
             payload = _inference_work(None)
@@ -1177,7 +1239,11 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
                 _write_offset_preview(
                     ctx.review_dir, cell, offset, preview_image, preview_flow, preview_width, preview_height,
                 )
-            except (OSError, MetricFailure) as exc:
+            except (OSError, MetricFailure, ValueError) as exc:
+                # OSError (disk full/permission), a MetricFailure from the warp step, or a
+                # ValueError from the PFM writer -- any preview failure degrades to a logged skip
+                # (with no partial file left behind, see _write_offset_preview); the measured cell
+                # is unaffected.
                 ctx.log(f"review preview offset {offset} skipped for {cell.as_dict()}: {exc}")
 
     category = (shot_ctx.shot.get("categories") or [None])[0]
@@ -1329,6 +1395,9 @@ def _compute_identity(
     hardware: Mapping[str, Any],
     chain_offsets: Sequence[int],
     *,
+    candidate_entries: Any,
+    report_schema: Mapping[str, Any],
+    corpus_schema: Mapping[str, Any],
     device_index: int,
     poll_interval_s: float,
     nvml_enabled: bool,
@@ -1360,6 +1429,18 @@ def _compute_identity(
     the identical selection with NVML enabled would collide on one identity, and the second
     invocation would silently resume/reuse the first's placeholder (zero) resource evidence
     instead of measuring anything.
+
+    ``candidate_entries_sha256`` binds the candidate admission/legal surface. report-v2 requires
+    the report to preserve every excluded-but-measurable candidate's legal verdict and
+    redistribution surfaces, which ``assemble_report`` copies verbatim from these entries. The
+    matrix binds only the SELECTED candidate ids and their artifact hashes, not the entries'
+    legal/exclusion content, and an EXCLUDED candidate is not even in ``plan.selector`` -- so
+    without this, editing an excluded candidate's legal-review message and rerunning a completed
+    state would hand back the report with the OLD legal evidence. ``report_schema_sha256``/
+    ``corpus_schema_sha256`` bind the two validation contracts: a changed schema gates what a
+    report may serialize as, and the report-reuse branch returns a published report WITHOUT
+    re-validating it, so a schema edit that would now reject (or reshape acceptance of) that
+    report must force a fresh run rather than silently reusing the stale artifact.
     """
 
     return {
@@ -1367,6 +1448,9 @@ def _compute_identity(
         "protocol_sha256": canonical_sha256(protocol),
         "matrix_sha256": plan.matrix_sha256,
         "corpus_sha256": canonical_sha256(corpus),
+        "candidate_entries_sha256": canonical_sha256(candidate_entries),
+        "report_schema_sha256": canonical_sha256(report_schema),
+        "corpus_schema_sha256": canonical_sha256(corpus_schema),
         "environment": environment,
         "profile": profile,
         "providers": plan.selector["providers"],
@@ -2146,6 +2230,8 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
 
     identity = _compute_identity(
         protocol, corpus, plan, environment, profile, artifacts, runner_section, hardware, config.chain_offsets,
+        candidate_entries=config.candidate_entries,
+        report_schema=config.report_schema, corpus_schema=config.corpus_schema,
         device_index=config.device_index, poll_interval_s=config.poll_interval_s,
         nvml_enabled=config.nvml_backend_factory is not None,
     )
