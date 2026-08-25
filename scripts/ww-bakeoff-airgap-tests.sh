@@ -30,6 +30,7 @@ mkdir -p "$PACKAGE/scripts" "$PACKAGE/tools/bakeoff" "$PACKAGE/runtime/source/bi
 cp "$WRAPPER" "$PACKAGE/scripts/ww-bakeoff-airgap"
 chmod 0755 "$PACKAGE/scripts/ww-bakeoff-airgap"
 printf '# fake evaluator entrypoint\n' > "$PACKAGE/tools/bakeoff/evaluator.py"
+printf '# fake P25-6 profile driver entrypoint\n' > "$PACKAGE/tools/bakeoff/run.py"
 
 UNPACK_LOG="$TEMP_ROOT/unpack.log"
 PYTHON_LOG="$TEMP_ROOT/python.log"
@@ -95,6 +96,49 @@ WW_TEST_PYTHON_LOG="$RELOCATED_PYTHON" \
 [[ "$(count_lines "$RELOCATED_UNPACK")" == 1 ]] || die "relocated package did not unpack"
 RELOCATED_CANONICAL=$(CDPATH= cd -P -- "$RELOCATED" && pwd -P)
 grep -F "PYTHON_ARGS=<$RELOCATED_CANONICAL/tools/bakeoff/evaluator.py><verify><--relocated>" "$RELOCATED_PYTHON" >/dev/null || die "relocated evaluator path was not forwarded"
+
+# WW_BAKEOFF_ENTRYPOINT launches a different carried bake-off module (the P25-6 resumable
+# profile driver) while the default (no env var set, exercised above) stays evaluator.py.
+ENTRYPOINT_ENV="$TEMP_ROOT/entrypoint-runtime-env"
+ENTRYPOINT_UNPACK_LOG="$TEMP_ROOT/entrypoint-unpack.log"
+ENTRYPOINT_PYTHON_LOG="$TEMP_ROOT/entrypoint-python.log"
+WW_BAKEOFF_RUNTIME_ARCHIVE="$PACKAGE/runtime/runtime.tar" \
+WW_BAKEOFF_RUNTIME_ENV="$ENTRYPOINT_ENV" \
+WW_BAKEOFF_ENTRYPOINT="tools/bakeoff/run.py" \
+WW_TEST_UNPACK_LOG="$ENTRYPOINT_UNPACK_LOG" \
+WW_TEST_PYTHON_LOG="$ENTRYPOINT_PYTHON_LOG" \
+"$PACKAGE/scripts/ww-bakeoff-airgap" --selection selection.json --output-dir out
+[[ "$(count_lines "$ENTRYPOINT_UNPACK_LOG")" == 1 ]] || die "driver entrypoint invocation did not unpack the runtime"
+grep -F "PYTHON_ARGS=<-m><tools.bakeoff.run><--selection><selection.json><--output-dir><out>" "$ENTRYPOINT_PYTHON_LOG" >/dev/null \
+  || die "WW_BAKEOFF_ENTRYPOINT did not launch the driver as -m tools.bakeoff.run with forwarded arguments"
+grep -F "PYTHONPATH=$PACKAGE_CANONICAL" "$ENTRYPOINT_PYTHON_LOG" >/dev/null \
+  || die "driver module invocation did not set PYTHONPATH to the package root"
+
+# An unrecognized, absolute, or symlinked entrypoint must be rejected before Python ever runs.
+if WW_BAKEOFF_RUNTIME_ARCHIVE="$PACKAGE/runtime/runtime.tar" WW_BAKEOFF_RUNTIME_ENV="$TEMP_ROOT/entrypoint-bad-env" \
+   WW_BAKEOFF_ENTRYPOINT="tools/bakeoff/not-a-real-module.py" \
+   WW_TEST_UNPACK_LOG="$UNPACK_LOG" WW_TEST_PYTHON_LOG="$PYTHON_LOG" \
+   "$PACKAGE/scripts/ww-bakeoff-airgap" verify --unsupported-entrypoint; then
+  die "an unrecognized WW_BAKEOFF_ENTRYPOINT was accepted"
+fi
+if WW_BAKEOFF_RUNTIME_ARCHIVE="$PACKAGE/runtime/runtime.tar" WW_BAKEOFF_RUNTIME_ENV="$TEMP_ROOT/entrypoint-abs-env" \
+   WW_BAKEOFF_ENTRYPOINT="/etc/passwd" \
+   WW_TEST_UNPACK_LOG="$UNPACK_LOG" WW_TEST_PYTHON_LOG="$PYTHON_LOG" \
+   "$PACKAGE/scripts/ww-bakeoff-airgap" verify --absolute-entrypoint; then
+  die "an absolute WW_BAKEOFF_ENTRYPOINT was accepted"
+fi
+# An allowlisted entrypoint name that resolves to a symlink (not a real carried module) must
+# still be rejected -- the allowlist alone is not sufficient if the file itself was replaced.
+SYMLINK_PACKAGE="$TEMP_ROOT/symlink-package"
+cp -R "$PACKAGE" "$SYMLINK_PACKAGE"
+rm -f "$SYMLINK_PACKAGE/tools/bakeoff/run.py"
+ln -s evaluator.py "$SYMLINK_PACKAGE/tools/bakeoff/run.py"
+if WW_BAKEOFF_RUNTIME_ARCHIVE="$SYMLINK_PACKAGE/runtime/runtime.tar" WW_BAKEOFF_RUNTIME_ENV="$TEMP_ROOT/entrypoint-symlink-env" \
+   WW_BAKEOFF_ENTRYPOINT="tools/bakeoff/run.py" \
+   WW_TEST_UNPACK_LOG="$UNPACK_LOG" WW_TEST_PYTHON_LOG="$PYTHON_LOG" \
+   "$SYMLINK_PACKAGE/scripts/ww-bakeoff-airgap" verify --symlink-entrypoint; then
+  die "a symlinked WW_BAKEOFF_ENTRYPOINT target was accepted"
+fi
 
 # Refuse a package-root extraction target and a non-empty unmarked target.
 if WW_BAKEOFF_RUNTIME_ARCHIVE="$PACKAGE/runtime/runtime.tar" WW_BAKEOFF_RUNTIME_ENV="$PACKAGE" \

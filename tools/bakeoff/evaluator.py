@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Mapping, Sequence
+import contextlib
 from dataclasses import dataclass
 import hashlib
 import importlib
@@ -27,7 +28,7 @@ import stat
 import struct
 import sys
 import time
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, ContextManager, Protocol
 
 try:
     from .conditioning import ConditioningFailure, condition_pair
@@ -495,8 +496,23 @@ class Evaluator:
         profile: str = "smoke",
         geometry: Mapping[str, Any] | None = None,
         preprocessing_ms: float = 0.0,
+        stage_sampler: Callable[[str], ContextManager[Any]] | None = None,
     ) -> dict[str, Any]:
-        """Run an already-conditioned/padded pair and return raw seam-compatible data."""
+        """Run an already-conditioned/padded pair and return raw seam-compatible data.
+
+        ``stage_sampler``, when given, is called with ``"session_create"`` around each fresh
+        session's :meth:`open_session` and with ``"steady"`` around that session's warm-up plus
+        steady-sample loop; the returned context manager is entered/exited around the wrapped
+        work.  This is a P25-6 addition so a caller can attach an NVML polling window (see
+        ``tools/bakeoff/nvml.py``) without this method losing ownership of profile/timing
+        semantics.  It defaults to ``None``, in which case both stages are unwrapped and behavior
+        is unchanged from before this parameter existed.
+        """
+
+        def _stage(name: str) -> ContextManager[Any]:
+            if stage_sampler is None:
+                return contextlib.nullcontext()
+            return stage_sampler(name)
 
         arrays = self.arrays
         if arrays is None:
@@ -514,7 +530,8 @@ class Evaluator:
         counts = PROFILES[profile]
         for session_index in range(counts["fresh_sessions"]):
             create_start = self.clock()
-            opened = self.open_session(provider)
+            with _stage("session_create"):
+                opened = self.open_session(provider)
             creation_ms = (self.clock() - create_start) * 1000.0
             session = opened.session
             input_names = [record["name"] for record in opened.contract.inputs]
@@ -536,24 +553,25 @@ class Evaluator:
                 "first_inference_ms": first_ms,
                 "steady_samples_ms": [],
             }
-            if warmup_recorded:
-                warm_start = self.clock()
-                try:
-                    warm_output = _one_output(session.run([output_name], feeds))
-                except Exception as exc:
-                    raise EvaluatorFailure("runtime_error", f"warm-up inference failed: {exc}") from exc
-                _validate_runtime_output(warm_output, arrays, analysis_width, analysis_height, padded_width, padded_height)
-                session_record["warmup_ms"] = (self.clock() - warm_start) * 1000.0
-            for _ in range(counts["steady_samples_per_session"]):
-                steady_start = self.clock()
-                try:
-                    steady_output = _one_output(session.run([output_name], feeds))
-                except Exception as exc:
-                    raise EvaluatorFailure("runtime_error", f"steady inference failed: {exc}") from exc
-                duration_ms = (self.clock() - steady_start) * 1000.0
-                _validate_runtime_output(steady_output, arrays, analysis_width, analysis_height, padded_width, padded_height)
-                session_record["steady_samples_ms"].append(duration_ms)
-                steady_outputs.append(steady_output)
+            with _stage("steady"):
+                if warmup_recorded:
+                    warm_start = self.clock()
+                    try:
+                        warm_output = _one_output(session.run([output_name], feeds))
+                    except Exception as exc:
+                        raise EvaluatorFailure("runtime_error", f"warm-up inference failed: {exc}") from exc
+                    _validate_runtime_output(warm_output, arrays, analysis_width, analysis_height, padded_width, padded_height)
+                    session_record["warmup_ms"] = (self.clock() - warm_start) * 1000.0
+                for _ in range(counts["steady_samples_per_session"]):
+                    steady_start = self.clock()
+                    try:
+                        steady_output = _one_output(session.run([output_name], feeds))
+                    except Exception as exc:
+                        raise EvaluatorFailure("runtime_error", f"steady inference failed: {exc}") from exc
+                    duration_ms = (self.clock() - steady_start) * 1000.0
+                    _validate_runtime_output(steady_output, arrays, analysis_width, analysis_height, padded_width, padded_height)
+                    session_record["steady_samples_ms"].append(duration_ms)
+                    steady_outputs.append(steady_output)
             raw_sessions.append(session_record)
         post_start = self.clock()
         flows = [_crop_flow(output, arrays, analysis_width, analysis_height, padded_width, padded_height) for output in steady_outputs]

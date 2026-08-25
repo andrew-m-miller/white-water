@@ -148,7 +148,38 @@ sanitize_environment() {
   export PATH="$RUNTIME_ENV/bin:/usr/bin:/bin"
 }
 
-[[ -f "$PACKAGE_ROOT/tools/bakeoff/evaluator.py" ]] || die "evaluator entrypoint is missing from package: $PACKAGE_ROOT/tools/bakeoff/evaluator.py"
+# WW_BAKEOFF_ENTRYPOINT lets the operator launch a different carried bake-off module (e.g. the
+# P25-6 resumable profile driver, tools/bakeoff/run.py) through the same offline bootstrap.
+# The default stays tools/bakeoff/evaluator.py, launched exactly as before (a bare script path,
+# no PYTHONPATH), so existing invocations/tests are unaffected. tools/bakeoff/run.py imports
+# several sibling modules (coordinator.py, resume.py, ...) that only support package-relative
+# imports, so it is launched as "-m tools.bakeoff.run" with PYTHONPATH set to the package root
+# instead of as a bare script -- ENTRYPOINT_MODE below selects which. Only an explicit allowlist
+# of carried, package-relative modules is accepted: no absolute paths, no symlinks, no path
+# outside the package (mirrors the runtime-archive/runtime-env safety checks above).
+ENTRYPOINT_MODE=''
+ENTRYPOINT_VALUE=''
+resolve_entrypoint() {
+  local requested=$1 file
+  case "$requested" in
+    tools/bakeoff/evaluator.py)
+      ENTRYPOINT_MODE=script
+      ENTRYPOINT_VALUE="$PACKAGE_ROOT/tools/bakeoff/evaluator.py"
+      ;;
+    tools/bakeoff/run.py)
+      ENTRYPOINT_MODE=module
+      ENTRYPOINT_VALUE=tools.bakeoff.run
+      ;;
+    /*) die "WW_BAKEOFF_ENTRYPOINT must be a package-relative path: $requested" ;;
+    *) die "unsupported WW_BAKEOFF_ENTRYPOINT (must be one of the carried bake-off modules): $requested" ;;
+  esac
+  file="$PACKAGE_ROOT/$requested"
+  [[ -e "$file" ]] || die "entrypoint is missing from package: $file"
+  [[ ! -L "$file" ]] || die "entrypoint must not be a symlink: $file"
+  [[ -f "$file" ]] || die "entrypoint must be a regular file: $file"
+}
+
+resolve_entrypoint "${WW_BAKEOFF_ENTRYPOINT:-tools/bakeoff/evaluator.py}"
 
 if [[ -n "${WW_BAKEOFF_RUNTIME_ARCHIVE:-}" ]]; then
   RUNTIME_ARCHIVE=$(resolve_from_package "$WW_BAKEOFF_RUNTIME_ARCHIVE")
@@ -201,4 +232,9 @@ else
   [[ -x "$RUNTIME_ENV/bin/python" ]] || die "marked runtime-env is missing executable bin/python"
 fi
 
-exec "$RUNTIME_ENV/bin/python" "$PACKAGE_ROOT/tools/bakeoff/evaluator.py" "$@"
+if [[ "$ENTRYPOINT_MODE" == module ]]; then
+  export PYTHONPATH="$PACKAGE_ROOT"
+  exec "$RUNTIME_ENV/bin/python" -m "$ENTRYPOINT_VALUE" "$@"
+else
+  exec "$RUNTIME_ENV/bin/python" "$ENTRYPOINT_VALUE" "$@"
+fi
