@@ -1777,6 +1777,82 @@ def test_replace_with_empty_optional_rows_removes_stale_csvs_and_stops_advertisi
         assert "review.csv" not in second.output_paths
 
 
+def test_truncated_summary_and_report_csv_repaired_on_reuse_and_left_alone_once_correct() -> None:
+    # summary.txt and report.csv are driver-owned outputs with no human-edited columns. A crash
+    # that truncates either (the old summary write was not even crash-atomic), or a stale copy an
+    # interrupted earlier attempt left behind, must be repaired to canonical bytes on the next
+    # resumed invocation -- and an already-correct file must be left byte-identical, same inode.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-summary-repair-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        summary_path = config.output_dir / "summary.txt"
+        csv_path = config.output_dir / "report.csv"
+        original_summary_bytes = summary_path.read_bytes()
+        original_csv_bytes = csv_path.read_bytes()
+        assert original_summary_bytes and original_csv_bytes
+
+        # Simulate an interrupted/partial write left behind by an earlier crash: a truncated
+        # summary.txt and a truncated report.csv (header row only, no data rows).
+        summary_path.write_bytes(original_summary_bytes[: len(original_summary_bytes) // 2])
+        csv_path.write_bytes(b"candidate_id,shot_id\n")
+        assert summary_path.read_bytes() != original_summary_bytes
+        assert csv_path.read_bytes() != original_csv_bytes
+
+        # Reuse branch: report.json already published under this identity, every cell complete.
+        config2 = copy.copy(config)
+        config2.runtime_module = _FakeRuntime()
+        second = run_bakeoff(config2)
+        assert not second.incomplete
+        assert second.report == first.report  # report.json itself reused, unchanged
+        assert summary_path.read_bytes() == original_summary_bytes, "summary.txt must be repaired"
+        assert csv_path.read_bytes() == original_csv_bytes, "report.csv must be repaired"
+        assert oct(summary_path.stat().st_mode & 0o777) == "0o644"
+        assert oct(csv_path.stat().st_mode & 0o777) == "0o644"
+
+        # Idempotence: once both files are already correct, a further resumed run must not even
+        # rewrite them -- same inode, same mtime, not merely byte-identical after a rewrite.
+        summary_stat_after_repair = summary_path.stat()
+        csv_stat_after_repair = csv_path.stat()
+        third = run_bakeoff(copy.copy(config2))
+        assert not third.incomplete
+        assert summary_path.stat().st_ino == summary_stat_after_repair.st_ino
+        assert summary_path.stat().st_mtime_ns == summary_stat_after_repair.st_mtime_ns
+        assert csv_path.stat().st_ino == csv_stat_after_repair.st_ino
+        assert csv_path.stat().st_mtime_ns == csv_stat_after_repair.st_mtime_ns
+
+
+def test_interrupted_canonical_publish_never_leaves_a_partial_summary_file() -> None:
+    # An interrupted summary/report.csv publish (the driver-owned, no-human-column outputs now
+    # routed through _publish_canonical_bytes) must never leave a truncated file at the final
+    # path: the prior content survives intact and no staging temp file is left behind.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-summary-atomic-") as tmp:
+        directory = Path(tmp)
+        destination = directory / "summary.txt"
+        destination.write_bytes(b"prior complete summary\n")
+        original_bytes = destination.read_bytes()
+
+        real_fsync = os.fsync
+
+        def failing_fsync(fd):
+            raise OSError("simulated interruption during canonical publish")
+
+        os.fsync = failing_fsync
+        try:
+            try:
+                run_module._publish_canonical_bytes(destination, b"a much longer canonical summary that must never land\n")
+            except DriverFailure as failure:
+                assert failure.kind == "atomic_write"
+            else:
+                raise AssertionError("expected DriverFailure(atomic_write)")
+        finally:
+            os.fsync = real_fsync
+
+        assert destination.read_bytes() == original_bytes
+        leftovers = [p for p in directory.iterdir() if p.name.startswith(".summary.txt.")]
+        assert leftovers == [], f"leftover temp files: {leftovers}"
+
+
 def main() -> int:
     test_cap_megapixels_looks_up_token_and_rejects_unknown()
     test_review_label_is_deterministic_and_does_not_embed_candidate_id()
@@ -1820,6 +1896,8 @@ def main() -> int:
     test_same_state_path_with_deleted_sidecar_and_matching_complete_state_still_recovers()
     test_idle_and_live_flame_cells_get_distinct_preview_dirs_and_review_paths()
     test_replace_with_empty_optional_rows_removes_stale_csvs_and_stops_advertising_them()
+    test_truncated_summary_and_report_csv_repaired_on_reuse_and_left_alone_once_correct()
+    test_interrupted_canonical_publish_never_leaves_a_partial_summary_file()
     print("P25-6 profile driver tests passed")
     return 0
 

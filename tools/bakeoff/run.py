@@ -84,7 +84,7 @@ try:
     from .metrics import MetricFailure
     from .nvml import NVML_CSV_HEADER, NvmlBackend, NvmlSampler, PynvmlBackend
     from .resume import ResumeFailure, create_state, load_state
-    from .reporting import ReportFailure, assemble_report, write_report_pair
+    from .reporting import ReportFailure, assemble_report, render_csv, write_report_pair
     from .synthetic import SyntheticCase, write_pfm as synthetic_write_pfm
     from .validator import canonical_sha256, load_json
 except ImportError:  # pragma: no cover - supports direct air-gapped invocation
@@ -108,7 +108,7 @@ except ImportError:  # pragma: no cover - supports direct air-gapped invocation
     from metrics import MetricFailure  # type: ignore
     from nvml import NVML_CSV_HEADER, NvmlBackend, NvmlSampler, PynvmlBackend  # type: ignore
     from resume import ResumeFailure, create_state, load_state  # type: ignore
-    from reporting import ReportFailure, assemble_report, write_report_pair  # type: ignore
+    from reporting import ReportFailure, assemble_report, render_csv, write_report_pair  # type: ignore
     from synthetic import SyntheticCase, write_pfm as synthetic_write_pfm  # type: ignore
     from validator import canonical_sha256, load_json  # type: ignore
 
@@ -1916,7 +1916,34 @@ def _regenerate_sidecar_outputs(
     )
 
 
-def _write_summary_txt(path: Path, report: Mapping[str, Any], plan: MatrixPlan) -> None:
+def _publish_canonical_bytes(path: Path, payload: bytes) -> None:
+    """Crash-atomically ensure ``path`` holds exactly ``payload``.
+
+    For the two driver-owned outputs with NO human-edited columns (``summary.txt`` and
+    ``report.csv``): unlike ``review.csv`` (whose human review columns forbid byte-exact
+    replacement -- see ``_merge_review_rows``), these are a pure deterministic function of the
+    published report, so exact-byte publication is always correct. Idempotent: if the file
+    already equals the canonical bytes it is left byte-identical and its inode untouched (not
+    even reopened); otherwise the canonical bytes are published via :func:`_atomic_publish`
+    (staged, fsynced, then linked/replaced into place) so an interrupted write can never leave a
+    truncated file at the final path -- the gap the earlier direct ``path.write_bytes`` left, and
+    which the report-reuse branch never repaired at all.
+    """
+
+    if path.is_symlink():
+        _fail("output_path", f"{path} must not be a symlink")
+    try:
+        existing: bytes | None = path.read_bytes()
+    except FileNotFoundError:
+        existing = None
+    except OSError:
+        existing = None  # unreadable for some other reason -- republish below
+    if existing == payload:
+        return
+    _atomic_publish(path, payload, replace_existing=True)
+
+
+def _render_summary_bytes(report: Mapping[str, Any], plan: MatrixPlan) -> bytes:
     lines: list[str] = []
     lines.append(f"White Water P25-6 bake-off summary")
     lines.append(f"profile: {report.get('profile')}")
@@ -1968,8 +1995,7 @@ def _write_summary_txt(path: Path, report: Mapping[str, Any], plan: MatrixPlan) 
     if not any_failure:
         lines.append("  (none)")
 
-    path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
-    os.chmod(path, _OUTPUT_FILE_MODE)
+    return ("\n".join(lines) + "\n").encode("utf-8")
 
 
 # --------------------------------------------------------------------------------------------
@@ -2132,8 +2158,13 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
                 "rerun with --replace to overwrite, or use a different --output-dir",
             )
         runner_log.write("report.json already published by an earlier invocation under the same identity; not regenerating")
-        if not summary_path.exists():
-            _write_summary_txt(summary_path, report, plan)
+        # summary.txt and report.csv are driver-owned, no-human-column outputs derived purely
+        # from the published report, so both are byte-verified and repaired here -- not merely
+        # written when missing. A crash mid-summary-write (the old direct write_bytes was not
+        # crash-atomic), a truncated report.csv, or a stale copy left by an interrupted earlier
+        # attempt is regenerated to canonical bytes; an already-correct file is left untouched.
+        _publish_canonical_bytes(summary_path, _render_summary_bytes(report, plan))
+        _publish_canonical_bytes(csv_path, render_csv(report))
         # Fix F/K: repair nvml.csv/review.csv if a crash or manual deletion/truncation left them
         # missing or incorrect -- the per-cell sidecars this reads from are durable regardless
         # of whether report.json itself needed regenerating. Byte-verified, not existence-only
@@ -2152,7 +2183,7 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
             json_path, csv_path, report, protocol, config.report_schema, corpus, config.corpus_schema,
             replace=config.replace,
         )
-        _write_summary_txt(summary_path, report, plan)
+        _publish_canonical_bytes(summary_path, _render_summary_bytes(report, plan))
         _regenerate_sidecar_outputs(config.output_dir, review_dir, corpus, plan, completed, replace=config.replace)
         # Fix M: .run-identity.json was already established up front, before this report was
         # published (see `_establish_run_identity_up_front`) -- it is not written here again, so
