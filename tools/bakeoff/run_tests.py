@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import copy
 import csv
-import hashlib
 import json
 import os
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -95,23 +95,19 @@ class _Meta:
         self.shape = shape
 
 
-def _constant_flow(height: int, width: int, value: float) -> _FakeArray:
-    return _FakeArray([[[[value for _ in range(width)] for _ in range(height)] for _ in range(2)]])
-
-
-def _flow_value_for_path(path: str) -> float:
-    """A small deterministic per-artifact-path flow constant (not a real hash of anything
-    sensitive; just enough to make two different candidates' fake sessions disagree)."""
-
-    digest = hashlib.sha256(path.encode("utf-8")).digest()
-    return float(digest[0] % 5)
+def _constant_flow(height: int, width: int, dx: float, dy: float) -> _FakeArray:
+    return _FakeArray([[
+        [[dx for _ in range(width)] for _ in range(height)],
+        [[dy for _ in range(width)] for _ in range(height)],
+    ]])
 
 
 class _FakeSession:
-    def __init__(self, selected: list[str] | None = None, *, flow_value: float = 0.0):
+    def __init__(self, selected: list[str] | None = None, *, flow_dx: float = 0.0, flow_dy: float = 0.0):
         self.calls = 0
         self._selected = selected or ["CPUExecutionProvider"]
-        self._flow_value = flow_value
+        self._flow_dx = flow_dx
+        self._flow_dy = flow_dy
 
     def get_providers(self) -> list[str]:
         return list(self._selected)
@@ -126,7 +122,7 @@ class _FakeSession:
         self.calls += 1
         first = next(iter(feeds.values()))
         _, _, height, width = first.shape
-        return [_constant_flow(height, width, self._flow_value)]
+        return [_constant_flow(height, width, self._flow_dx, self._flow_dy)]
 
 
 class _FakeRuntime:
@@ -136,6 +132,12 @@ class _FakeRuntime:
         self.providers = providers or ["CPUExecutionProvider"]
         self.sessions_created = 0
         self._path_dependent = path_dependent
+        # Assigns each distinct artifact path the Nth-seen (dx, dy) pair, by simple sequential
+        # counting -- not a hash of the path, so there is no possibility of two distinct paths
+        # coincidentally colliding on the same flow value (a real, observed flakiness this
+        # replaced: a small hash-mod-N range gave two random temp-dir paths a non-negligible
+        # chance of landing on the same bucket across different test runs).
+        self._path_flow_values: dict[str, tuple[float, float]] = {}
 
     def get_available_providers(self) -> list[str]:
         return ["CPUExecutionProvider", "CUDAExecutionProvider"]
@@ -149,8 +151,14 @@ class _FakeRuntime:
 
     def InferenceSession(self, path: str, *, providers: list[str], **kwargs: Any) -> _FakeSession:
         self.sessions_created += 1
-        flow_value = _flow_value_for_path(path) if self._path_dependent else 0.0
-        return _FakeSession(list(providers), flow_value=flow_value)
+        if self._path_dependent:
+            if path not in self._path_flow_values:
+                index = len(self._path_flow_values) + 1
+                self._path_flow_values[path] = (float(index) * 3.0, float(index) * 5.0)
+            dx, dy = self._path_flow_values[path]
+        else:
+            dx, dy = 0.0, 0.0
+        return _FakeSession(list(providers), flow_dx=dx, flow_dy=dy)
 
 
 class _FakeNvmlBackend:
@@ -775,9 +783,11 @@ def test_identity_differs_between_profiles_for_an_otherwise_identical_selection(
 
         identity_smoke = run_module._compute_identity(
             protocol, corpus, plan, "el8-x86_64", "smoke", artifacts, runner_section, hardware, (1, 2, 4, 8),
+            device_index=0, poll_interval_s=0.05, nvml_enabled=False,
         )
         identity_screen = run_module._compute_identity(
             protocol, corpus, plan, "el8-x86_64", "screen", artifacts, runner_section, hardware, (1, 2, 4, 8),
+            device_index=0, poll_interval_s=0.05, nvml_enabled=False,
         )
         # matrix_sha256 itself does not encode profile -- this is exactly the gap Fix A closes.
         assert identity_smoke["matrix_sha256"] == identity_screen["matrix_sha256"]
@@ -786,6 +796,7 @@ def test_identity_differs_between_profiles_for_an_otherwise_identical_selection(
         identity_diff_evaluator = run_module._compute_identity(
             protocol, corpus, plan, "el8-x86_64", "smoke", artifacts,
             {**runner_section, "evaluator_sha256": "f" * 64}, hardware, (1, 2, 4, 8),
+            device_index=0, poll_interval_s=0.05, nvml_enabled=False,
         )
         assert canonical_sha256(identity_smoke) != canonical_sha256(identity_diff_evaluator)
 
@@ -1020,6 +1031,8 @@ def test_interrupted_cell_resume_does_not_duplicate_sidecar_rows() -> None:
         identity = run_module._compute_identity(
             config.protocol, config.corpus, plan, config.selection["environment"], config.selection["profile"],
             artifacts, runner_section, hardware, config.chain_offsets,
+            device_index=config.device_index, poll_interval_s=config.poll_interval_s,
+            nvml_enabled=config.nvml_backend_factory is not None,
         )
         from .resume import create_state
         run_module._ensure_output_dir(config.output_dir)
@@ -1056,6 +1069,186 @@ def test_interrupted_cell_resume_does_not_duplicate_sidecar_rows() -> None:
         assert len(data_rows) == len(stale_rows), "resume must not duplicate the retried cell's rows"
 
 
+# --------------------------------------------------------------------------------------------
+# Fix F: nvml.csv/review.csv are repaired (not just left missing) when report.json is reused.
+# --------------------------------------------------------------------------------------------
+
+
+def test_regenerates_missing_sidecar_outputs_when_report_already_published() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-repair-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["syn-identity"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        nvml_path = config.output_dir / "nvml.csv"
+        review_path = config.output_dir / "review.csv"
+        assert nvml_path.is_file()
+        original_nvml_bytes = nvml_path.read_bytes()
+
+        # Simulate a crash (or an operator deleting the CSVs) that left report.json present
+        # but its sidecar-derived outputs missing.
+        nvml_path.unlink()
+
+        config2 = copy.copy(config)
+        config2.runtime_module = _FakeRuntime()
+        second = run_bakeoff(config2)
+        assert not second.incomplete
+        assert second.report == first.report  # report.json itself was still reused, unchanged
+        assert nvml_path.is_file(), "nvml.csv must be repaired, not left missing"
+        assert nvml_path.read_bytes() == original_nvml_bytes
+        # review.csv never existed for this synthetic (analytic-truth) shot in the first place;
+        # regeneration must not fabricate one.
+        assert not review_path.exists()
+
+
+# --------------------------------------------------------------------------------------------
+# Fix G: EVERY inference a CUDA cell needs runs inside the isolated child, never the parent.
+# --------------------------------------------------------------------------------------------
+
+
+def test_cuda_cell_runs_all_inference_in_the_child_not_the_parent() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-child-isolation-") as tmp:
+        runtime = _FakeRuntime()
+        config = _config(
+            Path(tmp), shot_ids=["prod-sample"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+            runtime_module=runtime,
+            # The REAL fork-based runner, not the in-process test fake: this is the whole
+            # point of the assertion below.
+            cuda_measurement_runner=run_module.run_cuda_measurement_in_subprocess,
+        )
+        result = run_bakeoff(config)
+        assert not result.incomplete
+        # This cell needs several inferences (base pair, forward/backward reverse pair, and at
+        # least one review-offset pair). Every one of them must have happened inside the forked
+        # child: under fork the child gets its own copy-on-write copy of `runtime`, so mutating
+        # its sessions_created counter there is invisible back here in the parent. If ANY
+        # inference had run in-process (the Fix G bug this guards against), this would be > 0.
+        assert runtime.sessions_created == 0
+
+        cell_result = result.report["results"][0]
+        assert cell_result["status"] == "pass"
+        assert cell_result["provider"] == "cuda"
+        # The same metrics/previews a CPU cell would produce are still produced.
+        assert "visible_warp_residual" in cell_result["metrics"]
+        assert "forward_backward_residual_px" in cell_result["metrics"]
+        review_path = config.output_dir / "review.csv"
+        assert review_path.is_file()
+        with review_path.open(newline="", encoding="utf-8") as stream:
+            rows = list(csv.reader(stream))
+        assert len(rows) == 2
+        preview_dir = Path(rows[1][7])
+        assert (preview_dir / "offset_1_warped.pfm").is_file()
+        assert (preview_dir / "offset_2_warped.pfm").is_file()
+
+
+# --------------------------------------------------------------------------------------------
+# Fix H: a child that exits without queueing a result must not hang the parent.
+# --------------------------------------------------------------------------------------------
+
+
+def _call_with_timeout(fn, timeout_s: float):
+    """Run ``fn`` on a background daemon thread and fail loudly instead of hanging the whole
+    test suite if it does not return within ``timeout_s``."""
+
+    outcome: dict[str, Any] = {}
+
+    def _runner() -> None:
+        try:
+            outcome["value"] = fn()
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the calling thread below
+            outcome["error"] = exc
+
+    thread = threading.Thread(target=_runner, daemon=True)
+    thread.start()
+    thread.join(timeout_s)
+    if thread.is_alive():
+        raise AssertionError(f"operation did not complete within {timeout_s}s (suspected hang)")
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome.get("value")
+
+
+def test_child_exit_without_queueing_yields_typed_failure_not_a_hang() -> None:
+    def work(stage_sampler):
+        # Simulates an OOM-kill/segfault: the child terminates immediately, bypassing Python's
+        # exception machinery entirely, so it never reaches queue.put(...).
+        os._exit(9)
+
+    def attempt():
+        return run_module.run_cuda_measurement_in_subprocess(work, lambda: _FakeNvmlBackend(), 0, 0.01)
+
+    try:
+        _call_with_timeout(attempt, 15.0)
+    except DriverFailure as failure:
+        assert failure.kind in {"out_of_memory", "runtime_error"}
+    else:
+        raise AssertionError("expected DriverFailure for a child that exited without queueing")
+
+
+# --------------------------------------------------------------------------------------------
+# Fix I: device/NVML/hardware measurement config is bound into the resume identity.
+# --------------------------------------------------------------------------------------------
+
+
+def test_identity_differs_for_measurement_config_changes() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-identity-measure-") as tmp:
+        directory = Path(tmp)
+        protocol = _protocol()
+        corpus = _corpus()
+        selection_axes = {
+            "candidate_ids": [CANDIDATE_ID], "shot_ids": ["syn-identity"],
+            "conditioning_tokens": ["native-clamp01-v1"], "cap_tokens": ["mp0_5"],
+            "providers": [{"token": "cuda", "host_loads": ["idle"]}],
+        }
+        plan = build_matrix(protocol, corpus, _candidate_entries(), selection_axes, "smoke", "el8-x86_64")
+        artifacts = run_module._validate_selected_artifacts(plan, _artifact_map(directory), V2_PROTOCOL_PATH)
+        runner_section = _report_metadata()["runner"]
+        base_hardware = {"platform": "linux", "architecture": "x86_64", "gpu": "gpu-a", "driver": "driver-1"}
+
+        def identity(hardware=base_hardware, **kwargs):
+            resolved = {"device_index": 0, "poll_interval_s": 0.05, "nvml_enabled": True, **kwargs}
+            return run_module._compute_identity(
+                protocol, corpus, plan, "el8-x86_64", "smoke", artifacts, runner_section, hardware, (1, 2, 4, 8),
+                **resolved,
+            )
+
+        baseline = canonical_sha256(identity())
+        assert baseline != canonical_sha256(identity(nvml_enabled=False))
+        assert baseline != canonical_sha256(identity(device_index=1))
+        assert baseline != canonical_sha256(identity(poll_interval_s=0.1))
+        assert baseline != canonical_sha256(identity(hardware={**base_hardware, "gpu": "gpu-b"}))
+        assert baseline != canonical_sha256(identity(hardware={**base_hardware, "driver": "driver-2"}))
+
+
+def test_rerun_with_nvml_disabled_after_nvml_enabled_is_rejected() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-nvml-toggle-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["syn-identity"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+
+        # Same --state/--output-dir, but NVML now disabled (--no-nvml): a real resource
+        # measurement must never be silently swapped out for -- or reused to stand in for -- a
+        # flat zero placeholder, in either direction.
+        config2 = copy.copy(config)
+        config2.nvml_backend_factory = None
+        config2.runtime_module = _FakeRuntime()
+        try:
+            run_bakeoff(config2)
+        except Exception as exc:  # noqa: BLE001 - asserting rejection, not one exact exception type
+            assert "identity" in str(exc).lower()
+        else:
+            raise AssertionError("expected the nvml-disabled rerun to be rejected, not silently reused")
+
+
 def main() -> int:
     test_cap_megapixels_looks_up_token_and_rejects_unknown()
     test_review_label_is_deterministic_and_does_not_embed_candidate_id()
@@ -1082,6 +1275,11 @@ def main() -> int:
     test_cuda_peak_captures_a_first_run_transient_a_boundary_only_design_would_miss()
     test_real_subprocess_cuda_measurement_runner_isolates_work_and_reads_post_exit()
     test_interrupted_cell_resume_does_not_duplicate_sidecar_rows()
+    test_regenerates_missing_sidecar_outputs_when_report_already_published()
+    test_cuda_cell_runs_all_inference_in_the_child_not_the_parent()
+    test_child_exit_without_queueing_yields_typed_failure_not_a_hang()
+    test_identity_differs_for_measurement_config_changes()
+    test_rerun_with_nvml_disabled_after_nvml_enabled_is_rejected()
     print("P25-6 profile driver tests passed")
     return 0
 

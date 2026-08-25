@@ -51,6 +51,7 @@ import math
 import multiprocessing as _mp
 import os
 import platform as platform_module
+import queue as _queue_module
 import struct
 import subprocess
 import sys
@@ -591,6 +592,48 @@ def _measure_cuda_work_once(
     return payload, sampler.samples
 
 
+def _map_child_failure_kind(kind: str | None) -> str:
+    """Map a child-reported exception ``.kind`` onto a permitted coordinator failure type.
+
+    An ``ExrFailure`` kind (e.g. ``"missing_file"``) goes through the same
+    ``_EXR_FAILURE_TYPES`` table the in-process/CPU path already uses, so a frame-loading
+    failure that happened inside the isolated child is reported exactly as it would have been
+    if it had happened in-process. Anything else already in ``_RESULT_FAILURE_TYPES`` (an
+    ``EvaluatorFailure``/``DependencyFailure`` kind) passes through unchanged; anything
+    unrecognized (including no ``kind`` at all) falls back to ``"runtime_error"``.
+    """
+
+    if kind in _EXR_FAILURE_TYPES:
+        return _EXR_FAILURE_TYPES[kind]
+    if kind in _RESULT_FAILURE_TYPES:
+        return kind
+    return "runtime_error"
+
+
+def _drain_child_outcome(process: Any, result_queue: Any, *, poll_interval_s: float = 0.05) -> tuple | None:
+    """Wait for the child's queued outcome without ever blocking indefinitely (Fix H).
+
+    A plain ``queue.get()`` blocks forever if the child dies without queueing anything (OOM-
+    killed, segfaulted, or an explicit ``os._exit()`` before ``queue.put``) -- ``queue.get()``
+    has no way to observe that the writer is gone. This polls with a short timeout while the
+    child is alive; the decision to give up is keyed on ``process.is_alive()`` becoming False,
+    not on a fixed wall-clock budget, so a legitimately long-running ``final``-profile cell is
+    never aborted early. Once the process is no longer alive, one final non-blocking drain
+    covers the narrow race where the child queued its result and then exited between two polls.
+    Returns ``None`` if the child exited without ever producing an outcome.
+    """
+
+    while True:
+        try:
+            return result_queue.get(timeout=poll_interval_s)
+        except _queue_module.Empty:
+            if not process.is_alive():
+                try:
+                    return result_queue.get_nowait()
+                except _queue_module.Empty:
+                    return None
+
+
 def run_cuda_measurement_in_subprocess(
     work: Callable[[Callable[[str], Any]], dict[str, Any]],
     nvml_backend_factory: Callable[[], NvmlBackend],
@@ -599,37 +642,53 @@ def run_cuda_measurement_in_subprocess(
 ) -> CudaMeasurementResult:
     """Default :data:`CudaMeasurementRunner`: isolates the measured work in a forked child.
 
-    Two problems this fixes relative to running everything in-process: (1) an in-process
+    Three problems this fixes relative to running everything in-process: (1) an in-process
     "process_exit" sample is meaningless -- the driver's own process, runtime module, and later
     cells are all still alive, so it can never reflect the measured work's process actually
-    tearing down; and (2) CUDA context/driver teardown only happens when the process that
-    created it actually exits. Forking BEFORE any CUDA/NVML initialization (the child
-    initializes its own NVML handle fresh, after the fork, never before) is the standard-safe
-    pattern; the parent takes its own fresh device-wide reading only after ``process.join()``
-    has confirmed the child has actually exited and been reaped.
+    tearing down; (2) CUDA context/driver teardown only happens when the process that created
+    it actually exits, so the PARENT must never itself touch CUDA (see ``work``'s contract:
+    every inference the cell needs, not just the base pair, must happen inside this child --
+    enforced by ``_perform_cell_inference`` being the only thing ever passed as ``work`` for a
+    CUDA cell); and (3) a child that dies without queueing a result must not hang the parent
+    forever (:func:`_drain_child_outcome`).
 
-    Only the queued return value crosses the process boundary (a plain dict/list of JSON-safe
+    Forking BEFORE any CUDA/NVML initialization (the child initializes its own NVML handle
+    fresh, after the fork, never before) is the standard-safe pattern; the parent takes its own
+    fresh device-wide reading only after ``process.join()`` has confirmed the child has actually
+    exited and been reaped.
+
+    Only the queued return value crosses the process boundary (a plain dict/list of picklable
     values); ``work`` itself runs as an inherited closure under fork, so no pickling of the
     runtime/array modules or the frame data is required.
     """
 
     ctx = _mp.get_context("fork")
-    queue: Any = ctx.Queue()
+    result_queue: Any = ctx.Queue()
 
     def _child_main() -> None:
         try:
             payload, samples = _measure_cuda_work_once(work, nvml_backend_factory, device_index, poll_interval_s)
         except BaseException as exc:  # noqa: BLE001 - reported to the parent, not raised here
-            queue.put(("error", repr(exc)))
+            kind = getattr(exc, "kind", None)
+            stage = "load_input" if isinstance(exc, ExrFailure) else "inference"
+            result_queue.put(("error", kind, stage, str(exc)))
             return
-        queue.put(("ok", payload, samples))
+        result_queue.put(("ok", payload, samples))
 
     process = ctx.Process(target=_child_main)
     process.start()
-    outcome = queue.get()
+    outcome = _drain_child_outcome(process, result_queue)
     process.join()
+
+    if outcome is None:
+        kind = "out_of_memory" if process.exitcode == -9 else "runtime_error"
+        raise DriverFailure(
+            kind,
+            f"CUDA measurement subprocess exited without reporting a result (exitcode={process.exitcode!r})",
+        )
     if outcome[0] == "error":
-        raise DriverFailure("cuda_child_failed", f"CUDA measurement subprocess failed: {outcome[1]}")
+        _, kind, stage, message = outcome
+        raise DriverFailure(_map_child_failure_kind(kind), f"[{stage}] CUDA measurement subprocess failed: {message}")
     _, payload, samples = outcome
 
     exit_backend = nvml_backend_factory()
@@ -764,6 +823,109 @@ def _replay_resource_and_rows(
     return sampler.resource(), sampler.csv_rows(identity_fields)
 
 
+def _perform_cell_inference(
+    cell: CellKey,
+    ctx: _RunnerContext,
+    artifact: ValidatedArtifact,
+    shot_ctx: _ShotContext,
+    stage_sampler: Callable[[str], Any] | None,
+) -> dict[str, Any]:
+    """Load every frame pair and run every inference this cell needs, and nothing else.
+
+    Fix G: for a CUDA cell this ENTIRE function is what runs as ``work`` inside
+    :func:`run_cuda_measurement_in_subprocess`'s isolated child -- the base pair, the reverse
+    pair (forward/backward residual), every chain link, and every review-offset pair. Nothing
+    outside this function may touch CUDA for that cell: the parent (see ``_run_cell`) only
+    scores metrics and renders previews from the plain data this function returns, and the
+    ``process_exit`` NVML reading is taken only after the child running this function has
+    actually exited. Splitting it out this way is also what makes a CPU/CoreML cell able to run
+    it in-process, unchanged, with no isolation at all.
+
+    Returns one picklable payload (safe to cross the subprocess boundary via a
+    ``multiprocessing.Queue``): the base pair's flow/geometry/timing/environment/metrics/
+    conditioning/NCHW arrays, its input frame hashes, an optional reverse-pair flow, an optional
+    list of chain-link flows (or a typed ``chain_error`` message if a *mandatory* chain could
+    not be completed), an optional per-offset review preview bundle, and any skip messages the
+    parent should log (kept out of this function so it never needs to touch the parent's
+    already-open log file handle across the fork boundary).
+    """
+
+    cap_megapixels = _cap_megapixels(ctx.protocol, cell.cap)
+    evaluator_instance = Evaluator(artifact, ctx.runtime_module, ctx.array_module)
+    reference_frame = int(shot_ctx.shot["reference_frame"])
+    log_messages: list[str] = []
+
+    first, second = _load_pair(shot_ctx, reference_frame, reference_frame + 1, exr_decoder=ctx.exr_decoder)
+    base_result, geometry, cond_meta, first_nchw, second_nchw = _infer_pair(
+        evaluator_instance, artifact, first, second,
+        provider=cell.provider, conditioning_token=cell.conditioning, cap_megapixels=cap_megapixels,
+        array_module=ctx.array_module, profile=ctx.profile, stage_sampler=stage_sampler,
+    )
+    payload: dict[str, Any] = {
+        "base": {
+            "flow": base_result["flow"], "geometry": geometry, "timing": base_result["timing"],
+            "environment": base_result["environment"], "metrics": base_result["metrics"],
+            "conditioning_parameters": cond_meta.get("conditioning_parameters") or {},
+            "first_nchw": first_nchw, "second_nchw": second_nchw,
+        },
+        "input_frames": [
+            {"frame": first["frame"], "sha256": first["sha256"]},
+            {"frame": second["frame"], "sha256": second["sha256"]},
+        ],
+    }
+
+    def _aux_infer(frame_a: int, frame_b: int) -> tuple[Any, dict[str, Any], Any]:
+        aux_first, aux_second = _load_pair(shot_ctx, frame_a, frame_b, exr_decoder=ctx.exr_decoder)
+        result, geom, _, _, second_n = _infer_pair(
+            evaluator_instance, artifact, aux_first, aux_second,
+            provider=cell.provider, conditioning_token=cell.conditioning, cap_megapixels=cap_megapixels,
+            array_module=ctx.array_module, profile="smoke", stage_sampler=None,
+        )
+        return result["flow"], geom, second_n
+
+    # Chain drift links -- mandatory once the shot declares chain_length; link 0 is the base
+    # flow already computed above, so only links 1..chain_length-1 need a fresh pair.
+    chain_length = shot_ctx.chain_length
+    if chain_length is not None:
+        try:
+            flows = [payload["base"]["flow"]]
+            for link in range(1, chain_length):
+                link_flow, _, _ = _aux_infer(reference_frame + link, reference_frame + link + 1)
+                flows.append(link_flow)
+            payload["chain_flows"] = flows
+        except (ExrFailure, EvaluatorFailure, DependencyFailure) as exc:
+            payload["chain_error"] = str(exc)
+
+    # Forward/backward residual -- optional, needs the reverse-direction pair.
+    try:
+        reverse_flow, _, _ = _aux_infer(reference_frame + 1, reference_frame)
+        payload["reverse_flow"] = reverse_flow
+    except (ExrFailure, EvaluatorFailure, DependencyFailure) as exc:
+        log_messages.append(f"forward_backward_residual_px skipped for {cell.as_dict()}: {exc}")
+
+    # Blinded per-candidate review previews -- optional, per offset, only for shots without
+    # trustworthy automated truth. Only the flow/image DATA is returned; file writing (pure
+    # I/O, no CUDA) happens back in the parent.
+    if not shot_ctx.has_analytic_truth and ctx.review_dir is not None:
+        review_offsets: dict[str, dict[str, Any]] = {}
+        for offset in sorted(set(ctx.chain_offsets) - {1}):
+            try:
+                offset_flow, offset_geometry, offset_second_nchw = _aux_infer(reference_frame, reference_frame + offset)
+                offset_width = offset_geometry["analysis_width"]
+                offset_height = offset_geometry["analysis_height"]
+                review_offsets[str(offset)] = {
+                    "flow": offset_flow,
+                    "image2": _unpadded_grid(offset_second_nchw, offset_width, offset_height),
+                    "width": offset_width, "height": offset_height,
+                }
+            except (ExrFailure, EvaluatorFailure, DependencyFailure) as exc:
+                log_messages.append(f"review preview offset {offset} skipped for {cell.as_dict()}: {exc}")
+        payload["review_offsets"] = review_offsets
+
+    payload["log_messages"] = log_messages
+    return payload
+
+
 def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
     artifact = ctx.artifacts.get(cell.candidate)
     if artifact is None:
@@ -774,6 +936,11 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
     if cell.provider not in PROVIDER_EXECUTION_NAMES:
         raise _CellFail(_failure("provider_unavailable", f"unknown provider token: {cell.provider!r}"))
 
+    # Cheap, inference-free validation up front, before any host-load prompt or subprocess.
+    chain_length = shot_ctx.chain_length
+    if chain_length is not None and chain_length not in ctx.chain_offsets and chain_length not in (1, 2, 4, 8):
+        raise _CellFail(_failure("input_invalid", f"unsupported chain_length {chain_length}", stage="metrics"))
+
     # Fix B: a supervised host-load boundary, confirmed once per contiguous run of cells that
     # share one CUDA host_load value, before any cell in that group executes. Re-checked every
     # invocation (ctx.confirmed_host_load always starts None on a fresh process), so a resumed
@@ -783,47 +950,32 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
         ctx.confirmed_host_load = cell.host_load
         ctx.log(f"host load boundary confirmed: host_load={cell.host_load}")
 
-    cap_megapixels = _cap_megapixels(ctx.protocol, cell.cap)
-    evaluator_instance = Evaluator(artifact, ctx.runtime_module, ctx.array_module)
-
-    reference_frame = int(shot_ctx.shot["reference_frame"])
-    try:
-        first, second = _load_pair(shot_ctx, reference_frame, reference_frame + 1, exr_decoder=ctx.exr_decoder)
-    except ExrFailure as exc:
-        raise _CellFail(_exr_failure(exc, stage="load_input")) from exc
-
-    def _do_infer(stage_sampler: Callable[[str], Any] | None) -> dict[str, Any]:
-        result, geometry, cond_meta, first_nchw, second_nchw = _infer_pair(
-            evaluator_instance, artifact, first, second,
-            provider=cell.provider,
-            conditioning_token=cell.conditioning,
-            cap_megapixels=cap_megapixels,
-            array_module=ctx.array_module,
-            profile=ctx.profile,
-            stage_sampler=stage_sampler,
-        )
-        return {
-            "flow": result["flow"], "geometry": geometry, "timing": result["timing"],
-            "environment": result["environment"], "metrics": result["metrics"],
-            "conditioning_parameters": cond_meta.get("conditioning_parameters") or {},
-            "first_nchw": first_nchw, "second_nchw": second_nchw,
-        }
+    # Fix G: for a CUDA cell, EVERY inference this cell needs (base + reverse + chain links +
+    # review offsets) runs inside _perform_cell_inference, and that whole function is what gets
+    # isolated in the measurement child -- the parent below this point does no inference at all
+    # for a CUDA cell, so it never itself initializes a CUDA context (the unsafe
+    # fork-after-CUDA-init condition this subprocess design exists to avoid). CPU/CoreML cells
+    # run the identical function directly, in-process, with no isolation.
+    def _inference_work(stage_sampler: Callable[[str], Any] | None) -> dict[str, Any]:
+        return _perform_cell_inference(cell, ctx, artifact, shot_ctx, stage_sampler)
 
     use_cuda_measurement = cell.provider == "cuda" and ctx.nvml_backend_factory is not None
     if use_cuda_measurement:
         try:
             measurement = ctx.cuda_measurement_runner(
-                _do_infer, ctx.nvml_backend_factory, ctx.device_index, ctx.poll_interval_s,
+                _inference_work, ctx.nvml_backend_factory, ctx.device_index, ctx.poll_interval_s,
             )
         except DriverFailure as exc:
-            kind = exc.kind if exc.kind in _RESULT_FAILURE_TYPES else "runtime_error"
-            raise _CellFail(_failure(kind, str(exc), stage="inference")) from exc
-        except DependencyFailure as exc:
-            raise _CellFail(_failure("runtime_error", str(exc), stage="inference", retryable=True)) from exc
-        except EvaluatorFailure as exc:
-            # The default subprocess runner reports work()'s exceptions through DriverFailure
-            # (above); an injected test runner may instead raise these directly in-process.
-            raise _CellFail(_failure(exc.kind if exc.kind in _RESULT_FAILURE_TYPES else "runtime_error", str(exc), stage="inference")) from exc
+            # run_cuda_measurement_in_subprocess already maps the child's reported failure kind
+            # (including an ExrFailure's kind, via _map_child_failure_kind) onto a permitted
+            # coordinator failure type before raising, so exc.kind is used as-is here.
+            raise _CellFail(_failure(exc.kind, str(exc), stage="inference")) from exc
+        except (DependencyFailure, EvaluatorFailure, ExrFailure) as exc:
+            # An injected test CudaMeasurementRunner may raise these directly, in-process,
+            # rather than going through the subprocess boundary's own error reporting.
+            kind = getattr(exc, "kind", None)
+            stage = "load_input" if isinstance(exc, ExrFailure) else "inference"
+            raise _CellFail(_failure(_map_child_failure_kind(kind), str(exc), stage=stage)) from exc
         payload = measurement.payload
         nvml_samples = list(measurement.samples)
         if measurement.process_exit_used_mib is not None:
@@ -838,23 +990,32 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
         _write_nvml_sidecar(ctx.output_dir, cell, nvml_rows)
     else:
         try:
-            payload = _do_infer(None)
+            payload = _inference_work(None)
+        except ExrFailure as exc:
+            raise _CellFail(_exr_failure(exc, stage="load_input")) from exc
         except DependencyFailure as exc:
             raise _CellFail(_failure("runtime_error", str(exc), stage="inference", retryable=True)) from exc
         except EvaluatorFailure as exc:
             raise _CellFail(_failure(exc.kind if exc.kind in _RESULT_FAILURE_TYPES else "runtime_error", str(exc), stage="inference")) from exc
         resource = {"peak_incremental_device_memory_gib": 0.0}
 
-    base_result = {"metrics": payload["metrics"], "timing": payload["timing"], "environment": payload["environment"]}
-    predicted_flow = payload["flow"]
-    geometry = payload["geometry"]
-    cond_meta = {"conditioning_parameters": payload["conditioning_parameters"]}
-    first_nchw = payload["first_nchw"]
-    second_nchw = payload["second_nchw"]
+    # From here on: PURE scoring and preview rendering from `payload`'s already-returned data.
+    # No inference call of any kind happens below this line, for either provider.
+    for message in payload.get("log_messages", []):
+        ctx.log(message)
+
+    base = payload["base"]
+    base_result = {"metrics": base["metrics"], "timing": base["timing"], "environment": base["environment"]}
+    predicted_flow = base["flow"]
+    geometry = base["geometry"]
+    conditioning_parameters = base["conditioning_parameters"]
+    first_nchw = base["first_nchw"]
+    second_nchw = base["second_nchw"]
     analysis_width = geometry["analysis_width"]
     analysis_height = geometry["analysis_height"]
     spacing_x = geometry["spacing_x_source_pixels"]
     spacing_y = geometry["spacing_y_source_pixels"]
+    reference_frame = int(shot_ctx.shot["reference_frame"])
 
     not_applicable = set(REPORT_METRICS)
     result_metrics: dict[str, Any] = {
@@ -877,37 +1038,28 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
         result_metrics["fraction_le_3px"] = dense["fraction_le_3px"]
         not_applicable -= {"endpoint_error_px", "fraction_le_1px", "fraction_le_3px"}
 
-    # Chain drift: mandatory once the shot declares a chain_length.
-    chain_length = shot_ctx.chain_length
+    # Chain drift: mandatory once the shot declares a chain_length. The inference itself (and
+    # any failure computing it) already happened in _perform_cell_inference; only truth scoring
+    # happens here.
     if chain_length is not None:
-        if chain_length not in ctx.chain_offsets and chain_length not in (1, 2, 4, 8):
-            raise _CellFail(_failure("input_invalid", f"unsupported chain_length {chain_length}", stage="metrics"))
-        flows = [predicted_flow]
-        try:
-            for link in range(1, chain_length):
-                link_first, link_second = _load_pair(
-                    shot_ctx, reference_frame + link, reference_frame + link + 1, exr_decoder=ctx.exr_decoder,
-                )
-                link_result, _, _, _, _ = _infer_pair(
-                    evaluator_instance, artifact, link_first, link_second,
-                    provider=cell.provider, conditioning_token=cell.conditioning,
-                    cap_megapixels=cap_megapixels, array_module=ctx.array_module,
-                    profile="smoke", stage_sampler=None,
-                )
-                flows.append(link_result["flow"])
-            if shot_ctx.synthetic_case is not None:
-                truth_grid, valid_mask = _dense_truth_and_mask(
-                    shot_ctx.synthetic_case, reference_frame, reference_frame + chain_length,
-                    analysis_width, analysis_height, spacing_x, spacing_y,
-                )
-            else:
-                truth_grid, valid_mask = None, None
-            if truth_grid is not None:
+        if "chain_error" in payload:
+            raise _CellFail(_failure(
+                "quality_gate_failed", f"chain drift could not be computed: {payload['chain_error']}", stage="metrics",
+            ))
+        flows = payload.get("chain_flows")
+        if not flows:
+            raise _CellFail(_failure("quality_gate_failed", "chain drift could not be computed: no chain flows were returned", stage="metrics"))
+        if shot_ctx.synthetic_case is not None:
+            truth_grid, valid_mask = _dense_truth_and_mask(
+                shot_ctx.synthetic_case, reference_frame, reference_frame + chain_length,
+                analysis_width, analysis_height, spacing_x, spacing_y,
+            )
+            try:
                 chain_value = metrics_module.chain_drift_px(flows, truth_grid, valid_mask, chain_length)
                 result_metrics["chain_drift_px"] = chain_value
                 not_applicable.discard("chain_drift_px")
-        except (ExrFailure, EvaluatorFailure, DependencyFailure, MetricFailure) as exc:
-            raise _CellFail(_failure("quality_gate_failed", f"chain drift could not be computed: {exc}", stage="metrics")) from exc
+            except MetricFailure as exc:
+                raise _CellFail(_failure("quality_gate_failed", f"chain drift could not be computed: {exc}", stage="metrics")) from exc
 
     # Unpadded analysis-resolution RGB, needed by the optional visible-warp metric and by the
     # local review preview below. Computed unconditionally (a cheap reshape/crop, not expected
@@ -924,67 +1076,41 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
     except MetricFailure as exc:
         ctx.log(f"visible_warp_residual skipped for {cell.as_dict()}: {exc}")
 
-    # Forward/backward residual: optional, needs a reverse-direction inference.
-    try:
-        reverse_first, reverse_second = _load_pair(
-            shot_ctx, reference_frame + 1, reference_frame, exr_decoder=ctx.exr_decoder,
-        )
-        reverse_result, _, _, _, _ = _infer_pair(
-            evaluator_instance, artifact, reverse_first, reverse_second,
-            provider=cell.provider, conditioning_token=cell.conditioning,
-            cap_megapixels=cap_megapixels, array_module=ctx.array_module,
-            profile="smoke", stage_sampler=None,
-        )
-        residual_mask = [[True] * analysis_width for _ in range(analysis_height)]
-        residual = metrics_module.forward_backward_residual_px(predicted_flow, reverse_result["flow"], residual_mask)
-        result_metrics["forward_backward_residual_px"] = residual
-        not_applicable.discard("forward_backward_residual_px")
-    except (ExrFailure, EvaluatorFailure, DependencyFailure, MetricFailure) as exc:
-        ctx.log(f"forward_backward_residual_px skipped for {cell.as_dict()}: {exc}")
+    # Forward/backward residual: optional; the reverse-direction inference already happened (or
+    # was skipped, with a log message already emitted above) in _perform_cell_inference.
+    reverse_flow = payload.get("reverse_flow")
+    if reverse_flow is not None:
+        try:
+            residual_mask = [[True] * analysis_width for _ in range(analysis_height)]
+            residual = metrics_module.forward_backward_residual_px(predicted_flow, reverse_flow, residual_mask)
+            result_metrics["forward_backward_residual_px"] = residual
+            not_applicable.discard("forward_backward_residual_px")
+        except MetricFailure as exc:
+            ctx.log(f"forward_backward_residual_px skipped for {cell.as_dict()}: {exc}")
 
     result_metrics["not_applicable"] = sorted(not_applicable)
 
     # Fix C: blinded per-candidate previews of THIS candidate's own predicted output -- a
     # target-warped-by-predicted-flow image plus a flow visualization -- across every offset in
-    # ctx.chain_offsets that is actually loadable, so a reviewer can see edge adherence and
-    # temporal drift rather than the identical raw input frames every candidate would otherwise
-    # share. Only for shots without trustworthy automated truth; every preview lives under a
-    # directory keyed by the anonymized label, never the real candidate id.
+    # ctx.chain_offsets that was actually inferrable (Fix G: inference already happened in
+    # _perform_cell_inference; this only renders/writes the already-returned flow/image data).
     if not shot_ctx.has_analytic_truth and ctx.review_dir is not None:
         _write_offset_preview(ctx.review_dir, cell, 1, image2, predicted_flow, analysis_width, analysis_height)
-        for offset in sorted(set(ctx.chain_offsets) - {1}):
-            try:
-                offset_first, offset_second = _load_pair(
-                    shot_ctx, reference_frame, reference_frame + offset, exr_decoder=ctx.exr_decoder,
-                )
-                offset_result, offset_geometry, _, _, offset_second_nchw = _infer_pair(
-                    evaluator_instance, artifact, offset_first, offset_second,
-                    provider=cell.provider, conditioning_token=cell.conditioning,
-                    cap_megapixels=cap_megapixels, array_module=ctx.array_module,
-                    profile="smoke", stage_sampler=None,
-                )
-                offset_width = offset_geometry["analysis_width"]
-                offset_height = offset_geometry["analysis_height"]
-                offset_image2 = _unpadded_grid(offset_second_nchw, offset_width, offset_height)
-                _write_offset_preview(
-                    ctx.review_dir, cell, offset, offset_image2, offset_result["flow"], offset_width, offset_height,
-                )
-            except (ExrFailure, EvaluatorFailure, DependencyFailure) as exc:
-                ctx.log(f"review preview offset {offset} skipped for {cell.as_dict()}: {exc}")
+        for offset_key, offset_data in (payload.get("review_offsets") or {}).items():
+            _write_offset_preview(
+                ctx.review_dir, cell, int(offset_key), offset_data["image2"], offset_data["flow"],
+                offset_data["width"], offset_data["height"],
+            )
 
-    input_frames = [
-        {"frame": first["frame"], "sha256": first["sha256"]},
-        {"frame": second["frame"], "sha256": second["sha256"]},
-    ]
     category = (shot_ctx.shot.get("categories") or [None])[0]
     passing: dict[str, Any] = {
-        "input_frames": input_frames,
+        "input_frames": payload["input_frames"],
         "geometry": geometry,
         "timing": base_result["timing"],
         "metrics": result_metrics,
         "resource": resource,
         "environment": base_result["environment"],
-        "conditioning_parameters": cond_meta["conditioning_parameters"],
+        "conditioning_parameters": conditioning_parameters,
     }
     if category is not None:
         passing["category"] = category
@@ -1124,6 +1250,10 @@ def _compute_identity(
     runner_metadata: Mapping[str, Any],
     hardware: Mapping[str, Any],
     chain_offsets: Sequence[int],
+    *,
+    device_index: int,
+    poll_interval_s: float,
+    nvml_enabled: bool,
 ) -> dict[str, Any]:
     """Bind every input that can change a cell's produced result or reported resource use.
 
@@ -1134,6 +1264,13 @@ def _compute_identity(
     second run would silently resume/reuse the first's (wrong) results. ``evaluator_sha256``
     similarly is not otherwise bound: a different evaluator build measuring the same matrix is a
     different run. ``chain_offsets`` changes which auxiliary frames/metrics a cell attempts.
+
+    Fix I: ``device_index``/``poll_interval_s``/``nvml_enabled`` and the GPU/driver hardware
+    fields are ALSO result-affecting for a CUDA matrix -- without them, a run measured with
+    ``--no-nvml`` (which reports a flat zero ``resource`` for every CUDA cell) and a rerun of
+    the identical selection with NVML enabled would collide on one identity, and the second
+    invocation would silently resume/reuse the first's placeholder (zero) resource evidence
+    instead of measuring anything.
     """
 
     return {
@@ -1159,8 +1296,15 @@ def _compute_identity(
         "hardware": {
             "platform": hardware.get("platform", ""),
             "architecture": hardware.get("architecture", ""),
+            "gpu": hardware.get("gpu", ""),
+            "driver": hardware.get("driver", ""),
         },
         "chain_offsets": sorted(int(offset) for offset in chain_offsets),
+        "measurement": {
+            "device_index": device_index,
+            "poll_interval_s": poll_interval_s,
+            "nvml_enabled": nvml_enabled,
+        },
     }
 
 
@@ -1198,6 +1342,16 @@ def _report_matches_current_run(report: Mapping[str, Any], identity: Mapping[str
             return False
         if runner.get("runtime_sha256") != identity["runtime"]["runtime_sha256"]:
             return False
+        report_hardware = report.get("hardware")
+        if not isinstance(report_hardware, Mapping):
+            return False
+        if report_hardware.get("gpu", "") != identity["hardware"]["gpu"]:
+            return False
+        if report_hardware.get("driver", "") != identity["hardware"]["driver"]:
+            return False
+        # device_index/poll_interval_s/nvml_enabled (Fix I) are not part of the report-v2
+        # schema at all, so they cannot be cross-checked from report.json's own content here;
+        # resume.load_state's identity_sha256 check (the common case) is what enforces them.
         # Candidate manifest_sha256/artifact_sha256 are deliberately NOT compared here.
         # report["candidates"] carries whatever the *operator's* --candidates input declared
         # (legal/measurement-admission evidence); identity["candidates"] carries the hashes
@@ -1259,7 +1413,9 @@ class RunnerLog:
         self._stream.close()
 
 
-def _write_csv_file(path: Path, header: Sequence[str], rows: Sequence[Sequence[str]], *, replace: bool) -> None:
+def _write_csv_file(
+    path: Path, header: Sequence[str], rows: Sequence[Sequence[str]], *, replace: bool, only_if_missing: bool = False,
+) -> None:
     """Write one driver-owned CSV (nvml.csv/review.csv) fresh, exactly once, never appended.
 
     Fix E: both files are a deterministic function of durable completed state (nvml.csv from
@@ -1269,11 +1425,18 @@ def _write_csv_file(path: Path, header: Sequence[str], rows: Sequence[Sequence[s
     nothing (and creates no file) when ``rows`` is empty, matching the existing contract that
     these files exist only when there is something to report (e.g. no nvml.csv for a CPU-only
     run). No-clobber unless ``replace``, mirroring report.json/report.csv.
+
+    ``only_if_missing`` (Fix F): when the destination already exists, silently leave it alone
+    instead of failing or replacing it -- used when repairing a resumed run's output directory
+    (report.json already published under the current identity) where an already-correct file
+    should never be touched, but a file a human deleted (or a crash left missing) should be.
     """
 
     if not rows:
         return
     if path.exists():
+        if only_if_missing:
+            return
         if not replace:
             _fail("output_exists", f"{path} already exists; rerun with --replace to overwrite")
         path.unlink()
@@ -1307,6 +1470,7 @@ def _regenerate_sidecar_outputs(
     completed: Sequence[Mapping[str, Any]],
     *,
     replace: bool,
+    only_if_missing: bool = False,
 ) -> None:
     """Assemble nvml.csv and review.csv once, from durable completed state (Fix E).
 
@@ -1314,6 +1478,12 @@ def _regenerate_sidecar_outputs(
     complete. Iterates ``plan.cells`` in its fixed order (matching ``completed``'s order, per
     ``RunCoordinator``), so re-running this after a resume always produces the identical file:
     exactly one row-set per cell, regardless of how many partial attempts that cell needed.
+
+    Fix F: also called (with ``only_if_missing=True``) when report.json already existed under
+    the current identity and every cell was already complete -- a crash or a manual deletion
+    that left report.json present but nvml.csv/review.csv missing must still be repaired on the
+    next resumed invocation, since the per-cell sidecars this reads from remain durable on disk
+    regardless of whether report.json itself needed regenerating.
     """
 
     shots = _shot_index(corpus)
@@ -1333,8 +1503,8 @@ def _regenerate_sidecar_outputs(
             cell.conditioning, cell.cap, cell.provider, cell.host_load,
             str(_review_preview_dir(review_dir, cell)), "", "", "", "", "", "",
         ])
-    _write_csv_file(output_dir / "nvml.csv", NVML_CSV_HEADER, nvml_rows, replace=replace)
-    _write_csv_file(output_dir / "review.csv", REVIEW_CSV_HEADER, review_rows, replace=replace)
+    _write_csv_file(output_dir / "nvml.csv", NVML_CSV_HEADER, nvml_rows, replace=replace, only_if_missing=only_if_missing)
+    _write_csv_file(output_dir / "review.csv", REVIEW_CSV_HEADER, review_rows, replace=replace, only_if_missing=only_if_missing)
 
 
 def _write_summary_txt(path: Path, report: Mapping[str, Any], plan: MatrixPlan) -> None:
@@ -1478,6 +1648,8 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
 
     identity = _compute_identity(
         protocol, corpus, plan, environment, profile, artifacts, runner_section, hardware, config.chain_offsets,
+        device_index=config.device_index, poll_interval_s=config.poll_interval_s,
+        nvml_enabled=config.nvml_backend_factory is not None,
     )
 
     if config.state_path.exists():
@@ -1540,6 +1712,12 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
         runner_log.write("report.json already published by an earlier invocation under the same identity; not regenerating")
         if not summary_path.exists():
             _write_summary_txt(summary_path, report, plan)
+        # Fix F: repair nvml.csv/review.csv if a crash or manual deletion left them missing --
+        # the per-cell sidecars this reads from are durable regardless of whether report.json
+        # itself needed regenerating. Never touches either file if it already exists.
+        _regenerate_sidecar_outputs(
+            config.output_dir, review_dir, corpus, plan, completed, replace=config.replace, only_if_missing=True,
+        )
     else:
         report_metadata = _build_report_metadata(config.report_metadata, corpus, environment, profile, hardware, runner_section)
         report = assemble_report(
