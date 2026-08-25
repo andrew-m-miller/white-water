@@ -19,10 +19,13 @@ dependency:
 Frames returned by :func:`frame_from_exr` use the same mapping shape as
 ``evaluator.frame_from_pfm``: ``width``, ``height``, ``channels`` (always 3; alpha is dropped),
 ``rows`` (``rows[y][x]`` is a 3-tuple of floats R, G, B), ``pixel_aspect_ratio``, ``frame``,
-``sha256`` (of the raw file bytes, not the decoded pixels) and ``source``. Unlike the bottom-origin
-PFM convention, ``rows[0]`` here is the EXR's native top scanline; nothing downstream (geometry
-matching, pairing) depends on vertical origin, only on both frames of a pair agreeing, which a
-single reader always gives.
+``sha256`` (of the raw file bytes, not the decoded pixels) and ``source``. ``rows[0]`` is the
+image's **bottom** row: OIIO presents scanlines top-to-bottom, but this repository's row
+convention -- shared with ``pfm.read_pfm`` and ``synthetic.COORDINATE_CONVENTION`` ("row zero is
+the bottom row in PFM and row-major buffers") -- is bottom-origin, so :func:`frame_from_exr`
+reverses OIIO's scanline order before returning. Two additional keys record source provenance
+without disturbing that shape: ``source_channels`` (``"RGB"`` or ``"RGBA"``, alpha dropped either
+way) and ``source_format`` (``"half"`` or ``"float"``, the on-disk pixel storage class).
 """
 
 from __future__ import annotations
@@ -62,30 +65,92 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _select_rgb_indices(channel_names: Sequence[str]) -> tuple[int, int, int]:
-    """Return the R, G, B channel indices, dropping alpha and rejecting fewer than 3 colors.
+def _classify_channels(channel_names: Sequence[str]) -> tuple[tuple[int, int, int], str]:
+    """Return ``((r_index, g_index, b_index), "RGB"|"RGBA")``, rejecting anything else.
 
-    Pure by design (no OIIO): this is the part of "RGBA drops alpha to RGB" and "reject files
-    with fewer than 3 usable color channels" that can be unit-tested with a plain list of names.
+    Pure by design (no OIIO): unit-tested directly with plain channel-name lists. Requires R, G
+    and B to be present (dropping alpha to RGB is still the decode-time behavior), and rejects
+    any channel beyond R/G/B/A -- a depth AOV, a cryptomatte layer, or anything else -- because
+    the plan requires a constant RGB-or-RGBA layout within a sequence, not "whatever channels
+    this file happened to carry".
     """
 
     names = list(channel_names)
     try:
-        return (names.index("R"), names.index("G"), names.index("B"))
+        indices = (names.index("R"), names.index("G"), names.index("B"))
     except ValueError:
         _fail(
             "unsupported_channels",
             f"EXR does not have usable R, G and B channels (found {names!r})",
         )
+    extra = set(names) - {"R", "G", "B", "A"}
+    if extra:
+        _fail("unsupported_channels", f"EXR has channels beyond RGB/RGBA: {names!r}")
+    layout = "RGBA" if "A" in names else "RGB"
+    return indices, layout
+
+
+_STORAGE_NAMES = {"half": "half", "float": "float"}
+
+
+def _format_name_from_string(type_name: str) -> str:
+    """Normalize one raw OIIO pixel-format name to ``"half"``/``"float"``, or fail.
+
+    Pure by design (no OIIO): takes the plain string OIIO's ``TypeDesc.__str__`` would produce
+    (e.g. ``"half"``, ``"float"``, ``"uint32"``), so integer/other storage rejection is directly
+    unit-testable without the optional dependency installed.
+    """
+
+    key = type_name.strip().lower()
+    normalized = _STORAGE_NAMES.get(key)
+    if normalized is None:
+        _fail(
+            "unsupported_storage",
+            f"EXR channel pixel storage must be half or float, found {type_name!r}",
+        )
+    return normalized
+
+
+def _source_format_from_names(type_names: Sequence[str]) -> str:
+    """Reduce the R/G/B channel storage names to one shared ``"half"``/``"float"`` format.
+
+    Pure by design (no OIIO). Rejects mixed per-channel storage as well as any non-half/float
+    storage, since the plan requires one storage class across a sequence's color channels.
+    """
+
+    ordered = list(type_names)
+    normalized = {_format_name_from_string(name) for name in ordered}
+    if len(normalized) != 1:
+        _fail(
+            "unsupported_storage",
+            f"EXR R/G/B channels do not share one pixel storage format: {ordered!r}",
+        )
+    return normalized.pop()
+
+
+def _bottom_origin_rows(rows_top_to_bottom: Sequence[Any]) -> tuple[Any, ...]:
+    """Reverse OIIO's top-to-bottom scanline order into this repository's bottom-origin rows.
+
+    Pure by design (no OIIO): fed a synthetic top-to-bottom sequence with a distinctive top vs
+    bottom row, this is directly unit-testable for the vertical-inversion bug -- a reader that
+    forgot to reverse would return the wrong row as ``rows[0]``, flipping dy for every downstream
+    landmark and metric.
+    """
+
+    return tuple(reversed(rows_top_to_bottom))
 
 
 def frame_from_exr(path: Path | str, *, frame_number: int = 0, pixel_aspect_ratio: float = 1.0) -> dict[str, Any]:
     """Read one OpenEXR file into the frame mapping accepted by ``condition_and_pad_pair``.
 
     Imports OpenImageIO lazily. RGBA files drop alpha to RGB (``channels`` is always 3 on
-    success). Half and float pixel storage are both accepted: OIIO is asked to return float32
-    regardless of on-disk storage, and whatever compression the file uses (ZIP, PIZ, DWA, ...) is
-    handled transparently by OIIO -- this module never implements decompression itself.
+    success) but the original layout is recorded in ``source_channels``. Half and float pixel
+    storage are both accepted -- OIIO is asked to return float32 regardless of on-disk storage --
+    and the original per-channel storage class is recorded in ``source_format``; any other
+    storage (integer, etc.) or any channel set beyond RGB/RGBA is a typed failure. Whatever
+    compression the file uses (ZIP, PIZ, DWA, ...) is handled transparently by OIIO -- this
+    module never implements decompression itself. Returned ``rows`` are bottom-origin (see the
+    module docstring).
     """
 
     try:
@@ -112,13 +177,22 @@ def frame_from_exr(path: Path | str, *, frame_number: int = 0, pixel_aspect_rati
     if width <= 0 or height <= 0:
         _fail("decode_error", f"EXR {input_path} has non-positive dimensions {width}x{height}")
 
-    r_index, g_index, b_index = _select_rgb_indices(list(spec.channelnames))
+    channel_names = list(spec.channelnames)
+    (r_index, g_index, b_index), source_channels = _classify_channels(channel_names)
+
+    channel_formats = list(spec.channelformats) if spec.channelformats else [spec.format] * len(channel_names)
+    source_format = _source_format_from_names(
+        str(channel_formats[index]) for index in (r_index, g_index, b_index)
+    )
 
     pixels = buf.get_pixels(oiio.FLOAT)
     if buf.has_error:
         _fail("decode_error", f"OpenImageIO could not read pixels from {input_path}: {buf.geterror()}")
 
-    rows: list[tuple[tuple[float, float, float], ...]] = []
+    # OIIO presents scanlines top-to-bottom (y=0 is the image's top row). Build rows in that
+    # native order first, then hand them to _bottom_origin_rows so rows[0] ends up as the
+    # BOTTOM row, matching pfm.read_pfm and synthetic.COORDINATE_CONVENTION.
+    rows_top_to_bottom: list[tuple[tuple[float, float, float], ...]] = []
     for y in range(height):
         row: list[tuple[float, float, float]] = []
         for x in range(width):
@@ -127,17 +201,19 @@ def frame_from_exr(path: Path | str, *, frame_number: int = 0, pixel_aspect_rati
             if any(not math.isfinite(value) for value in pixel):
                 _fail("nonfinite_sample", f"EXR {input_path} contains a nonfinite decoded sample")
             row.append(pixel)
-        rows.append(tuple(row))
+        rows_top_to_bottom.append(tuple(row))
 
     return {
         "width": width,
         "height": height,
         "channels": 3,
-        "rows": tuple(rows),
+        "rows": _bottom_origin_rows(rows_top_to_bottom),
         "pixel_aspect_ratio": float(pixel_aspect_ratio),
         "frame": frame_number,
         "sha256": _sha256_file(input_path),
         "source": str(path),
+        "source_channels": source_channels,
+        "source_format": source_format,
     }
 
 
@@ -256,18 +332,64 @@ def validate_pair_geometry(first: Mapping[str, Any], second: Mapping[str, Any]) 
         )
 
 
+def validate_pair_layout(first: Mapping[str, Any], second: Mapping[str, Any]) -> None:
+    """Raise a typed failure unless two decoded frames share source channel layout and storage.
+
+    Companion to :func:`validate_pair_geometry`: that function checks the numeric decode geometry
+    (width/height/channels/PAR) needed for conditioning; this one checks source provenance
+    (``"RGB"`` vs ``"RGBA"``, ``"half"`` vs ``"float"``) so a sequence that silently mixes channel
+    layout or storage class mid-shot is caught before the mismatch reaches conditioning.
+    """
+
+    for key in ("source_channels", "source_format"):
+        if first.get(key) != second.get(key):
+            _fail(
+                "layout_mismatch",
+                f"paired EXR frames differ in {key}: {first.get(key)!r} vs {second.get(key)!r}",
+            )
+
+
+def validate_frame_matches_shot_metadata(shot: Mapping[str, Any], frame: Mapping[str, Any]) -> None:
+    """Raise a typed failure if a decoded frame disagrees with the shot's declared metadata.
+
+    Only checks the axes the shot record actually declares -- ``channels`` in ``{"RGB",
+    "RGBA"}`` and ``bit_depth`` in ``{"half", "float"}``, per
+    ``bakeoff/production-corpus-v1.template.json`` -- so a shot record without one of these
+    fields is simply not checked on that axis.
+    """
+
+    declared_channels = shot.get("channels")
+    if declared_channels is not None and frame.get("source_channels") != declared_channels:
+        _fail(
+            "metadata_mismatch",
+            f"shot declares channels={declared_channels!r} but the decoded frame is "
+            f"{frame.get('source_channels')!r}",
+        )
+    declared_depth = shot.get("bit_depth")
+    if declared_depth is not None and frame.get("source_format") != declared_depth:
+        _fail(
+            "metadata_mismatch",
+            f"shot declares bit_depth={declared_depth!r} but the decoded frame is "
+            f"{frame.get('source_format')!r}",
+        )
+
+
 def load_pair(
     shot: Mapping[str, Any],
     offset: int,
     *,
     decoder: Callable[..., dict[str, Any]] = frame_from_exr,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Resolve, decode and geometry-validate the reference/target EXR pair at a signed offset.
+    """Resolve, decode and validate the reference/target EXR pair at a signed offset.
 
     ``decoder`` defaults to :func:`frame_from_exr` but is injected so callers (including this
-    module's tests) can exercise pairing and geometry validation without OpenImageIO. It is
-    called as ``decoder(path, frame_number=..., pixel_aspect_ratio=...)`` for each of the two
-    frames, in reference-then-target order.
+    module's tests) can exercise pairing and validation without OpenImageIO. It is called as
+    ``decoder(path, frame_number=..., pixel_aspect_ratio=...)`` for each of the two frames, in
+    reference-then-target order. Validates, in order: paired decode geometry
+    (:func:`validate_pair_geometry`), paired source layout/storage
+    (:func:`validate_pair_layout`), and -- for each frame independently -- agreement with the
+    shot's declared ``channels``/``bit_depth`` metadata, when declared
+    (:func:`validate_frame_matches_shot_metadata`).
     """
 
     reference_path, target_path, reference_frame, target_frame = reference_target_pair(shot, offset)
@@ -275,6 +397,9 @@ def load_pair(
     first = decoder(reference_path, frame_number=reference_frame, pixel_aspect_ratio=par)
     second = decoder(target_path, frame_number=target_frame, pixel_aspect_ratio=par)
     validate_pair_geometry(first, second)
+    validate_pair_layout(first, second)
+    validate_frame_matches_shot_metadata(shot, first)
+    validate_frame_matches_shot_metadata(shot, second)
     return first, second
 
 
@@ -284,5 +409,7 @@ __all__ = [
     "frame_from_exr",
     "load_pair",
     "reference_target_pair",
+    "validate_frame_matches_shot_metadata",
     "validate_pair_geometry",
+    "validate_pair_layout",
 ]

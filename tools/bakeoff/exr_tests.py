@@ -15,12 +15,17 @@ from typing import Any
 
 from .exr import (
     ExrFailure,
-    _select_rgb_indices,
+    _bottom_origin_rows,
+    _classify_channels,
+    _format_name_from_string,
+    _source_format_from_names,
     expand_shot_sequence,
     frame_from_exr,
     load_pair,
     reference_target_pair,
+    validate_frame_matches_shot_metadata,
     validate_pair_geometry,
+    validate_pair_layout,
 )
 
 
@@ -134,17 +139,51 @@ def test_geometry_mismatch_detection() -> None:
         assert _failure_kind(lambda m=mismatched: validate_pair_geometry(base, m)) == "geometry_mismatch"
 
 
-def test_select_rgb_indices_channel_reduction() -> None:
-    assert _select_rgb_indices(["R", "G", "B"]) == (0, 1, 2)
-    assert _select_rgb_indices(["R", "G", "B", "A"]) == (0, 1, 2)
+def test_classify_channels_layout_and_rejection() -> None:
+    assert _classify_channels(["R", "G", "B"]) == ((0, 1, 2), "RGB")
+    assert _classify_channels(["R", "G", "B", "A"]) == ((0, 1, 2), "RGBA")
     # Order in the file need not be R, G, B, A -- indices should follow the actual positions.
-    assert _select_rgb_indices(["A", "B", "G", "R"]) == (3, 2, 1)
-    assert _failure_kind(lambda: _select_rgb_indices(["Y"])) == "unsupported_channels"
-    assert _failure_kind(lambda: _select_rgb_indices(["R", "G"])) == "unsupported_channels"
-    assert _failure_kind(lambda: _select_rgb_indices([])) == "unsupported_channels"
+    assert _classify_channels(["A", "B", "G", "R"]) == ((3, 2, 1), "RGBA")
+    assert _failure_kind(lambda: _classify_channels(["Y"])) == "unsupported_channels"
+    assert _failure_kind(lambda: _classify_channels(["R", "G"])) == "unsupported_channels"
+    assert _failure_kind(lambda: _classify_channels([])) == "unsupported_channels"
+    # A channel beyond RGB/RGBA (e.g. a depth AOV) is rejected, not silently ignored.
+    assert _failure_kind(lambda: _classify_channels(["R", "G", "B", "Z"])) == "unsupported_channels"
+    assert _failure_kind(lambda: _classify_channels(["R", "G", "B", "A", "Z"])) == "unsupported_channels"
+
+
+def test_source_format_rejects_integer_and_mixed_storage() -> None:
+    assert _format_name_from_string("half") == "half"
+    assert _format_name_from_string("float") == "float"
+    assert _format_name_from_string(" Float ") == "float"  # tolerant of case/whitespace
+    assert _failure_kind(lambda: _format_name_from_string("uint32")) == "unsupported_storage"
+    assert _failure_kind(lambda: _format_name_from_string("uint8")) == "unsupported_storage"
+    assert _failure_kind(lambda: _format_name_from_string("double")) == "unsupported_storage"
+
+    assert _source_format_from_names(["half", "half", "half"]) == "half"
+    assert _source_format_from_names(["float", "float", "float"]) == "float"
+    assert _failure_kind(lambda: _source_format_from_names(["half", "float", "half"])) == "unsupported_storage"
+    assert _failure_kind(lambda: _source_format_from_names(["uint32", "uint32", "uint32"])) == "unsupported_storage"
+
+
+def test_bottom_origin_row_reversal_catches_vertical_inversion() -> None:
+    # Row 0 in OIIO's top-to-bottom order carries a distinctive "top" marker; the last row (the
+    # image's bottom) carries a "bottom" marker. A reader that forgot to reverse would return
+    # rows[0] as the top row here, flipping dy sign for every downstream landmark/metric.
+    top_to_bottom = (
+        ("top-row-marker",),
+        ("middle-row",),
+        ("bottom-row-marker",),
+    )
+    bottom_origin = _bottom_origin_rows(top_to_bottom)
+    assert bottom_origin[0] == ("bottom-row-marker",)
+    assert bottom_origin[-1] == ("top-row-marker",)
+    assert bottom_origin == tuple(reversed(top_to_bottom))
 
 
 def test_load_pair_with_fake_decoder_and_geometry_propagation() -> None:
+    # Default shot fixture declares channels="RGBA", bit_depth="half"; the fake decoder below
+    # matches that so this exercises the happy path through all of load_pair's validation.
     shot = _shot(first_frame=1001, last_frame=1017, reference_frame=1009, pixel_aspect_ratio=2.0)
     calls: list[tuple[str, int, float]] = []
 
@@ -163,6 +202,8 @@ def test_load_pair_with_fake_decoder_and_geometry_propagation() -> None:
             "frame": frame_number,
             "sha256": "0" * 64,
             "source": path,
+            "source_channels": "RGBA",
+            "source_format": "half",
         }
 
     first, second = load_pair(shot, 4, decoder=fake_decoder)
@@ -185,9 +226,91 @@ def test_load_pair_with_fake_decoder_and_geometry_propagation() -> None:
             "frame": frame_number,
             "sha256": "0" * 64,
             "source": path,
+            "source_channels": "RGBA",
+            "source_format": "half",
         }
 
     assert _failure_kind(lambda: load_pair(shot, 1, decoder=mismatched_decoder)) == "geometry_mismatch"
+
+
+def test_load_pair_rejects_rgba_rgb_layout_mismatch() -> None:
+    shot = _shot(first_frame=1001, last_frame=1017, reference_frame=1009, channels=None, bit_depth=None)
+
+    def decoder(path: str, *, frame_number: int, pixel_aspect_ratio: float) -> dict[str, Any]:
+        layout = "RGBA" if frame_number == 1009 else "RGB"
+        return {
+            "width": 1920,
+            "height": 1080,
+            "channels": 3,
+            "rows": (((0.1, 0.1, 0.1),),),
+            "pixel_aspect_ratio": pixel_aspect_ratio,
+            "frame": frame_number,
+            "sha256": "0" * 64,
+            "source": path,
+            "source_channels": layout,
+            "source_format": "half",
+        }
+
+    assert _failure_kind(lambda: load_pair(shot, 1, decoder=decoder)) == "layout_mismatch"
+
+
+def test_load_pair_rejects_metadata_mismatch_against_shot() -> None:
+    shot = _shot(first_frame=1001, last_frame=1017, reference_frame=1009, channels="RGB", bit_depth="float")
+
+    def decoder(path: str, *, frame_number: int, pixel_aspect_ratio: float) -> dict[str, Any]:
+        return {
+            "width": 1920,
+            "height": 1080,
+            "channels": 3,
+            "rows": (((0.1, 0.1, 0.1),),),
+            "pixel_aspect_ratio": pixel_aspect_ratio,
+            "frame": frame_number,
+            "sha256": "0" * 64,
+            "source": path,
+            "source_channels": "RGB",
+            "source_format": "half",  # shot declares float -- this must be rejected
+        }
+
+    assert _failure_kind(lambda: load_pair(shot, 1, decoder=decoder)) == "metadata_mismatch"
+
+    def channel_mismatch_decoder(path: str, *, frame_number: int, pixel_aspect_ratio: float) -> dict[str, Any]:
+        return {
+            "width": 1920,
+            "height": 1080,
+            "channels": 3,
+            "rows": (((0.1, 0.1, 0.1),),),
+            "pixel_aspect_ratio": pixel_aspect_ratio,
+            "frame": frame_number,
+            "sha256": "0" * 64,
+            "source": path,
+            "source_channels": "RGBA",  # shot declares RGB -- this must be rejected
+            "source_format": "float",
+        }
+
+    assert _failure_kind(lambda: load_pair(shot, 1, decoder=channel_mismatch_decoder)) == "metadata_mismatch"
+
+
+def test_validate_pair_layout_detects_mismatch() -> None:
+    base = {"source_channels": "RGB", "source_format": "half"}
+    validate_pair_layout(base, dict(base))  # identical layout is fine
+
+    for key, other in (("source_channels", "RGBA"), ("source_format", "float")):
+        mismatched = dict(base)
+        mismatched[key] = other
+        assert _failure_kind(lambda m=mismatched: validate_pair_layout(base, m)) == "layout_mismatch"
+
+
+def test_validate_frame_matches_shot_metadata_skips_undeclared_fields() -> None:
+    frame = {"source_channels": "RGBA", "source_format": "half"}
+    validate_frame_matches_shot_metadata({}, frame)  # no declared fields -> nothing to check
+    validate_frame_matches_shot_metadata({"channels": "RGBA"}, frame)  # matches -> fine
+    validate_frame_matches_shot_metadata({"bit_depth": "half"}, frame)  # matches -> fine
+    assert _failure_kind(
+        lambda: validate_frame_matches_shot_metadata({"channels": "RGB"}, frame)
+    ) == "metadata_mismatch"
+    assert _failure_kind(
+        lambda: validate_frame_matches_shot_metadata({"bit_depth": "float"}, frame)
+    ) == "metadata_mismatch"
 
 
 def test_frame_from_exr_reports_typed_dependency_failure_when_oiio_absent() -> None:
@@ -209,13 +332,18 @@ def test_optional_oiio_round_trip() -> None:
 
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "roundtrip.exr"
-        width, height = 3, 2
+        width, height = 3, 4
         spec = oiio.ImageSpec(width, height, 4, oiio.HALF)
         spec.channelnames = ("R", "G", "B", "A")
         buf = oiio.ImageBuf(spec)
         for y in range(height):
             for x in range(width):
-                buf.setpixel(x, y, (x / 10.0, y / 10.0, 0.5, 1.0))
+                # OIIO's setpixel y=0 is the image's first (top) scanline; y=height-1 is its
+                # last (bottom) scanline. R varies by row so the test can assert the returned
+                # frame's rows[0] is the BOTTOM row and rows[-1] is the TOP row -- this
+                # repository's bottom-origin convention (see synthetic.COORDINATE_CONVENTION and
+                # pfm.py), which OIIO does not follow natively.
+                buf.setpixel(x, y, (float(y) / 10.0, x / 10.0, 0.5, 1.0))
         assert buf.write(str(path))
 
         frame = frame_from_exr(path, frame_number=7, pixel_aspect_ratio=1.5)
@@ -225,12 +353,22 @@ def test_optional_oiio_round_trip() -> None:
         assert frame["frame"] == 7
         assert frame["pixel_aspect_ratio"] == 1.5
         assert frame["source"] == str(path)
+        assert frame["source_channels"] == "RGBA"
+        assert frame["source_format"] == "half"
         assert len(frame["sha256"]) == 64
+
+        top_written_r = 0.0 / 10.0
+        bottom_written_r = (height - 1) / 10.0
+        bottom_row_r = frame["rows"][0][0][0]
+        top_row_r = frame["rows"][-1][0][0]
+        assert abs(bottom_row_r - bottom_written_r) < 1e-3, "rows[0] must be the BOTTOM scanline"
+        assert abs(top_row_r - top_written_r) < 1e-3, "rows[-1] must be the TOP scanline"
+
         for y in range(height):
             for x in range(width):
-                r, g, b = frame["rows"][y][x]
-                assert abs(r - x / 10.0) < 1e-3
-                assert abs(g - y / 10.0) < 1e-3
+                r, g, b = frame["rows"][height - 1 - y][x]
+                assert abs(r - float(y) / 10.0) < 1e-3
+                assert abs(g - x / 10.0) < 1e-3
                 assert abs(b - 0.5) < 1e-3
 
 
@@ -241,8 +379,14 @@ def main() -> int:
     test_reference_target_pair_offsets_both_directions()
     test_reference_target_pair_out_of_range_is_typed()
     test_geometry_mismatch_detection()
-    test_select_rgb_indices_channel_reduction()
+    test_classify_channels_layout_and_rejection()
+    test_source_format_rejects_integer_and_mixed_storage()
+    test_bottom_origin_row_reversal_catches_vertical_inversion()
     test_load_pair_with_fake_decoder_and_geometry_propagation()
+    test_load_pair_rejects_rgba_rgb_layout_mismatch()
+    test_load_pair_rejects_metadata_mismatch_against_shot()
+    test_validate_pair_layout_detects_mismatch()
+    test_validate_frame_matches_shot_metadata_skips_undeclared_fields()
     test_frame_from_exr_reports_typed_dependency_failure_when_oiio_absent()
     test_optional_oiio_round_trip()
     print("P25-6 EXR reader tests passed")
