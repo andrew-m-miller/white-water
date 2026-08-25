@@ -127,6 +127,17 @@ REVIEW_CSV_HEADER: tuple[str, ...] = (
     "host_load", "preview_path", "edge_adherence", "occlusion_reveal", "blur", "jitter", "drift", "notes",
 )
 
+# Fix N: which REVIEW_CSV_HEADER columns identify a row's CellKey (indices into the header
+# tuple above) versus the trailing human-edited columns a repair pass must never blank. Deliberately
+# NOT the full 8-column driver-owned prefix: "category" and "preview_path" are driver-owned but
+# derived metadata (shot category lookup, review-preview path), not row identity, so a corrupted
+# value in either of those two must still be repairable without losing that row's human columns --
+# only candidate_label/shot_id/conditioning_token/cap_token/provider/host_load (which together
+# mirror a CellKey exactly, once candidate_id is replaced by its pseudonymous label) are load-bearing
+# for matching a row across a repair.
+_REVIEW_IDENTITY_COLUMNS: tuple[int, ...] = (0, 1, 3, 4, 5, 6)
+_REVIEW_HUMAN_COLUMN_COUNT = 6  # edge_adherence, occlusion_reveal, blur, jitter, drift, notes
+
 _OUTPUT_FILE_MODE = 0o644
 
 
@@ -1444,16 +1455,22 @@ def _run_identity_path(output_dir: Path) -> Path:
 
 
 def _write_run_identity(output_dir: Path, identity: Mapping[str, Any]) -> None:
-    """Durably persist the FULL run identity (Fix J) alongside a freshly published report.
+    """Durably persist the FULL run identity (Fix J).
 
     report.json is schema-constrained (report-v2 forbids unknown properties) and several
     identity fields -- device_index, poll_interval_s, nvml_enabled -- have no home in that
     schema at all, so they can never be cross-checked from the report's own content. This
-    sidecar is the authoritative record of exactly which identity produced the currently
-    published report/nvml.csv/review.csv, checked by hash (never by merely existing) before any
-    of them is ever reused. Not one of the five operator return files; internal bookkeeping
-    only, like ``.sidecars/``. Always overwritten (this file's only job is to describe whatever
-    is currently on disk, so there is nothing to preserve from an older identity).
+    sidecar is the authoritative record of exactly which identity is (or is about to be)
+    producing the report/nvml.csv/review.csv in this output_dir, checked by hash (never by
+    merely existing) before any of them is ever reused. Not one of the five operator return
+    files; internal bookkeeping only, like ``.sidecars/``. Always overwritten (this file's only
+    job is to describe whatever is currently -- or about to be -- on disk, so there is nothing to
+    preserve from an older identity).
+
+    Fix M: called from `_establish_run_identity_up_front`, BEFORE report.json/summary.txt/
+    nvml.csv/review.csv are (re)published for this identity, not after -- so this record can
+    never trail a published report the way it could when it was written last, and a crash between
+    publishing report.json and this write is no longer possible (the write already happened).
     """
 
     payload = (
@@ -1476,6 +1493,94 @@ def _read_run_identity_sha256(output_dir: Path) -> str | None:
         return None
     value = data.get("identity_sha256") if isinstance(data, Mapping) else None
     return value if isinstance(value, str) else None
+
+
+def _establish_run_identity_up_front(output_dir: Path, identity: Mapping[str, Any], *, replace: bool) -> None:
+    """Validate/establish ``.run-identity.json`` before a single cell executes (Fix L), and
+    guarantee the identity record can never trail a published report.json (Fix M).
+
+    Called immediately once ``identity`` is computed -- before resume state is loaded or
+    created, before the executor is built, and before ``RunCoordinator.run()`` can touch a
+    single per-cell sidecar or review preview. This matters because those are keyed only by
+    CellKey, not by run identity: without this up-front check, a rejected run (caught by the old
+    end-of-run-only Fix J guard) had already overwritten the ORIGINAL run's sidecars/previews by
+    the time it was caught, corrupting evidence that a resumed original run would then silently
+    fold into a report claiming it came from the original measurement.
+
+    Four cases, in order:
+
+    * ``--replace``: an explicit fresh start. Overwrite the identity record unconditionally --
+      whatever (if anything) previously produced this output_dir is being replaced regardless,
+      and Fix N's per-file no-clobber-unless-replace logic will do the same for the other outputs.
+    * report.json exists and its persisted identity hash already matches this invocation's: nothing
+      to do -- a legitimate no-op re-run or repair pass.
+    * report.json exists but the persisted identity is ABSENT: this is the Fix M recovery case --
+      a run that crashed (or hit a write failure) between publishing report.json and writing its
+      identity sidecar (that write order held even pre-fix, since ``_write_run_identity`` was
+      always the LAST write) must not be permanently stuck demanding ``--replace``. Recoverable
+      IFF the already-published report's own content is consistent with this invocation's identity
+      (``_report_matches_current_run``, the same report-derived cross-check kept below as a
+      secondary safety net); if so, the identity is established now, before anything else runs.
+      Otherwise this is a genuinely different, unrelated report reusing the directory -- refused,
+      same as a hash mismatch.
+    * report.json exists and the persisted identity hash MISMATCHES: a different run (different
+      profile, matrix selection, candidate artifacts, or measurement configuration such as
+      --device-index/--poll-interval-s/--no-nvml) reusing this --output-dir. Refused immediately,
+      with zero side effects -- no resume state created or loaded, no executor built, no cell
+      executed, no sidecar or review preview touched.
+    * report.json does not exist yet (a fresh run, or an interrupted run whose report was never
+      published): if no identity is persisted yet, establish one now -- covering both a genuinely
+      fresh output_dir and the first invocation of a run this fix hasn't seen complete yet. If one
+      IS already persisted, it must match: a fresh ``--state``/``--output-dir`` combination that
+      collides with an in-progress run under a DIFFERENT identity is refused here too, before any
+      cell executes -- ``resume.load_state``'s own identity check only guards the specific
+      ``--state`` path reused, not a fresh one pointed at a reused ``--output-dir`` (this is
+      exactly Fix L's reproduced scenario).
+    """
+
+    if replace:
+        _write_run_identity(output_dir, identity)
+        return
+
+    current_sha256 = canonical_sha256(identity)
+    persisted_sha256 = _read_run_identity_sha256(output_dir)
+    json_path = output_dir / "report.json"
+
+    if json_path.exists():
+        if persisted_sha256 == current_sha256:
+            return
+        if persisted_sha256 is None:
+            try:
+                published_report = load_json(json_path)
+            except (OSError, ValueError) as exc:
+                raise DriverFailure(
+                    "report_identity_mismatch",
+                    f"{json_path} exists but could not be read to recover its missing "
+                    f"{_run_identity_path(output_dir)}: {exc}; rerun with --replace to overwrite, "
+                    "or use a different --output-dir",
+                ) from exc
+            if _report_matches_current_run(published_report, identity):
+                _write_run_identity(output_dir, identity)
+                return
+        raise DriverFailure(
+            "report_identity_mismatch",
+            f"{json_path} already exists but its persisted run identity "
+            f"({_run_identity_path(output_dir)}) does not match this invocation's identity "
+            "(different profile, evaluator, matrix selection, candidate artifacts, or "
+            "measurement configuration such as --device-index/--poll-interval-s/--no-nvml); "
+            "rerun with --replace to overwrite, or use a different --output-dir",
+        )
+
+    if persisted_sha256 is None:
+        _write_run_identity(output_dir, identity)
+        return
+    if persisted_sha256 != current_sha256:
+        raise DriverFailure(
+            "report_identity_mismatch",
+            f"{output_dir} already has a {_run_identity_path(output_dir)} from a different run "
+            "identity (an interrupted run under a different configuration) but no report.json "
+            "yet; rerun with --replace to overwrite, or use a different --output-dir/--state",
+        )
 
 
 def _open_append_0644(path: Path) -> Any:
@@ -1516,8 +1621,34 @@ def _render_csv_bytes(header: Sequence[str], rows: Sequence[Sequence[str]]) -> b
     return buffer.getvalue().encode("utf-8")
 
 
+def _parse_csv_data_rows(payload: bytes) -> list[list[str]] | None:
+    """Parse CSV bytes into data rows (the header row, if any, is dropped).
+
+    Returns ``None`` -- never a guess -- when ``payload`` cannot be safely interpreted as CSV
+    text (not UTF-8, or the csv module itself rejects it), so a caller can fall back to treating
+    the file as having no recoverable rows rather than silently matching on garbage.
+    """
+
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    from io import StringIO
+    try:
+        rows = list(csv.reader(StringIO(text, newline=""), delimiter=",", quotechar='"'))
+    except csv.Error:
+        return None
+    return rows[1:] if rows else []
+
+
 def _write_csv_file(
-    path: Path, header: Sequence[str], rows: Sequence[Sequence[str]], *, replace: bool, verify_and_repair: bool = False,
+    path: Path,
+    header: Sequence[str],
+    rows: Sequence[Sequence[str]],
+    *,
+    replace: bool,
+    verify_and_repair: bool = False,
+    merge_existing_rows: Callable[[Sequence[Sequence[str]], Sequence[Sequence[str]]], list[list[str]]] | None = None,
 ) -> None:
     """Publish one driver-owned CSV (nvml.csv/review.csv) fresh, exactly once, atomically.
 
@@ -1537,18 +1668,39 @@ def _write_csv_file(
     compared against whatever is already at ``path`` byte-for-byte; a missing, truncated, or
     otherwise different file is atomically replaced with the canonical bytes, while an
     already-correct file is left untouched (not even reopened).
+
+    ``merge_existing_rows`` (Fix N): nvml.csv has no human-edited columns, so exact-byte
+    replacement is always correct for it. review.csv is different -- the plan's human review
+    pass fills edge_adherence/occlusion_reveal/blur/jitter/drift/notes directly into the
+    published file, and a byte-for-byte repair on the next resumed invocation would silently
+    blank every one of those cells back to canonical (empty) values. When given, this callback
+    receives ``(canonical_rows, existing_data_rows)`` and returns the rows to actually publish;
+    it is consulted only after the fast byte-identical check fails and only when the existing
+    file parses as CSV at all (see ``_parse_csv_data_rows``) -- an unparseable file still falls
+    back to the unconditional canonical replacement below, same as before this parameter existed.
     """
 
     if not rows:
         return
     payload = _render_csv_bytes(header, rows)
     if verify_and_repair:
+        existing_bytes: bytes | None = None
         if path.exists():
             try:
-                if path.read_bytes() == payload:
-                    return
+                existing_bytes = path.read_bytes()
             except OSError:
-                pass  # unreadable for some other reason -- fall through and replace it
+                existing_bytes = None  # unreadable for some other reason -- replace it below
+        if existing_bytes is not None:
+            if existing_bytes == payload:
+                return
+            if merge_existing_rows is not None:
+                existing_rows = _parse_csv_data_rows(existing_bytes)
+                if existing_rows is not None:
+                    merged_payload = _render_csv_bytes(header, merge_existing_rows(rows, existing_rows))
+                    if merged_payload == existing_bytes:
+                        return
+                    _atomic_publish(path, merged_payload, replace_existing=True)
+                    return
         _atomic_publish(path, payload, replace_existing=True)
         return
     if path.exists() and not replace:
@@ -1559,6 +1711,47 @@ def _write_csv_file(
 def _shot_has_analytic_truth(shot: Mapping[str, Any]) -> bool:
     truth = shot.get("truth")
     return isinstance(truth, Mapping) and truth.get("kind") == "analytic"
+
+
+def _review_identity_key(row: Sequence[str]) -> tuple[str, ...]:
+    return tuple(row[index] for index in _REVIEW_IDENTITY_COLUMNS)
+
+
+def _merge_review_rows(
+    canonical_rows: Sequence[Sequence[str]], existing_rows: Sequence[Sequence[str]],
+) -> list[list[str]]:
+    """Repair review.csv while preserving the human-edited columns an operator already filled in.
+
+    Fix N: review.csv's contract (unlike nvml.csv) is that a human fills edge_adherence/
+    occlusion_reveal/blur/jitter/drift/notes into the published file after the run. A rerun of
+    the same completed configuration must repair the eight driver-owned columns and the expected
+    row set -- without ever blanking or overwriting a human column that already has content.
+
+    Rows are matched by their CellKey-equivalent identity (``_REVIEW_IDENTITY_COLUMNS`` --
+    candidate_label/shot_id/conditioning_token/cap_token/provider/host_load); a match keeps that
+    row's six human columns and takes every driver-owned column, including category/preview_path,
+    fresh from ``canonical_rows`` (so a corrupted driver-owned column is still repaired). A
+    canonical row with no match is new and published with blank human columns, same as a fresh
+    row always has been. An existing row with no canonical counterpart belongs to a cell no
+    longer in the current plan and is dropped, matching what an exact-byte repair would do.
+    Malformed existing rows (wrong column count) cannot be safely attributed to any cell and are
+    dropped rather than risk merging human text into the wrong row.
+    """
+
+    driver_owned = len(REVIEW_CSV_HEADER) - _REVIEW_HUMAN_COLUMN_COUNT
+    existing_by_key: dict[tuple[str, ...], list[str]] = {
+        _review_identity_key(row): list(row)
+        for row in existing_rows
+        if len(row) == len(REVIEW_CSV_HEADER)
+    }
+    merged: list[list[str]] = []
+    for row in canonical_rows:
+        prior = existing_by_key.get(_review_identity_key(row))
+        if prior is None:
+            merged.append(list(row))
+        else:
+            merged.append(list(row[:driver_owned]) + prior[driver_owned:])
+    return merged
 
 
 def _regenerate_sidecar_outputs(
@@ -1604,7 +1797,10 @@ def _regenerate_sidecar_outputs(
             str(_review_preview_dir(review_dir, cell)), "", "", "", "", "", "",
         ])
     _write_csv_file(output_dir / "nvml.csv", NVML_CSV_HEADER, nvml_rows, replace=replace, verify_and_repair=verify_and_repair)
-    _write_csv_file(output_dir / "review.csv", REVIEW_CSV_HEADER, review_rows, replace=replace, verify_and_repair=verify_and_repair)
+    _write_csv_file(
+        output_dir / "review.csv", REVIEW_CSV_HEADER, review_rows, replace=replace,
+        verify_and_repair=verify_and_repair, merge_existing_rows=_merge_review_rows,
+    )
 
 
 def _write_summary_txt(path: Path, report: Mapping[str, Any], plan: MatrixPlan) -> None:
@@ -1752,6 +1948,12 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
         nvml_enabled=config.nvml_backend_factory is not None,
     )
 
+    # Fix L/M: validate/establish .run-identity.json now -- before resume state is loaded or
+    # created, before the executor is built, and before a single cell can execute and overwrite
+    # a CellKey-keyed sidecar or review preview that might belong to a different, already-
+    # published run reusing this --output-dir. See `_establish_run_identity_up_front`.
+    _establish_run_identity_up_front(config.output_dir, identity, replace=config.replace)
+
     if config.state_path.exists():
         state = load_state(config.state_path, identity, plan)
         runner_log.write("resumed existing state")
@@ -1792,36 +1994,22 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
     csv_path = config.output_dir / "report.csv"
     summary_path = config.output_dir / "summary.txt"
 
-    current_identity_sha256 = canonical_sha256(identity)
-
     if json_path.exists() and not config.replace:
         # Every cell was already complete, and an earlier invocation already published the
         # report. Re-running assemble_report here would mint a fresh completed_utc/report_id
         # and then collide with the no-clobber write below; instead this resumed invocation is
         # a true no-op that returns exactly what was already published -- but ONLY if it was
         # published under this SAME run identity (Fix A). resume.load_state above already
-        # refuses a state-file identity mismatch for the same --state path; the checks below
-        # additionally catch a stale report.json left in a reused --output-dir under a
-        # fresh/different --state path, which load_state's check does not see.
+        # refuses a state-file identity mismatch for the same --state path.
         #
-        # Fix J: the AUTHORITATIVE check is the persisted full-identity hash
-        # (.run-identity.json), not report.json's own content. report.json is
-        # schema-constrained and several identity fields (device_index, poll_interval_s,
-        # nvml_enabled) have no home there at all, so an operator switching e.g. --no-nvml
-        # on/off against a reused --output-dir but a FRESH --state path would otherwise pass
-        # every report-derived cross-check while actually being a different run. The
-        # report-derived _report_matches_current_run check is kept as a second, non-authoritative
-        # safety net.
-        persisted_sha256 = _read_run_identity_sha256(config.output_dir)
-        if persisted_sha256 != current_identity_sha256:
-            raise DriverFailure(
-                "report_identity_mismatch",
-                f"{json_path} already exists but its persisted run identity "
-                f"({config.output_dir / '.run-identity.json'}) does not match this invocation's "
-                "identity (different profile, evaluator, matrix selection, candidate artifacts, "
-                "or measurement configuration such as --device-index/--poll-interval-s/--no-nvml); "
-                "rerun with --replace to overwrite, or use a different --output-dir",
-            )
+        # Fix L/M: the AUTHORITATIVE identity check -- the persisted full-identity hash in
+        # .run-identity.json, catching a stale report.json left in a reused --output-dir under a
+        # fresh/different --state path, which load_state's check does not see -- already ran in
+        # `_establish_run_identity_up_front`, before a single cell executed. Reaching this point
+        # guarantees report.json (if present) is attributed to this exact run identity. The
+        # report-derived _report_matches_current_run check below is kept only as a second,
+        # non-authoritative safety net (e.g. report.json edited by hand beneath an untouched
+        # identity sidecar); it should be unreachable in ordinary operation.
         report = load_json(json_path)
         if not _report_matches_current_run(report, identity):
             raise DriverFailure(
@@ -1835,7 +2023,9 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
             _write_summary_txt(summary_path, report, plan)
         # Fix F/K: repair nvml.csv/review.csv if a crash or manual deletion/truncation left them
         # missing or incorrect -- the per-cell sidecars this reads from are durable regardless
-        # of whether report.json itself needed regenerating. Byte-verified, not existence-only.
+        # of whether report.json itself needed regenerating. Byte-verified, not existence-only
+        # (nvml.csv); review.csv additionally preserves human-edited columns across a repair
+        # (Fix N -- see `_merge_review_rows`).
         _regenerate_sidecar_outputs(
             config.output_dir, review_dir, corpus, plan, completed, replace=config.replace, verify_and_repair=True,
         )
@@ -1851,7 +2041,9 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
         )
         _write_summary_txt(summary_path, report, plan)
         _regenerate_sidecar_outputs(config.output_dir, review_dir, corpus, plan, completed, replace=config.replace)
-        _write_run_identity(config.output_dir, identity)
+        # Fix M: .run-identity.json was already established up front, before this report was
+        # published (see `_establish_run_identity_up_front`) -- it is not written here again, so
+        # it can never trail report.json.
         runner_log.write("run complete; report.json/summary.txt/nvml.csv/review.csv published")
 
     output_paths = {

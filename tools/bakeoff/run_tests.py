@@ -1387,6 +1387,226 @@ def test_fresh_state_path_with_identical_measurement_config_still_succeeds() -> 
         assert config2.runtime_module.sessions_created >= 1
 
 
+# --------------------------------------------------------------------------------------------
+# Fix L: the .run-identity.json mismatch guard runs BEFORE any cell executes, not only at
+# finalize time -- a rejected run must never have mutated a single CellKey-keyed sidecar or
+# review preview belonging to the original, already-published run it collided with.
+# --------------------------------------------------------------------------------------------
+
+
+def _snapshot_tree(directory: Path) -> dict[Path, bytes]:
+    return {path.relative_to(directory): path.read_bytes() for path in directory.rglob("*") if path.is_file()}
+
+
+def test_fresh_state_path_reusing_output_dir_is_rejected_before_any_cell_executes() -> None:
+    """Codex's Fix L repro: resume.load_state's identity check only guards the SAME --state
+    path. A FRESH --state file pointed at the SAME --output-dir, with a different
+    --poll-interval-s, bypasses it entirely and used to be caught only by the end-of-run Fix J
+    guard -- by which point RunCoordinator had already executed every cell, overwriting the
+    ORIGINAL run's .sidecars/ entries and review previews (both keyed only by CellKey). The
+    guard must now run up front: no resume state file created, no cell executed, and every
+    durable byte the original run produced left exactly as it was.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-fixl-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["prod-sample"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+
+        sidecars_dir = config.output_dir / ".sidecars"
+        previews_dir = config.output_dir / "review-previews"
+        original_nvml_bytes = (config.output_dir / "nvml.csv").read_bytes()
+        original_review_bytes = (config.output_dir / "review.csv").read_bytes()
+        original_identity_bytes = (config.output_dir / ".run-identity.json").read_bytes()
+        original_sidecars = _snapshot_tree(sidecars_dir)
+        original_previews = _snapshot_tree(previews_dir)
+        assert original_sidecars, "expected at least one durable nvml sidecar from the CUDA cell"
+        assert original_previews, "expected at least one review preview from the passing cell"
+
+        config2 = copy.copy(config)
+        config2.poll_interval_s = config.poll_interval_s * 5  # different measurement config
+        fresh_state_path = config.output_dir / "state-fresh.json"
+        config2.state_path = fresh_state_path
+        config2.runtime_module = _FakeRuntime()
+        try:
+            run_bakeoff(config2)
+        except DriverFailure as failure:
+            assert failure.kind == "report_identity_mismatch"
+        else:
+            raise AssertionError("expected DriverFailure(report_identity_mismatch)")
+
+        # The rejected run must never have gotten far enough to create its own resume state.
+        assert not fresh_state_path.exists()
+
+        # Every durable output the original run produced is byte-for-byte untouched -- not just
+        # report.json, but the internal .sidecars/ and review-previews/ a cell's *execution*
+        # (not merely the later finalize check) would have overwritten.
+        assert (config.output_dir / "nvml.csv").read_bytes() == original_nvml_bytes
+        assert (config.output_dir / "review.csv").read_bytes() == original_review_bytes
+        assert (config.output_dir / ".run-identity.json").read_bytes() == original_identity_bytes
+        assert _snapshot_tree(sidecars_dir) == original_sidecars
+        assert _snapshot_tree(previews_dir) == original_previews
+
+
+# --------------------------------------------------------------------------------------------
+# Fix M: .run-identity.json is established BEFORE report.json is published (not after), so a
+# crash/write-failure in that window can no longer happen going forward; and a report.json that
+# already exists without one (the artifact such a crash -- or a pre-fix build -- would leave) is
+# a recoverable, finish-publication state, not a hard refuse demanding --replace.
+# --------------------------------------------------------------------------------------------
+
+
+def test_report_json_without_identity_sidecar_recovers_without_replace() -> None:
+    """Simulates exactly the artifact an interruption between report.json publication and the
+    identity write would leave behind (report.json present, .run-identity.json absent) -- which,
+    pre-fix, ``_write_run_identity`` being the LAST write meant any such interruption always left
+    behind, and post-fix would require an actual mid-write crash to reach, since the identity is
+    now written first. Either way, the next invocation must resume/finish cleanly WITHOUT
+    --replace, and must leave the previously published report untouched while doing so.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-fixm-recover-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        identity_path = config.output_dir / ".run-identity.json"
+        assert identity_path.is_file()
+        original_report_bytes = (config.output_dir / "report.json").read_bytes()
+
+        identity_path.unlink()
+
+        config2 = copy.copy(config)
+        config2.runtime_module = _FakeRuntime()
+        second = run_bakeoff(config2)  # must NOT require --replace
+        assert not second.incomplete
+        assert second.report == first.report
+        assert (config.output_dir / "report.json").read_bytes() == original_report_bytes
+        assert identity_path.is_file(), "the identity sidecar must be re-established, not left missing"
+
+        # The re-established identity must be genuinely correct, not merely present: a further
+        # ordinary invocation must still recognize it as a matching no-op rather than a fresh
+        # mismatch (which would happen if the recovered identity were wrong).
+        config3 = copy.copy(config)
+        config3.runtime_module = _FakeRuntime()
+        third = run_bakeoff(config3)
+        assert not third.incomplete
+        assert third.report == first.report
+        assert (config.output_dir / "report.json").read_bytes() == original_report_bytes
+
+
+def test_report_json_without_identity_sidecar_but_mismatched_content_is_still_refused() -> None:
+    """The Fix M recovery path is not a blanket amnesty: a report.json missing its identity
+    sidecar whose own content genuinely disagrees with this invocation (a different, unrelated
+    report reusing the --output-dir, e.g. after a manual .run-identity.json deletion) must still
+    be refused, not silently adopted as recoverable."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-fixm-mismatch-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        (config.output_dir / ".run-identity.json").unlink()
+        original_report_bytes = (config.output_dir / "report.json").read_bytes()
+
+        config2 = copy.copy(config)
+        config2.selection = {**config.selection, "profile": "screen"}
+        config2.runtime_module = _FakeRuntime()
+        try:
+            run_bakeoff(config2)
+        except DriverFailure as failure:
+            assert failure.kind == "report_identity_mismatch"
+        else:
+            raise AssertionError("expected DriverFailure(report_identity_mismatch)")
+        assert (config.output_dir / "report.json").read_bytes() == original_report_bytes
+
+
+# --------------------------------------------------------------------------------------------
+# Fix N: review.csv repair preserves the human-edited columns an operator already filled in,
+# while still repairing corrupted driver-owned columns and re-adding missing rows; nvml.csv (no
+# human-edited columns) keeps its exact-byte repair, unaffected by the merge logic.
+# --------------------------------------------------------------------------------------------
+
+
+def test_review_csv_repair_preserves_human_edits_and_still_fixes_driver_owned_corruption() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-fixn-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["prod-sample"], provider="cuda", host_loads=["idle", "live_flame"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        review_path = config.output_dir / "review.csv"
+        nvml_path = config.output_dir / "nvml.csv"
+
+        with review_path.open(newline="", encoding="utf-8") as stream:
+            all_rows = list(csv.reader(stream))
+        header, original_rows = all_rows[0], all_rows[1:]
+        assert header == list(run_module.REVIEW_CSV_HEADER)
+        # Same shot and candidate -> same candidate_label/shot_id for both rows; they differ only
+        # by host_load. Proves the merge key must include host_load, not just candidate_label+
+        # shot_id, or these two rows would be conflated.
+        assert len(original_rows) == 2
+        assert {row[6] for row in original_rows} == {"idle", "live_flame"}
+        assert len({(row[0], row[1]) for row in original_rows}) == 1
+
+        idle_row = next(row for row in original_rows if row[6] == "idle")
+        live_flame_row = next(row for row in original_rows if row[6] == "live_flame")
+
+        # A human fills in their review for the "idle" row, and its category column also gets
+        # corrupted somehow (driver-owned, but not part of the row's identity).
+        human_values = ["0.9", "0.7", "0.1", "0.05", "0.2", "clean edges, slight jitter on reveal"]
+        edited_idle_row = list(idle_row)
+        edited_idle_row[8:14] = human_values
+        original_category = edited_idle_row[2]
+        edited_idle_row[2] = original_category + "-CORRUPTED"
+
+        # The "live_flame" row is entirely missing from the file (e.g. an operator's editor
+        # mangled it, or a manual edit dropped it) -- it must be re-added, blank.
+        with review_path.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream, delimiter=",", quotechar='"', lineterminator="\n")
+            writer.writerow(header)
+            writer.writerow(edited_idle_row)
+
+        # nvml.csv (no human columns) is also corrupted, to confirm its repair stays exact-byte,
+        # unaffected by review.csv's new merge logic.
+        original_nvml_bytes = nvml_path.read_bytes()
+        nvml_path.write_bytes(b"corrupted,nvml,header\n")
+
+        config2 = copy.copy(config)
+        config2.runtime_module = _FakeRuntime()
+        second = run_bakeoff(config2)
+        assert not second.incomplete
+        assert second.report == first.report  # report.json itself untouched/reused
+
+        with review_path.open(newline="", encoding="utf-8") as stream:
+            repaired_all_rows = list(csv.reader(stream))
+        repaired_header, repaired_rows = repaired_all_rows[0], repaired_all_rows[1:]
+        assert repaired_header == list(run_module.REVIEW_CSV_HEADER)
+        assert len(repaired_rows) == 2
+
+        repaired_idle_row = next(row for row in repaired_rows if row[6] == "idle")
+        repaired_live_flame_row = next(row for row in repaired_rows if row[6] == "live_flame")
+
+        # The corrupted driver-owned column is repaired back to canonical, every other
+        # driver-owned column still matches the canonical row exactly, and the human columns the
+        # operator filled in survive untouched.
+        assert repaired_idle_row[2] == original_category
+        assert repaired_idle_row[:8] == idle_row[:8]
+        assert repaired_idle_row[8:14] == human_values
+
+        # The missing row is re-added, matching the canonical row exactly, with blank human
+        # columns -- same contract as a row that had never been reviewed.
+        assert repaired_live_flame_row == live_flame_row
+        assert repaired_live_flame_row[8:14] == ["", "", "", "", "", ""]
+
+        # nvml.csv keeps its unaffected exact-byte repair.
+        assert nvml_path.read_bytes() == original_nvml_bytes
+
+
 def main() -> int:
     test_cap_megapixels_looks_up_token_and_rejects_unknown()
     test_review_label_is_deterministic_and_does_not_embed_candidate_id()
@@ -1422,6 +1642,10 @@ def main() -> int:
     test_rerun_with_nvml_disabled_after_nvml_enabled_is_rejected()
     test_fresh_state_path_with_different_nvml_config_reuses_output_dir_but_is_rejected()
     test_fresh_state_path_with_identical_measurement_config_still_succeeds()
+    test_fresh_state_path_reusing_output_dir_is_rejected_before_any_cell_executes()
+    test_report_json_without_identity_sidecar_recovers_without_replace()
+    test_report_json_without_identity_sidecar_but_mismatched_content_is_still_refused()
+    test_review_csv_repair_preserves_human_edits_and_still_fixes_driver_owned_corruption()
     print("P25-6 profile driver tests passed")
     return 0
 
