@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import copy
 import csv
+import errno
 import json
 import os
 import shutil
 import tempfile
 import threading
+import types
 from pathlib import Path
 from typing import Any
 
@@ -1891,6 +1893,153 @@ def test_interrupted_canonical_publish_never_leaves_a_partial_summary_file() -> 
         assert leftovers == [], f"leftover temp files: {leftovers}"
 
 
+class _StartFailingContext:
+    """Wraps a real multiprocessing context; the first ``fail_count`` ``Process.start()`` calls
+    raise ``OSError(errno_value)`` (simulating a failed fork under memory pressure) with no child
+    ever created. Later ``Process`` objects start for real, so a matrix keeps running."""
+
+    def __init__(self, real: Any, errno_value: int, fail_count: int):
+        self._real = real
+        self._errno = errno_value
+        self._remaining = fail_count
+
+    def Queue(self) -> Any:
+        return self._real.Queue()
+
+    def Process(self, *args: Any, **kwargs: Any) -> Any:
+        process = self._real.Process(*args, **kwargs)
+        if self._remaining > 0:
+            self._remaining -= 1
+            captured_errno = self._errno
+
+            def _failing_start() -> None:
+                raise OSError(captured_errno, "simulated fork failure under memory pressure")
+
+            process.start = _failing_start  # type: ignore[method-assign]
+        return process
+
+
+def test_cuda_fork_start_failure_maps_errno_to_typed_driver_failure() -> None:
+    # A failed fork()/start() must become a TYPED DriverFailure, not an uncaught OSError.
+    # Resource-exhaustion errnos (ENOMEM/EAGAIN) map to out_of_memory; anything else to
+    # runtime_error. Guarded with a timeout because it drives the real subprocess entry point.
+    real_fork = run_module._mp.get_context("fork")
+
+    def attempt(errno_value: int):
+        wrapper = _StartFailingContext(real_fork, errno_value, fail_count=1)
+        original_mp = run_module._mp
+        run_module._mp = types.SimpleNamespace(get_context=lambda method: wrapper)
+        try:
+            return run_module.run_cuda_measurement_in_subprocess(
+                lambda stage_sampler: {"base": {}}, lambda: _FakeNvmlBackend(), 0, 0.01,
+            )
+        finally:
+            run_module._mp = original_mp
+
+    for errno_value, expected_kind in (
+        (errno.ENOMEM, "out_of_memory"),
+        (errno.EAGAIN, "out_of_memory"),
+        (errno.EPERM, "runtime_error"),
+    ):
+        try:
+            _call_with_timeout(lambda ev=errno_value: attempt(ev), 15.0)
+        except DriverFailure as failure:
+            assert failure.kind == expected_kind, (errno_value, failure.kind)
+        else:
+            raise AssertionError(f"expected a typed DriverFailure for errno={errno_value}")
+
+
+def test_cuda_fork_start_failure_is_a_typed_cell_failure_not_a_whole_run_abort() -> None:
+    # Two CUDA cells (same shot, idle + live_flame). The first cell's fork fails; it must record a
+    # TYPED out_of_memory cell failure while the SECOND cell still runs to completion -- the whole
+    # matrix must not abort, and completed cells stay durable.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-fork-fail-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["syn-identity"], provider="cuda", host_loads=["idle", "live_flame"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+            cuda_measurement_runner=run_module.run_cuda_measurement_in_subprocess,
+        )
+        real_fork = run_module._mp.get_context("fork")
+        wrapper = _StartFailingContext(real_fork, errno.ENOMEM, fail_count=1)
+        original_mp = run_module._mp
+        run_module._mp = types.SimpleNamespace(get_context=lambda method: wrapper)
+        try:
+            result = _call_with_timeout(lambda: run_bakeoff(config), 90.0)
+        finally:
+            run_module._mp = original_mp
+
+        assert not result.incomplete, "the run must complete, not abort, when one cell's fork fails"
+        results = result.report["results"]
+        assert len(results) == 2
+        fails = [r for r in results if r["status"] == "fail"]
+        passes = [r for r in results if r["status"] == "pass"]
+        assert len(fails) == 1 and len(passes) == 1
+        assert fails[0]["failure"]["type"] == "out_of_memory", fails[0]["failure"]
+        assert fails[0]["host_load"] == "idle"
+        assert passes[0]["host_load"] == "live_flame"
+
+
+def test_nonfinite_derived_metric_degrades_to_not_applicable_not_a_whole_run_abort() -> None:
+    # A derived OPTIONAL metric that computes nonfinite from finite flow must never reach the
+    # coordinator (which rejects any nonfinite number as a hard, whole-run-aborting failure). It
+    # degrades to a logged not_applicable; the cell still passes and the run completes.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-nonfinite-") as tmp:
+        config = _config(Path(tmp), shot_ids=["prod-sample"], exr_decoder=_fake_exr_decoder(8, 6))
+        original = run_module.metrics_module.visible_warp_residual
+        run_module.metrics_module.visible_warp_residual = lambda *a, **k: float("inf")
+        try:
+            result = run_bakeoff(config)
+        finally:
+            run_module.metrics_module.visible_warp_residual = original
+
+        assert not result.incomplete
+        # The coordinator accepted every result, so it never saw a nonfinite value.
+        validate_report_consistency(result.report, config.protocol, config.report_schema, config.corpus, config.corpus_schema)
+        cell_result = result.report["results"][0]
+        assert cell_result["status"] == "pass"
+        assert "visible_warp_residual" not in cell_result["metrics"]
+        assert "visible_warp_residual" in cell_result["metrics"]["not_applicable"]
+        # The OTHER optional derived metric was unaffected.
+        assert "forward_backward_residual_px" in cell_result["metrics"]
+        log_text = (config.output_dir / "runner.log").read_text(encoding="utf-8")
+        assert "visible_warp_residual nonfinite" in log_text
+
+
+def test_review_preview_write_failure_degrades_to_logged_skip_not_a_cell_failure() -> None:
+    # An OSError while writing a non-load-bearing review preview must degrade to a logged skip:
+    # the MEASURED cell still passes, its metrics/report are unaffected, and only the preview PFMs
+    # for that offset are missing.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-preview-fail-") as tmp:
+        config = _config(Path(tmp), shot_ids=["prod-sample"], exr_decoder=_fake_exr_decoder(8, 6))
+        original = run_module.synthetic_write_pfm
+
+        def _failing_write(*args: Any, **kwargs: Any) -> None:
+            raise OSError(errno.ENOSPC, "simulated disk full while writing preview")
+
+        run_module.synthetic_write_pfm = _failing_write
+        try:
+            result = run_bakeoff(config)
+        finally:
+            run_module.synthetic_write_pfm = original
+
+        assert not result.incomplete
+        validate_report_consistency(result.report, config.protocol, config.report_schema, config.corpus, config.corpus_schema)
+        cell_result = result.report["results"][0]
+        assert cell_result["status"] == "pass", "a preview write failure must not fail the measured cell"
+        assert "visible_warp_residual" in cell_result["metrics"]
+        log_text = (config.output_dir / "runner.log").read_text(encoding="utf-8")
+        assert "review preview offset 1 skipped" in log_text
+        # No preview PFMs were produced, but review.csv still records the (blinded) row.
+        review_path = config.output_dir / "review.csv"
+        assert review_path.is_file()
+        with review_path.open(newline="", encoding="utf-8") as stream:
+            rows = list(csv.reader(stream))
+        assert len(rows) == 2
+        preview_dir = Path(rows[1][7])
+        assert not (preview_dir / "offset_1_warped.pfm").exists()
+
+
 def main() -> int:
     test_cap_megapixels_looks_up_token_and_rejects_unknown()
     test_review_label_is_deterministic_and_does_not_embed_candidate_id()
@@ -1937,6 +2086,10 @@ def main() -> int:
     test_replace_with_empty_optional_rows_removes_stale_csvs_and_stops_advertising_them()
     test_truncated_summary_and_report_csv_repaired_on_reuse_and_left_alone_once_correct()
     test_interrupted_canonical_publish_never_leaves_a_partial_summary_file()
+    test_cuda_fork_start_failure_maps_errno_to_typed_driver_failure()
+    test_cuda_fork_start_failure_is_a_typed_cell_failure_not_a_whole_run_abort()
+    test_nonfinite_derived_metric_degrades_to_not_applicable_not_a_whole_run_abort()
+    test_review_preview_write_failure_degrades_to_logged_skip_not_a_cell_failure()
     print("P25-6 profile driver tests passed")
     return 0
 

@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import errno
 import hashlib
 import json
 import math
@@ -184,6 +185,17 @@ def _failure(kind: str, message: str, *, stage: str | None = None, retryable: bo
     if retryable is not None:
         failure["retryable"] = retryable
     return failure
+
+
+def _is_finite_number(value: Any) -> bool:
+    """True only for a real finite int/float (never a bool, NaN, or +/-inf).
+
+    A computed OPTIONAL metric that comes back nonfinite would otherwise be rejected by
+    ``coordinator._validate_json`` as a hard failure aborting the whole run; the driver uses this
+    to drop such a value to ``not_applicable`` with a logged reason instead.
+    """
+
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 _EXR_FAILURE_TYPES = {
@@ -699,7 +711,21 @@ def run_cuda_measurement_in_subprocess(
         result_queue.put(("ok", payload, samples))
 
     process = ctx.Process(target=_child_main)
-    process.start()
+    try:
+        process.start()
+    except OSError as exc:
+        # A failed fork()/clone() (no child was ever created, so there is nothing to reap) must
+        # be a TYPED per-cell failure, not an uncaught OSError that aborts the whole matrix --
+        # realistic on the documented live_flame final run, where measuring CUDA beside a live
+        # Flame Batch puts the box under memory pressure. Resource-exhaustion errnos map to
+        # out_of_memory; anything else to runtime_error. _run_cell's existing `except
+        # DriverFailure` turns this into a _CellFail with the same coordinator-permitted kind,
+        # exactly as it already does for a child that dies mid-measurement (Fix H).
+        kind = "out_of_memory" if exc.errno in (errno.ENOMEM, errno.EAGAIN) else "runtime_error"
+        raise DriverFailure(
+            kind,
+            f"CUDA measurement subprocess could not be started (fork failed, errno={exc.errno}): {exc}",
+        ) from exc
     outcome = _drain_child_outcome(process, result_queue)
     process.join()
 
@@ -1098,8 +1124,16 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
     try:
         visible_mask = [[True] * analysis_width for _ in range(analysis_height)]
         visible = metrics_module.visible_warp_residual(image1, image2, predicted_flow, visible_mask)
-        result_metrics["visible_warp_residual"] = visible
-        not_applicable.discard("visible_warp_residual")
+        # A nonfinite derived value computed from finite flow (e.g. a degenerate division) must
+        # never reach the coordinator -- coordinator._validate_json rejects any nonfinite number
+        # as a hard CoordinatorFailure that would abort the WHOLE run. An OPTIONAL metric that
+        # comes back nonfinite degrades to a logged not_applicable, exactly like the MetricFailure
+        # path below, so the cell still passes and its required metrics are unaffected.
+        if not _is_finite_number(visible):
+            ctx.log(f"visible_warp_residual nonfinite ({visible!r}); dropped to not_applicable for {cell.as_dict()}")
+        else:
+            result_metrics["visible_warp_residual"] = visible
+            not_applicable.discard("visible_warp_residual")
     except MetricFailure as exc:
         ctx.log(f"visible_warp_residual skipped for {cell.as_dict()}: {exc}")
 
@@ -1110,8 +1144,11 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
         try:
             residual_mask = [[True] * analysis_width for _ in range(analysis_height)]
             residual = metrics_module.forward_backward_residual_px(predicted_flow, reverse_flow, residual_mask)
-            result_metrics["forward_backward_residual_px"] = residual
-            not_applicable.discard("forward_backward_residual_px")
+            if not _is_finite_number(residual):
+                ctx.log(f"forward_backward_residual_px nonfinite ({residual!r}); dropped to not_applicable for {cell.as_dict()}")
+            else:
+                result_metrics["forward_backward_residual_px"] = residual
+                not_applicable.discard("forward_backward_residual_px")
         except MetricFailure as exc:
             ctx.log(f"forward_backward_residual_px skipped for {cell.as_dict()}: {exc}")
 
@@ -1122,12 +1159,26 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
     # ctx.chain_offsets that was actually inferrable (Fix G: inference already happened in
     # _perform_cell_inference; this only renders/writes the already-returned flow/image data).
     if not shot_ctx.has_analytic_truth and ctx.review_dir is not None:
-        _write_offset_preview(ctx.review_dir, cell, 1, image2, predicted_flow, analysis_width, analysis_height)
+        preview_jobs: list[tuple[int, Any, Any, int, int]] = [
+            (1, image2, predicted_flow, analysis_width, analysis_height),
+        ]
         for offset_key, offset_data in (payload.get("review_offsets") or {}).items():
-            _write_offset_preview(
-                ctx.review_dir, cell, int(offset_key), offset_data["image2"], offset_data["flow"],
+            preview_jobs.append((
+                int(offset_key), offset_data["image2"], offset_data["flow"],
                 offset_data["width"], offset_data["height"],
-            )
+            ))
+        for offset, preview_image, preview_flow, preview_width, preview_height in preview_jobs:
+            # Previews are non-load-bearing review evidence. A transient OSError (disk full,
+            # permission) or a MetricFailure while rendering one offset must degrade to a logged
+            # skipped-preview -- never take down a cell that was actually MEASURED. The cell still
+            # passes and its metrics/report are unaffected; review.csv simply has no PFM for that
+            # offset, with the reason in runner.log.
+            try:
+                _write_offset_preview(
+                    ctx.review_dir, cell, offset, preview_image, preview_flow, preview_width, preview_height,
+                )
+            except (OSError, MetricFailure) as exc:
+                ctx.log(f"review preview offset {offset} skipped for {cell.as_dict()}: {exc}")
 
     category = (shot_ctx.shot.get("categories") or [None])[0]
     passing: dict[str, Any] = {
