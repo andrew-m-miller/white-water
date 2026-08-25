@@ -183,6 +183,8 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.evaluator_tests)
   add_test(NAME bakeoff::native_ort
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.native_ort_tests)
+  add_test(NAME bakeoff::nvml
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.nvml_tests)
   add_test(NAME p25_5::admission
     COMMAND "${Python3_EXECUTABLE}" -m tools.p25_5.admission_tests)
   add_test(NAME p25_5::legal_review
@@ -214,6 +216,8 @@ if(Python3_Interpreter_FOUND)
   set_tests_properties(bakeoff::evaluator
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::native_ort
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::nvml
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(p25_5::admission
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
