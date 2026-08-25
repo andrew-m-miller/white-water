@@ -179,6 +179,8 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.measurement_tests)
   add_test(NAME bakeoff::pfm
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.pfm_tests)
+  add_test(NAME bakeoff::exr
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.exr_tests)
   add_test(NAME bakeoff::evaluator
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.evaluator_tests)
   add_test(NAME bakeoff::native_ort
@@ -210,6 +212,8 @@ if(Python3_Interpreter_FOUND)
   set_tests_properties(bakeoff::measurement
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::pfm
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::exr
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::evaluator
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
