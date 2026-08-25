@@ -12,6 +12,7 @@ import math
 import os
 import stat
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Iterator, Sequence
 
@@ -19,6 +20,7 @@ from .nvml import (
     NVML_CSV_HEADER,
     NvmlFailure,
     NvmlSampler,
+    PollWindow,
     PynvmlBackend,
     STAGES,
     append_nvml_csv,
@@ -66,6 +68,41 @@ class _ScriptedBackend:
         if self._process_iter is None:
             return None
         return next(self._process_iter)
+
+
+class _LatchedBackend:
+    """Scripted NvmlBackend for poll() tests.
+
+    Readings advance through a fixed ``(device_used_mib, process_used_mib)`` list, one pair
+    consumed per full read (matching one ``PollWindow._record_reading`` -- device then
+    process), and hold at the last scripted pair once exhausted rather than raising or
+    blocking. That makes a real background poller thread safe to keep running past the last
+    value a test cares about: it just keeps re-reading the same held value, which never moves
+    a tracked maximum. Index advancement is lock-guarded since a real poller thread reads
+    concurrently with the immediate synchronous read ``PollWindow.__enter__`` takes.
+    """
+
+    def __init__(self, readings: Sequence[tuple[float, float | None]]):
+        assert readings, "at least one scripted reading is required"
+        self._readings = list(readings)
+        self._index = 0
+        self._lock = threading.Lock()
+        self.handle_calls: list[int] = []
+
+    def device_handle(self, device_index: int) -> Any:
+        self.handle_calls.append(device_index)
+        return device_index
+
+    def device_used_mib(self, handle: Any) -> float:
+        with self._lock:
+            return self._readings[self._index][0]
+
+    def process_used_mib(self, handle: Any, pid: int) -> float | None:
+        with self._lock:
+            value = self._readings[self._index][1]
+            if self._index < len(self._readings) - 1:
+                self._index += 1
+            return value
 
 
 def _failure(kind: str, callback) -> None:
@@ -224,6 +261,117 @@ def test_pynvml_backend_missing_dependency_raises_typed_failure() -> None:
         pass
 
 
+def test_poll_captures_a_transient_spike_missed_by_boundary_snapshots() -> None:
+    # __enter__'s immediate synchronous read consumes readings[0]; the background thread then
+    # advances through readings[1], readings[2]. A pure boundary-snapshot design -- read once
+    # at entry, once at exit -- would see only readings[0] and readings[-1] and miss the
+    # transient 1800.0 spike recorded in between, which is exactly the gap docs/context.md
+    # (Session 6) documents: "boundary-sampled NVML does not capture the rejected allocation."
+    readings = [(1000.0, None), (1800.0, None), (1050.0, None)]
+    backend = _LatchedBackend(readings)
+    sampler = NvmlSampler(backend, device_index=0, poll_interval_s=0.0)
+
+    with sampler.poll("session_create") as window:
+        assert isinstance(window, PollWindow)
+        window.wait_for_reading_count(len(readings))
+
+    polled_sample = sampler.samples[-1]
+    assert polled_sample == {"stage": "session_create", "used_mib": 1800.0}
+
+    boundary_only_peak = max(readings[0][0], readings[-1][0])
+    assert boundary_only_peak == 1050.0
+    assert boundary_only_peak < polled_sample["used_mib"]
+
+    report_schema = load_json(ROOT / "bakeoff/report-v2.schema.json")
+    validate(polled_sample, report_schema["$defs"]["nvml_sample"], root=report_schema)
+
+
+def test_poll_tracks_device_and_process_maxima_independently_and_thread_safely() -> None:
+    # Device peak (1600.0) and process peak (500.0) occur on different scripted readings, so
+    # this also proves the two running maxima are tracked independently rather than only the
+    # process value paired with the device peak's own reading.
+    readings = [(1000.0, 200.0), (900.0, 500.0), (1600.0, 150.0), (1400.0, 480.0)]
+    backend = _LatchedBackend(readings)
+    sampler = NvmlSampler(backend, device_index=0, poll_interval_s=0.0)
+
+    with sampler.poll("steady") as window:
+        window.wait_for_reading_count(len(readings))
+        assert window.reading_count >= len(readings)
+
+    polled_sample = sampler.samples[-1]
+    assert polled_sample == {"stage": "steady", "used_mib": 1600.0, "process_used_mib": 500.0}
+
+
+def test_poll_window_always_yields_at_least_one_sample_even_with_no_work() -> None:
+    backend = _LatchedBackend([(1234.0, None)])
+    # A cadence far longer than the window: the background thread's first wait() will not
+    # have elapsed before __exit__ sets the stop event, so it takes zero background readings.
+    sampler = NvmlSampler(backend, device_index=0, poll_interval_s=5.0)
+
+    with sampler.poll("session_create"):
+        pass
+
+    assert sampler.samples[-1] == {"stage": "session_create", "used_mib": 1234.0}
+
+
+def test_poll_stops_and_still_records_when_the_polled_block_raises() -> None:
+    class _Boom(Exception):
+        pass
+
+    readings = [(1700.0, None), (1900.0, None)]
+    backend = _LatchedBackend(readings)
+    sampler = NvmlSampler(backend, device_index=0, poll_interval_s=0.0)
+
+    raised = False
+    try:
+        with sampler.poll("session_create") as window:
+            window.wait_for_reading_count(len(readings))
+            raise _Boom("simulated failure mid session-create")
+    except _Boom:
+        raised = True
+    # Reaching this point at all proves __exit__ (which joins the background thread before
+    # letting the exception propagate) already ran to completion -- the poller cannot still
+    # be running here.
+    assert raised, "expected _Boom to propagate out of the poll() context manager"
+
+    polled_sample = sampler.samples[-1]
+    assert polled_sample["stage"] == "session_create"
+    assert polled_sample["used_mib"] == 1900.0
+
+
+def test_poll_rejects_unknown_stage() -> None:
+    backend = _LatchedBackend([(1000.0, None)])
+    sampler = NvmlSampler(backend, device_index=0)
+    _failure("unknown_stage", lambda: sampler.poll("warmup"))
+
+
+def test_poll_rejects_invalid_interval() -> None:
+    backend = _LatchedBackend([(1000.0, None)])
+    sampler = NvmlSampler(backend, device_index=0)
+    _failure("invalid_interval", lambda: sampler.poll("steady", interval_s=-1.0))
+    _failure("invalid_interval", lambda: NvmlSampler(backend, device_index=0, poll_interval_s=-0.5))
+
+
+def test_resource_incorporates_polled_peaks_alongside_boundary_samples() -> None:
+    readings = [(800.0, None), (800.0, None), (2200.0, None), (1900.0, None)]
+    backend = _LatchedBackend(readings)
+    sampler = NvmlSampler(backend, device_index=0, poll_interval_s=0.0)
+
+    sampler.sample("baseline")
+    with sampler.poll("session_create") as window:
+        window.wait_for_reading_count(len(readings) - 1)
+    sampler.sample("cleanup")
+
+    resource = sampler.resource()
+    assert resource["baseline_device_memory_mib"] == 800.0
+    assert resource["peak_device_memory_mib"] == 2200.0
+    assert math.isclose(resource["peak_incremental_device_memory_gib"], (2200.0 - 800.0) / 1024.0)
+    assert resource["cleanup_device_memory_mib"] == 1900.0
+
+    report_schema = load_json(ROOT / "bakeoff/report-v2.schema.json")
+    validate(resource, report_schema["$defs"]["resource"], root=report_schema)
+
+
 def test_nvml_csv_writer_header_rows_and_empty_process_cells() -> None:
     backend = _ScriptedBackend([1000.0, 1500.0], [None, 275.5])
     sampler = NvmlSampler(backend, device_index=0, clock=_clock([10.0, 11.0]))
@@ -329,6 +477,13 @@ def main() -> int:
     test_resource_and_samples_have_only_schema_allowed_keys_and_finite_nonnegative_numbers()
     test_resource_and_samples_validate_against_report_v2_schema_defs()
     test_pynvml_backend_missing_dependency_raises_typed_failure()
+    test_poll_captures_a_transient_spike_missed_by_boundary_snapshots()
+    test_poll_tracks_device_and_process_maxima_independently_and_thread_safely()
+    test_poll_window_always_yields_at_least_one_sample_even_with_no_work()
+    test_poll_stops_and_still_records_when_the_polled_block_raises()
+    test_poll_rejects_unknown_stage()
+    test_poll_rejects_invalid_interval()
+    test_resource_incorporates_polled_peaks_alongside_boundary_samples()
     test_nvml_csv_writer_header_rows_and_empty_process_cells()
     test_append_nvml_csv_requires_existing_regular_mode_0644_destination()
     test_write_or_append_creates_then_extends()

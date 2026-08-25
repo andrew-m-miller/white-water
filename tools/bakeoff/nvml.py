@@ -16,6 +16,12 @@ The sampler is driven entirely through an injected :class:`NvmlBackend`, so impo
 module and running its unit tests requires neither ``pynvml`` nor a GPU. Only
 :class:`PynvmlBackend` touches the real driver, and it imports ``pynvml`` lazily so the module
 stays importable on a machine that lacks it (this development machine is macOS with neither).
+
+Boundary snapshots (:meth:`NvmlSampler.sample`) are point-in-time and can miss a transient
+allocation made and freed between two calls; :meth:`NvmlSampler.poll` continuously polls a
+work window on a background thread and records the observed maximum instead, which is what
+P25-6's session-create/warm/steady *peak* requirement needs (see ``docs/context.md``, Session
+6: "boundary-sampled NVML does not capture the rejected allocation").
 """
 
 from __future__ import annotations
@@ -25,6 +31,7 @@ import math
 import os
 import stat
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol, Sequence
@@ -167,11 +174,23 @@ def _nonnegative_finite(value: Any, label: str) -> float:
 class NvmlSampler:
     """Accumulates ``nvml_sample`` records for one cell and reduces them to a ``resource``.
 
-    Construction resolves the device handle once via the injected backend. Each call to
-    :meth:`sample` records one schema-shaped sample (``{"stage", "used_mib"}`` plus an optional
-    ``process_used_mib``) and returns it; samples accumulate in call order. If more than one
-    ``baseline`` sample is taken, the first is authoritative for :meth:`resource` -- callers
-    should sample ``baseline`` exactly once per cell.
+    Construction resolves the device handle once via the injected backend. There are two ways
+    to record a sample:
+
+    - :meth:`sample` takes one instantaneous boundary reading -- appropriate for ``baseline``,
+      ``cleanup`` and ``process_exit``, which are naturally point-in-time.
+    - :meth:`poll` continuously polls in the background across a ``session_create`` or
+      ``steady`` work window and records the MAXIMUM observed reading as that stage's sample.
+      Boundary-only snapshots miss a transient allocation that is made and freed between two
+      ``sample()`` calls -- ``docs/context.md`` (Session 6) records exactly this gap: "boundary-
+      sampled NVML does not capture the rejected allocation." P25-6 requires session-create and
+      warm/steady *peaks*, so those two stages should be measured with :meth:`poll`, not
+      :meth:`sample`.
+
+    Both methods append to the same ordered sample list, so :meth:`resource` reduces over
+    whichever mix of boundary and polled readings the caller took. If more than one ``baseline``
+    sample is taken, the first is authoritative for :meth:`resource` -- callers should sample
+    ``baseline`` exactly once per cell.
     """
 
     def __init__(
@@ -181,11 +200,15 @@ class NvmlSampler:
         pid: int | None = None,
         *,
         clock: Callable[[], float] = time.time,
+        poll_interval_s: float = 0.05,
     ) -> None:
+        if not isinstance(poll_interval_s, (int, float)) or isinstance(poll_interval_s, bool) or poll_interval_s < 0:
+            _fail("invalid_interval", "poll_interval_s must be a non-negative number")
         self._backend = backend
         self._device_index = device_index
         self._pid = os.getpid() if pid is None else pid
         self._clock = clock
+        self._poll_interval_s = float(poll_interval_s)
         self._handle = backend.device_handle(device_index)
         self._samples: list[dict[str, Any]] = []
         self._timestamps: list[float] = []
@@ -198,22 +221,66 @@ class NvmlSampler:
     def pid(self) -> int:
         return self._pid
 
+    def _query_backend(self) -> tuple[float, float | None]:
+        """One backend query, validated and unit-normalized. Shared by sample() and poll()."""
+
+        used_mib = _nonnegative_finite(self._backend.device_used_mib(self._handle), "used_mib")
+        process_used_mib = self._backend.process_used_mib(self._handle, self._pid)
+        if process_used_mib is not None:
+            process_used_mib = _nonnegative_finite(process_used_mib, "process_used_mib")
+        return used_mib, process_used_mib
+
     def sample(self, stage: str) -> dict[str, Any]:
         """Query the backend once and record one schema-shaped ``nvml_sample``.
 
         ``process_used_mib`` is omitted entirely (never set to null) when the backend reports
         per-process accounting as unavailable, so the record always validates against the
-        report schema's ``additionalProperties: false`` object.
+        report schema's ``additionalProperties: false`` object. This is an instantaneous
+        snapshot; use :meth:`poll` for a stage where a transient peak must not be missed.
         """
 
         if not isinstance(stage, str) or stage not in STAGES:
             _fail("unknown_stage", f"stage {stage!r} is not a permitted nvml_sample stage")
         timestamp = _nonnegative_finite(self._clock(), "timestamp_unix_s")
-        used_mib = _nonnegative_finite(self._backend.device_used_mib(self._handle), "used_mib")
+        used_mib, process_used_mib = self._query_backend()
         record: dict[str, Any] = {"stage": stage, "used_mib": used_mib}
-        process_used_mib = self._backend.process_used_mib(self._handle, self._pid)
         if process_used_mib is not None:
-            record["process_used_mib"] = _nonnegative_finite(process_used_mib, "process_used_mib")
+            record["process_used_mib"] = process_used_mib
+        self._samples.append(record)
+        self._timestamps.append(timestamp)
+        return dict(record)
+
+    def poll(self, stage: str, *, interval_s: float | None = None) -> "PollWindow":
+        """Continuously poll memory during a work window and record the stage's MAXIMUM.
+
+        Use as a context manager around the exact work being measured::
+
+            with sampler.poll("session_create"):
+                session = create_session(...)
+
+        On ``__exit__`` this records exactly one schema-shaped ``nvml_sample`` for ``stage``
+        whose ``used_mib``/``process_used_mib`` are the maximum seen across the window,
+        including one reading taken synchronously and immediately on ``__enter__`` (before the
+        background poller starts), so a window always yields at least one real reading even if
+        it closes before the background thread runs. Polling continues on a background thread
+        at ``interval_s`` (default: this sampler's configured ``poll_interval_s``) cadence, with
+        the shared running maximum guarded by a lock. The poller always stops from ``__exit__``
+        -- including when the polled block raises -- and whatever maximum it captured is still
+        recorded; the caller's exception then propagates unchanged.
+        """
+
+        if not isinstance(stage, str) or stage not in STAGES:
+            _fail("unknown_stage", f"stage {stage!r} is not a permitted nvml_sample stage")
+        resolved_interval = self._poll_interval_s if interval_s is None else interval_s
+        if not isinstance(resolved_interval, (int, float)) or isinstance(resolved_interval, bool) or resolved_interval < 0:
+            _fail("invalid_interval", "poll interval_s must be a non-negative number")
+        return PollWindow(self, stage, float(resolved_interval))
+
+    def _record_polled_sample(self, stage: str, used_mib: float, process_used_mib: float | None) -> dict[str, Any]:
+        timestamp = _nonnegative_finite(self._clock(), "timestamp_unix_s")
+        record: dict[str, Any] = {"stage": stage, "used_mib": used_mib}
+        if process_used_mib is not None:
+            record["process_used_mib"] = process_used_mib
         self._samples.append(record)
         self._timestamps.append(timestamp)
         return dict(record)
@@ -261,6 +328,101 @@ class NvmlSampler:
         for index, (sample, timestamp) in enumerate(zip(self._samples, self._timestamps)):
             rows.append(_nvml_csv_row(normalized_identity, sample, index, timestamp))
         return rows
+
+
+class PollWindow:
+    """Context manager returned by :meth:`NvmlSampler.poll`.
+
+    A background thread repeatedly queries the sampler's backend and tracks the running
+    maximum ``used_mib``/``process_used_mib`` under a lock, so it is safe for the caller's
+    thread to read no shared state at all -- the maximum is only read back, once, in
+    ``__exit__``, after the poller has been stopped and joined. Not intended to be constructed
+    directly; use :meth:`NvmlSampler.poll`.
+    """
+
+    def __init__(self, sampler: "NvmlSampler", stage: str, interval_s: float) -> None:
+        self._sampler = sampler
+        self._stage = stage
+        self._interval_s = interval_s
+        self._stop_event = threading.Event()
+        self._lock = threading.Lock()
+        self._reading_event = threading.Event()
+        self._max_used_mib: float | None = None
+        self._max_process_used_mib: float | None = None
+        self._reading_count = 0
+        self._background_error: BaseException | None = None
+        self._thread: threading.Thread | None = None
+
+    @property
+    def reading_count(self) -> int:
+        """Number of backend readings taken so far (thread-safe; mainly for tests)."""
+
+        with self._lock:
+            return self._reading_count
+
+    def wait_for_reading_count(self, count: int, timeout: float = 2.0) -> None:
+        """Block until at least ``count`` readings have been recorded.
+
+        A synchronization helper (not required for normal use) that lets a test observe a
+        specific number of background readings deterministically, without depending on the
+        real poll interval: it blocks on an event the poller signals after each reading is
+        fully recorded (max already updated under the lock), rather than guessing a sleep
+        duration. Raises a typed failure if ``count`` is not reached within ``timeout``.
+        """
+
+        deadline = time.monotonic() + timeout
+        while True:
+            with self._lock:
+                if self._reading_count >= count:
+                    return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _fail("timeout", f"poll window did not reach {count} readings within {timeout}s")
+            self._reading_event.wait(remaining)
+            self._reading_event.clear()
+
+    def _record_reading(self) -> None:
+        used_mib, process_used_mib = self._sampler._query_backend()
+        with self._lock:
+            self._reading_count += 1
+            if self._max_used_mib is None or used_mib > self._max_used_mib:
+                self._max_used_mib = used_mib
+            if process_used_mib is not None and (
+                self._max_process_used_mib is None or process_used_mib > self._max_process_used_mib
+            ):
+                self._max_process_used_mib = process_used_mib
+        self._reading_event.set()
+
+    def _run(self) -> None:
+        try:
+            # wait() first: the immediate reading was already taken synchronously in
+            # __enter__, so the first background reading is one interval later.
+            while not self._stop_event.wait(self._interval_s):
+                self._record_reading()
+        except BaseException as exc:  # pragma: no cover - real backend failures only
+            with self._lock:
+                self._background_error = exc
+
+    def __enter__(self) -> "PollWindow":
+        self._record_reading()
+        self._thread = threading.Thread(target=self._run, daemon=True, name=f"nvml-poll-{self._stage}")
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join()
+        with self._lock:
+            max_used_mib = self._max_used_mib
+            max_process_used_mib = self._max_process_used_mib
+            background_error = self._background_error
+        # __enter__ always takes one synchronous reading before returning, so a window that
+        # reaches __exit__ at all -- with or without a caller exception -- always has a max.
+        assert max_used_mib is not None
+        self._sampler._record_polled_sample(self._stage, max_used_mib, max_process_used_mib)
+        if exc_type is None and background_error is not None:
+            raise NvmlFailure("query_failed", f"nvml poll for stage {self._stage!r} failed: {background_error}") from background_error
 
 
 def _validate_csv_identity(identity: Mapping[str, str]) -> dict[str, str]:
@@ -418,6 +580,7 @@ __all__ = [
     "NvmlBackend",
     "NvmlFailure",
     "NvmlSampler",
+    "PollWindow",
     "PynvmlBackend",
     "STAGES",
     "append_nvml_csv",
