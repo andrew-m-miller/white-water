@@ -1292,6 +1292,17 @@ def _compute_identity(
     similarly is not otherwise bound: a different evaluator build measuring the same matrix is a
     different run. ``chain_offsets`` changes which auxiliary frames/metrics a cell attempts.
 
+    ``protocol_sha256`` binds the FULL protocol content, not just ``protocol_id``. The matrix
+    selector carries only the cap/conditioning/provider TOKENS; the definitions those tokens
+    resolve to live in the protocol and are result-affecting. In particular ``_cap_megapixels``
+    reads ``analysis_caps[...].decimal_megapixels`` at run time and that value drives the analysis
+    geometry (analysis_width/height), hence every metric -- so an operator who edits a cap's
+    megapixels (or points ``--protocol`` at a variant) while keeping ``protocol_id`` unchanged and
+    reuses the same ``--state``/``--output-dir`` would, without this, collide on one identity and
+    have the second run silently resume/reuse the first's results measured at the OLD cap. Bound
+    exactly like ``corpus_sha256`` -- the sibling runtime-input file whose bytes are result-
+    affecting -- rather than by a single opaque id.
+
     Fix I: ``device_index``/``poll_interval_s``/``nvml_enabled`` and the GPU/driver hardware
     fields are ALSO result-affecting for a CUDA matrix -- without them, a run measured with
     ``--no-nvml`` (which reports a flat zero ``resource`` for every CUDA cell) and a rerun of
@@ -1302,6 +1313,7 @@ def _compute_identity(
 
     return {
         "protocol_id": protocol["protocol_id"],
+        "protocol_sha256": canonical_sha256(protocol),
         "matrix_sha256": plan.matrix_sha256,
         "corpus_sha256": canonical_sha256(corpus),
         "environment": environment,

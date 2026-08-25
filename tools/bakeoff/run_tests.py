@@ -1302,6 +1302,44 @@ def test_identity_differs_for_measurement_config_changes() -> None:
         assert baseline != canonical_sha256(identity(hardware={**base_hardware, "driver": "driver-2"}))
 
 
+def test_identity_binds_protocol_content_not_just_protocol_id() -> None:
+    # The matrix selector carries only cap/conditioning TOKENS; the definitions behind them live
+    # in the protocol and are result-affecting. Editing a cap's decimal_megapixels (which drives
+    # analysis geometry, hence every metric) while keeping protocol_id must change the identity,
+    # so it can never be silently reused/resumed against the same --state/--output-dir.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-identity-protocol-") as tmp:
+        directory = Path(tmp)
+        protocol = _protocol()
+        corpus = _corpus()
+        selection_axes = {
+            "candidate_ids": [CANDIDATE_ID], "shot_ids": ["syn-identity"],
+            "conditioning_tokens": ["native-clamp01-v1"], "cap_tokens": ["mp0_5"],
+            "providers": [{"token": "cuda", "host_loads": ["idle"]}],
+        }
+        plan = build_matrix(protocol, corpus, _candidate_entries(), selection_axes, "smoke", "el8-x86_64")
+        artifacts = run_module._validate_selected_artifacts(plan, _artifact_map(directory), V2_PROTOCOL_PATH)
+        runner_section = _report_metadata()["runner"]
+        hardware = {"platform": "linux", "architecture": "x86_64", "gpu": "gpu-a", "driver": "driver-1"}
+
+        def identity(proto):
+            return run_module._compute_identity(
+                proto, corpus, plan, "el8-x86_64", "smoke", artifacts, runner_section, hardware, (1, 2, 4, 8),
+                device_index=0, poll_interval_s=0.05, nvml_enabled=True,
+            )
+
+        baseline = canonical_sha256(identity(protocol))
+
+        # Same protocol_id, same selector (mp0_5 is still the token), but the cap now resolves to a
+        # different megapixel budget -- a genuinely different measurement.
+        edited = copy.deepcopy(protocol)
+        edited["analysis_caps"][0]["decimal_megapixels"] = 0.6
+        assert edited["protocol_id"] == protocol["protocol_id"]
+        assert plan.matrix_sha256 == build_matrix(
+            edited, corpus, _candidate_entries(), selection_axes, "smoke", "el8-x86_64",
+        ).matrix_sha256, "the selector token set is unchanged; only the protocol definition changed"
+        assert canonical_sha256(identity(edited)) != baseline, "protocol content must be bound into the identity"
+
+
 def test_rerun_with_nvml_disabled_after_nvml_enabled_is_rejected() -> None:
     with tempfile.TemporaryDirectory(prefix="whitewater-run-nvml-toggle-") as tmp:
         config = _config(
@@ -1885,6 +1923,7 @@ def main() -> int:
     test_cuda_cell_runs_all_inference_in_the_child_not_the_parent()
     test_child_exit_without_queueing_yields_typed_failure_not_a_hang()
     test_identity_differs_for_measurement_config_changes()
+    test_identity_binds_protocol_content_not_just_protocol_id()
     test_rerun_with_nvml_disabled_after_nvml_enabled_is_rejected()
     test_fresh_state_path_with_different_nvml_config_reuses_output_dir_but_is_rejected()
     test_fresh_state_path_with_identical_measurement_config_still_succeeds()
