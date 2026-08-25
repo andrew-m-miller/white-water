@@ -465,11 +465,22 @@ def _review_label(shot_id: str, candidate_id: str) -> str:
 
 def _review_preview_dir(review_dir: Path, cell: CellKey) -> Path:
     """The per-cell preview directory, keyed only by the anonymized label -- never the real
-    candidate id -- plus shot/cap/conditioning. Shared by the writer (during a cell's execution)
-    and the end-of-run review.csv regeneration (Fix E), so both agree on the same path without
-    needing any extra durable state."""
+    candidate id -- plus every other CellKey axis. Shared by the writer (during a cell's
+    execution) and the end-of-run review.csv regeneration (Fix E), so both agree on the same
+    path without needing any extra durable state.
 
-    return review_dir / cell.shot / _review_label(cell.shot, cell.candidate) / cell.cap / cell.conditioning
+    Fix P: MUST include ``provider`` and ``host_load``, not just shot/cap/conditioning -- the
+    protocol measures CUDA both idle and beside a live Flame Batch (the same shot, candidate,
+    cap, and conditioning token, differing only by host_load), and previously those two distinct
+    cells collided into the SAME directory: whichever cell wrote its previews last silently
+    stood in as "evidence" for both review.csv rows. provider/host_load are cell axes, not
+    candidate identity, so including them in the path does not un-blind anything.
+    """
+
+    return (
+        review_dir / cell.shot / _review_label(cell.shot, cell.candidate) / cell.cap / cell.conditioning
+        / cell.provider / cell.host_load
+    )
 
 
 def _flow_visualization_grid(
@@ -1495,7 +1506,45 @@ def _read_run_identity_sha256(output_dir: Path) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _establish_run_identity_up_front(output_dir: Path, identity: Mapping[str, Any], *, replace: bool) -> None:
+def _has_matching_complete_state(state_path: Path, current_identity_sha256: str) -> bool:
+    """Read-only, non-mutating full-identity evidence check for Fix O's recovery gate.
+
+    Unlike ``resume.load_state`` (which recovers ``in_progress`` entries to ``pending`` and
+    raises on a mismatch), this never mutates the state file and never raises -- a malformed,
+    unreadable, absent, or non-matching state file simply answers "no", leaving the caller to
+    refuse for lack of evidence rather than propagating an unrelated exception type.
+
+    Full-identity evidence, both required: the state file's own recorded ``identity_sha256``
+    equals ``current_identity_sha256`` (this hash binds every identity field, including
+    device_index/poll_interval_s/nvml_enabled and the candidate artifact hashes -- Fix I -- none
+    of which report.json has any home for), AND every one of its entries is ``complete`` (so this
+    state genuinely produced a published report, not merely an interrupted attempt that happens
+    to share an identity). The recorded ``identity_sha256`` is additionally cross-checked against
+    a fresh hash of the state's own ``identity`` object, mirroring ``resume``'s own defense
+    against a hand-edited or corrupted state file asserting a hash it does not actually match.
+    """
+
+    try:
+        data = load_json(state_path)
+    except (OSError, ValueError):
+        return False
+    if not isinstance(data, Mapping):
+        return False
+    identity_sha256 = data.get("identity_sha256")
+    if not isinstance(identity_sha256, str) or identity_sha256 != current_identity_sha256:
+        return False
+    stored_identity = data.get("identity")
+    if not isinstance(stored_identity, Mapping) or canonical_sha256(stored_identity) != identity_sha256:
+        return False
+    entries = data.get("entries")
+    if not isinstance(entries, list) or not entries:
+        return False
+    return all(isinstance(entry, Mapping) and entry.get("state") == "complete" for entry in entries)
+
+
+def _establish_run_identity_up_front(
+    output_dir: Path, state_path: Path, identity: Mapping[str, Any], *, replace: bool,
+) -> None:
     """Validate/establish ``.run-identity.json`` before a single cell executes (Fix L), and
     guarantee the identity record can never trail a published report.json (Fix M).
 
@@ -1518,11 +1567,17 @@ def _establish_run_identity_up_front(output_dir: Path, identity: Mapping[str, An
       a run that crashed (or hit a write failure) between publishing report.json and writing its
       identity sidecar (that write order held even pre-fix, since ``_write_run_identity`` was
       always the LAST write) must not be permanently stuck demanding ``--replace``. Recoverable
-      IFF the already-published report's own content is consistent with this invocation's identity
-      (``_report_matches_current_run``, the same report-derived cross-check kept below as a
-      secondary safety net); if so, the identity is established now, before anything else runs.
-      Otherwise this is a genuinely different, unrelated report reusing the directory -- refused,
-      same as a hash mismatch.
+      ONLY on FULL-identity evidence (Fix O): ``_has_matching_complete_state`` -- the resume state
+      file for THIS ``--state`` path exists, its identity_sha256 equals
+      ``canonical_sha256(identity)`` (binding every field, unlike report.json's schema-limited
+      content), and every one of its cells is complete. ``_report_matches_current_run`` (the
+      report-derived cross-check) is checked ADDITIONALLY as a secondary sanity net, never as the
+      sole basis for adoption -- report-v2 has no home for device_index/poll_interval_s/
+      nvml_enabled or the computed artifact hashes, so passing it alone proves nothing about
+      those axes (Codex's repro: an NVML-enabled report, sidecar deleted, re-invoked with
+      --no-nvml and a FRESH --state path -- every report-derived field still matches, since none
+      of the changed fields live in report.json at all). Without matching-and-complete state
+      evidence, this is refused, same as a hash mismatch -- not silently adopted.
     * report.json exists and the persisted identity hash MISMATCHES: a different run (different
       profile, matrix selection, candidate artifacts, or measurement configuration such as
       --device-index/--poll-interval-s/--no-nvml) reusing this --output-dir. Refused immediately,
@@ -1550,18 +1605,30 @@ def _establish_run_identity_up_front(output_dir: Path, identity: Mapping[str, An
         if persisted_sha256 == current_sha256:
             return
         if persisted_sha256 is None:
-            try:
-                published_report = load_json(json_path)
-            except (OSError, ValueError) as exc:
-                raise DriverFailure(
-                    "report_identity_mismatch",
-                    f"{json_path} exists but could not be read to recover its missing "
-                    f"{_run_identity_path(output_dir)}: {exc}; rerun with --replace to overwrite, "
-                    "or use a different --output-dir",
-                ) from exc
-            if _report_matches_current_run(published_report, identity):
-                _write_run_identity(output_dir, identity)
-                return
+            if _has_matching_complete_state(state_path, current_sha256):
+                try:
+                    published_report = load_json(json_path)
+                except (OSError, ValueError) as exc:
+                    raise DriverFailure(
+                        "report_identity_mismatch",
+                        f"{json_path} exists but could not be read to recover its missing "
+                        f"{_run_identity_path(output_dir)}: {exc}; rerun with --replace to "
+                        "overwrite, or use a different --output-dir",
+                    ) from exc
+                # Secondary sanity net only (Fix O) -- the state-file evidence above is what
+                # actually gates adoption; this additionally catches a report.json edited or
+                # replaced beneath a state file that otherwise matches.
+                if _report_matches_current_run(published_report, identity):
+                    _write_run_identity(output_dir, identity)
+                    return
+            raise DriverFailure(
+                "report_identity_mismatch",
+                f"{json_path} already exists but its identity sidecar "
+                f"({_run_identity_path(output_dir)}) is missing, and no resume state file at "
+                f"{state_path} provides full-identity evidence that this report belongs to the "
+                "current identity (a matching identity_sha256 with every cell complete); rerun "
+                "with --replace to overwrite, or use a different --output-dir",
+            )
         raise DriverFailure(
             "report_identity_mismatch",
             f"{json_path} already exists but its persisted run identity "
@@ -1641,6 +1708,42 @@ def _parse_csv_data_rows(payload: bytes) -> list[list[str]] | None:
     return rows[1:] if rows else []
 
 
+def _remove_stale_optional_output(path: Path) -> None:
+    """Durably, atomically delete a driver-owned optional output (nvml.csv/review.csv) whose
+    canonical row set is now empty (Fix Q).
+
+    Deletion of a single path is already atomic at the filesystem level (there is no partial-
+    delete state the way there is a partial write) -- this only adds the same durability
+    discipline ``_atomic_publish`` uses elsewhere in this file, an ``fsync`` of the parent
+    directory once the unlink lands, and a symlink refusal matching the rest of this module's
+    output-path handling.
+
+    Only ever called from ``_write_csv_file`` when ``replace`` or ``verify_and_repair`` is set --
+    i.e. only when the driver is actively (re)publishing this output_dir's canonical state for
+    the CURRENT identity, never during a plain no-clobber fresh publish. Leaving a PRIOR run's
+    file in place here would misattribute its rows to the current identity: e.g. a production
+    CUDA run's nvml.csv/review.csv surviving underneath a ``--replace`` synthetic CPU-only report
+    that has no such rows at all.
+    """
+
+    try:
+        if path.is_symlink():
+            _fail("output_path", f"{path} must not be a symlink")
+        path.unlink()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise DriverFailure("atomic_write", f"cannot remove stale {path}: {exc}") from exc
+    try:
+        directory_descriptor = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    except OSError as exc:
+        raise DriverFailure("atomic_write", f"cannot durably remove stale {path}: {exc}") from exc
+
+
 def _write_csv_file(
     path: Path,
     header: Sequence[str],
@@ -1662,6 +1765,14 @@ def _write_csv_file(
     atomic (see :func:`_atomic_publish`): an interrupted write can never leave a truncated file
     at the final path.
 
+    Fix Q: an empty ``rows`` under ``replace`` or ``verify_and_repair`` additionally REMOVES any
+    file already at ``path`` (see ``_remove_stale_optional_output``) -- both modes mean the
+    driver is actively republishing this output_dir's canonical state for the current identity,
+    so a PRIOR run's file (e.g. a production CUDA run's nvml.csv/review.csv surviving underneath
+    a ``--replace`` synthetic CPU-only report with no such rows at all) must not be left behind
+    to be misread as belonging to the current report. A plain fresh, non-replace, non-repair
+    publish with empty rows still does nothing at all, same as before this fix.
+
     ``verify_and_repair`` (Fix K, replacing the earlier ``only_if_missing``): used when
     repairing a resumed run's output directory (report.json already published under the current
     identity). Mere existence is never trusted -- the canonical bytes are regenerated and
@@ -1681,6 +1792,8 @@ def _write_csv_file(
     """
 
     if not rows:
+        if replace or verify_and_repair:
+            _remove_stale_optional_output(path)
         return
     payload = _render_csv_bytes(header, rows)
     if verify_and_repair:
@@ -1952,7 +2065,7 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
     # created, before the executor is built, and before a single cell can execute and overwrite
     # a CellKey-keyed sidecar or review preview that might belong to a different, already-
     # published run reusing this --output-dir. See `_establish_run_identity_up_front`.
-    _establish_run_identity_up_front(config.output_dir, identity, replace=config.replace)
+    _establish_run_identity_up_front(config.output_dir, config.state_path, identity, replace=config.replace)
 
     if config.state_path.exists():
         state = load_state(config.state_path, identity, plan)
@@ -2051,9 +2164,17 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
         "report.csv": csv_path,
         "summary.txt": summary_path,
         "runner.log": runner_log.path,
-        "nvml.csv": config.output_dir / "nvml.csv",
-        "review.csv": config.output_dir / "review.csv",
     }
+    # Fix Q: nvml.csv/review.csv are optional -- advertise them only when they actually exist
+    # after publication (a CPU-only run has no nvml.csv; a run with no review-eligible passing
+    # cells has no review.csv), so a caller can never be pointed at a nonexistent or stale file
+    # a prior identity in this same --output-dir left behind.
+    nvml_path = config.output_dir / "nvml.csv"
+    if nvml_path.exists():
+        output_paths["nvml.csv"] = nvml_path
+    review_path = config.output_dir / "review.csv"
+    if review_path.exists():
+        output_paths["review.csv"] = review_path
     return RunResult(report=report, output_paths=output_paths, incomplete=False)
 
 

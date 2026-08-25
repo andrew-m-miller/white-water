@@ -1607,6 +1607,176 @@ def test_review_csv_repair_preserves_human_edits_and_still_fixes_driver_owned_co
         assert nvml_path.read_bytes() == original_nvml_bytes
 
 
+# --------------------------------------------------------------------------------------------
+# Fix O: a missing identity sidecar is recovered ONLY on full-identity evidence -- a matching,
+# fully-complete resume state file for the SAME --state path -- never from the partial,
+# report-derived cross-check alone (report-v2 has no home for device_index/poll_interval_s/
+# nvml_enabled/candidate artifact hashes, so passing it proves nothing about those axes).
+# --------------------------------------------------------------------------------------------
+
+
+def test_nvml_disabled_fresh_state_with_deleted_sidecar_reusing_output_dir_is_refused() -> None:
+    """Codex's Fix O repro: an NVML-enabled report.json, .run-identity.json deleted, then
+    re-invoked with --no-nvml and a FRESH --state path against the SAME --output-dir. Before this
+    fix, _report_matches_current_run alone gated recovery -- and it cannot see device_index/
+    poll_interval_s/nvml_enabled at all, so it passed, silently adopting the old NVML-measured
+    resource data as though it belonged to a run that never measured it. A fresh --state path has
+    no matching, complete resume state to offer as full-identity evidence, so this must now be
+    refused, not adopted -- and refused with zero side effects, before a single cell executes."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-fixo-attack-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["prod-sample"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        (config.output_dir / ".run-identity.json").unlink()
+        original_report_bytes = (config.output_dir / "report.json").read_bytes()
+        original_nvml_bytes = (config.output_dir / "nvml.csv").read_bytes()
+        original_review_bytes = (config.output_dir / "review.csv").read_bytes()
+
+        config2 = copy.copy(config)
+        config2.nvml_backend_factory = None  # --no-nvml
+        fresh_state_path = config.output_dir / "state-no-nvml.json"
+        config2.state_path = fresh_state_path
+        config2.runtime_module = _FakeRuntime()
+        try:
+            run_bakeoff(config2)
+        except DriverFailure as failure:
+            assert failure.kind == "report_identity_mismatch"
+        else:
+            raise AssertionError("expected DriverFailure(report_identity_mismatch)")
+
+        # Refused before a single cell executed -- no fresh resume state was even created.
+        assert not fresh_state_path.exists()
+        # The original NVML-measured evidence must be completely untouched.
+        assert (config.output_dir / "report.json").read_bytes() == original_report_bytes
+        assert (config.output_dir / "nvml.csv").read_bytes() == original_nvml_bytes
+        assert (config.output_dir / "review.csv").read_bytes() == original_review_bytes
+
+
+def test_same_state_path_with_deleted_sidecar_and_matching_complete_state_still_recovers() -> None:
+    """The Fix O gate must not break the legitimate case: a genuine crash-recovery resume, using
+    the SAME --state path (whose state file therefore matches the current identity and every
+    cell is complete), must still recover the missing identity sidecar and finish publication
+    without --replace."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-fixo-recover-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["prod-sample"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        identity_path = config.output_dir / ".run-identity.json"
+        identity_path.unlink()
+        original_report_bytes = (config.output_dir / "report.json").read_bytes()
+
+        config2 = copy.copy(config)  # SAME state_path -- its state file matches and is complete
+        config2.runtime_module = _FakeRuntime()
+        second = run_bakeoff(config2)
+        assert not second.incomplete
+        assert second.report == first.report
+        assert (config.output_dir / "report.json").read_bytes() == original_report_bytes
+        assert identity_path.is_file(), "the identity sidecar must be re-established, not left missing"
+
+
+# --------------------------------------------------------------------------------------------
+# Fix P: distinct provider/host_load cells get distinct blinded preview directories -- the
+# protocol measures CUDA both idle and beside a live Flame Batch, and those two cells (same
+# shot/candidate/cap/conditioning, differing only by host_load) must not collide.
+# --------------------------------------------------------------------------------------------
+
+
+def test_idle_and_live_flame_cells_get_distinct_preview_dirs_and_review_paths() -> None:
+    """Before Fix P, _review_preview_dir omitted provider/host_load, so the idle and live_flame
+    cells for the same shot/candidate/cap/conditioning collided into ONE directory -- whichever
+    cell wrote its previews last silently stood in as "evidence" for both review.csv rows."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-fixp-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["prod-sample"], provider="cuda", host_loads=["idle", "live_flame"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        result = run_bakeoff(config)
+        assert not result.incomplete
+
+        with (config.output_dir / "review.csv").open(newline="", encoding="utf-8") as stream:
+            rows = list(csv.reader(stream))[1:]
+        assert len(rows) == 2
+        rows_by_host_load = {row[6]: row for row in rows}
+        assert set(rows_by_host_load) == {"idle", "live_flame"}
+        # Same shot/candidate/cap/conditioning -> same blinded label for both rows, proving any
+        # path difference below comes from provider/host_load, not a different cell identity.
+        assert rows_by_host_load["idle"][0] == rows_by_host_load["live_flame"][0]
+
+        preview_paths = {host_load: Path(row[7]) for host_load, row in rows_by_host_load.items()}
+        assert preview_paths["idle"] != preview_paths["live_flame"], (
+            "idle and live_flame cells must not share a preview directory"
+        )
+        # Each cell's own preview evidence exists independently -- neither was overwritten by the
+        # other cell's later write.
+        for preview_dir in preview_paths.values():
+            warped_file = preview_dir / "offset_1_warped.pfm"
+            assert warped_file.is_file(), f"missing per-cell preview evidence in {preview_dir}"
+        # Discriminated specifically by host_load (not merely coincidentally distinct), and the
+        # path still never leaks the real candidate id.
+        assert preview_paths["idle"].name == "idle"
+        assert preview_paths["live_flame"].name == "live_flame"
+        assert CANDIDATE_ID not in str(preview_paths["idle"])
+
+
+# --------------------------------------------------------------------------------------------
+# Fix Q: an empty canonical row set removes a stale prior file under replace/verify_and_repair
+# instead of leaving it behind, and output_paths only ever advertises a CSV that actually exists.
+# --------------------------------------------------------------------------------------------
+
+
+def test_replace_with_empty_optional_rows_removes_stale_csvs_and_stops_advertising_them() -> None:
+    """Codex's Fix Q repro: create nvml.csv/review.csv via a production CUDA run, then --replace
+    with a synthetic CPU-only selection whose canonical row sets are both empty. The prior run's
+    CSVs must not survive underneath the new report -- stale evidence misattributed to the
+    current identity -- and output_paths must not point at them once they are gone."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-fixq-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["prod-sample"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        nvml_path = config.output_dir / "nvml.csv"
+        review_path = config.output_dir / "review.csv"
+        assert nvml_path.is_file() and review_path.is_file()
+        # A run with real rows must advertise both -- the positive side of the same contract.
+        assert "nvml.csv" in first.output_paths
+        assert "review.csv" in first.output_paths
+
+        # --replace with a synthetic (analytic-truth), CPU-only selection: no CUDA cells means no
+        # nvml rows, and analytic-truth shots are never review-eligible, so review rows are also
+        # empty.
+        config2 = copy.copy(config)
+        config2.selection = _selection(shot_ids=["syn-identity"], provider="cpu")
+        config2.state_path = config.output_dir / "state-replace.json"
+        config2.replace = True
+        config2.nvml_backend_factory = None
+        config2.runtime_module = _FakeRuntime()
+        second = run_bakeoff(config2)
+        assert not second.incomplete
+
+        # The stale CUDA-run CSVs are gone, not left behind to be misread as belonging to the new
+        # (CPU-only) report.
+        assert not nvml_path.exists()
+        assert not review_path.exists()
+        assert "nvml.csv" not in second.output_paths
+        assert "review.csv" not in second.output_paths
+
+
 def main() -> int:
     test_cap_megapixels_looks_up_token_and_rejects_unknown()
     test_review_label_is_deterministic_and_does_not_embed_candidate_id()
@@ -1646,6 +1816,10 @@ def main() -> int:
     test_report_json_without_identity_sidecar_recovers_without_replace()
     test_report_json_without_identity_sidecar_but_mismatched_content_is_still_refused()
     test_review_csv_repair_preserves_human_edits_and_still_fixes_driver_owned_corruption()
+    test_nvml_disabled_fresh_state_with_deleted_sidecar_reusing_output_dir_is_refused()
+    test_same_state_path_with_deleted_sidecar_and_matching_complete_state_still_recovers()
+    test_idle_and_live_flame_cells_get_distinct_preview_dirs_and_review_paths()
+    test_replace_with_empty_optional_rows_removes_stale_csvs_and_stops_advertising_them()
     print("P25-6 profile driver tests passed")
     return 0
 
