@@ -55,6 +55,7 @@ import queue as _queue_module
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -733,9 +734,13 @@ def _write_nvml_sidecar(output_dir: Path, cell: CellKey, rows: Sequence[Sequence
     try:
         os.fchmod(descriptor, _OUTPUT_FILE_MODE)
         with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1  # ownership transferred to the file object; only its close() now
             stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
     except BaseException:
-        os.close(descriptor)
+        if descriptor >= 0:
+            os.close(descriptor)
         raise
 
 
@@ -1385,6 +1390,94 @@ def _ensure_output_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
+def _atomic_publish(path: Path, payload: bytes, *, replace_existing: bool) -> None:
+    """Publish ``payload`` to ``path`` so a partial write can never survive at the final path.
+
+    Fix K: mirrors ``reporting.py``'s ``_stage``/``write_report_pair`` discipline exactly --
+    staged in a same-directory temp file, ``fchmod`` to the output mode, then
+    ``flush``+``fsync`` of the file itself before it is ever linked to the final name, followed
+    by an ``fsync`` of the parent directory so the publish (not just the bytes) is durable. With
+    ``replace_existing`` false, installation is a no-clobber hard link (refuses a destination
+    that appeared concurrently); with it true, ``os.replace`` is used. Either way, the
+    destination only ever shows the complete staged bytes or its own prior content -- never a
+    truncated write from an interrupted attempt.
+    """
+
+    if not path.parent.is_dir():
+        _fail("output_path", f"output parent is not a directory: {path.parent}")
+    descriptor = -1
+    temporary: Path | None = None
+    try:
+        descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+        temporary = Path(name)
+        os.fchmod(descriptor, _OUTPUT_FILE_MODE)
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1  # ownership transferred to the file object; only its close() now
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if replace_existing:
+            os.replace(temporary, path)
+        else:
+            try:
+                os.link(temporary, path, follow_symlinks=False)
+            except FileExistsError as exc:
+                raise DriverFailure("output_exists", f"output appeared during publication: {path}") from exc
+            temporary.unlink()
+        temporary = None
+        directory_descriptor = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    except OSError as exc:
+        raise DriverFailure("atomic_write", str(exc)) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _run_identity_path(output_dir: Path) -> Path:
+    return output_dir / ".run-identity.json"
+
+
+def _write_run_identity(output_dir: Path, identity: Mapping[str, Any]) -> None:
+    """Durably persist the FULL run identity (Fix J) alongside a freshly published report.
+
+    report.json is schema-constrained (report-v2 forbids unknown properties) and several
+    identity fields -- device_index, poll_interval_s, nvml_enabled -- have no home in that
+    schema at all, so they can never be cross-checked from the report's own content. This
+    sidecar is the authoritative record of exactly which identity produced the currently
+    published report/nvml.csv/review.csv, checked by hash (never by merely existing) before any
+    of them is ever reused. Not one of the five operator return files; internal bookkeeping
+    only, like ``.sidecars/``. Always overwritten (this file's only job is to describe whatever
+    is currently on disk, so there is nothing to preserve from an older identity).
+    """
+
+    payload = (
+        json.dumps(
+            {"identity": dict(identity), "identity_sha256": canonical_sha256(identity)},
+            ensure_ascii=False, sort_keys=True, indent=2,
+        )
+        + "\n"
+    ).encode("utf-8")
+    _atomic_publish(_run_identity_path(output_dir), payload, replace_existing=True)
+
+
+def _read_run_identity_sha256(output_dir: Path) -> str | None:
+    """Return the persisted identity hash (Fix J), or ``None`` if absent/unreadable."""
+
+    path = _run_identity_path(output_dir)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return None
+    value = data.get("identity_sha256") if isinstance(data, Mapping) else None
+    return value if isinstance(value, str) else None
+
+
 def _open_append_0644(path: Path) -> Any:
     exists = path.exists()
     if exists and path.is_symlink():
@@ -1413,10 +1506,20 @@ class RunnerLog:
         self._stream.close()
 
 
+def _render_csv_bytes(header: Sequence[str], rows: Sequence[Sequence[str]]) -> bytes:
+    from io import StringIO
+    buffer = StringIO(newline="")
+    writer = csv.writer(buffer, delimiter=",", quotechar='"', lineterminator="\n")
+    writer.writerow(header)
+    for row in rows:
+        writer.writerow(row)
+    return buffer.getvalue().encode("utf-8")
+
+
 def _write_csv_file(
-    path: Path, header: Sequence[str], rows: Sequence[Sequence[str]], *, replace: bool, only_if_missing: bool = False,
+    path: Path, header: Sequence[str], rows: Sequence[Sequence[str]], *, replace: bool, verify_and_repair: bool = False,
 ) -> None:
-    """Write one driver-owned CSV (nvml.csv/review.csv) fresh, exactly once, never appended.
+    """Publish one driver-owned CSV (nvml.csv/review.csv) fresh, exactly once, atomically.
 
     Fix E: both files are a deterministic function of durable completed state (nvml.csv from
     each cell's sidecar, review.csv from the completed results plus corpus metadata), assembled
@@ -1424,37 +1527,33 @@ def _write_csv_file(
     which could otherwise duplicate a cell's rows if it were retried after a resume. Writes
     nothing (and creates no file) when ``rows`` is empty, matching the existing contract that
     these files exist only when there is something to report (e.g. no nvml.csv for a CPU-only
-    run). No-clobber unless ``replace``, mirroring report.json/report.csv.
+    run). No-clobber unless ``replace``, mirroring report.json/report.csv. Publication itself is
+    atomic (see :func:`_atomic_publish`): an interrupted write can never leave a truncated file
+    at the final path.
 
-    ``only_if_missing`` (Fix F): when the destination already exists, silently leave it alone
-    instead of failing or replacing it -- used when repairing a resumed run's output directory
-    (report.json already published under the current identity) where an already-correct file
-    should never be touched, but a file a human deleted (or a crash left missing) should be.
+    ``verify_and_repair`` (Fix K, replacing the earlier ``only_if_missing``): used when
+    repairing a resumed run's output directory (report.json already published under the current
+    identity). Mere existence is never trusted -- the canonical bytes are regenerated and
+    compared against whatever is already at ``path`` byte-for-byte; a missing, truncated, or
+    otherwise different file is atomically replaced with the canonical bytes, while an
+    already-correct file is left untouched (not even reopened).
     """
 
     if not rows:
         return
-    if path.exists():
-        if only_if_missing:
-            return
-        if not replace:
-            _fail("output_exists", f"{path} already exists; rerun with --replace to overwrite")
-        path.unlink()
-    from io import StringIO
-    buffer = StringIO(newline="")
-    writer = csv.writer(buffer, delimiter=",", quotechar='"', lineterminator="\n")
-    writer.writerow(header)
-    for row in rows:
-        writer.writerow(row)
-    payload = buffer.getvalue().encode("utf-8")
-    descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, _OUTPUT_FILE_MODE)
-    try:
-        os.fchmod(descriptor, _OUTPUT_FILE_MODE)
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(payload)
-    except BaseException:
-        os.close(descriptor)
-        raise
+    payload = _render_csv_bytes(header, rows)
+    if verify_and_repair:
+        if path.exists():
+            try:
+                if path.read_bytes() == payload:
+                    return
+            except OSError:
+                pass  # unreadable for some other reason -- fall through and replace it
+        _atomic_publish(path, payload, replace_existing=True)
+        return
+    if path.exists() and not replace:
+        _fail("output_exists", f"{path} already exists; rerun with --replace to overwrite")
+    _atomic_publish(path, payload, replace_existing=replace)
 
 
 def _shot_has_analytic_truth(shot: Mapping[str, Any]) -> bool:
@@ -1470,7 +1569,7 @@ def _regenerate_sidecar_outputs(
     completed: Sequence[Mapping[str, Any]],
     *,
     replace: bool,
-    only_if_missing: bool = False,
+    verify_and_repair: bool = False,
 ) -> None:
     """Assemble nvml.csv and review.csv once, from durable completed state (Fix E).
 
@@ -1479,11 +1578,12 @@ def _regenerate_sidecar_outputs(
     ``RunCoordinator``), so re-running this after a resume always produces the identical file:
     exactly one row-set per cell, regardless of how many partial attempts that cell needed.
 
-    Fix F: also called (with ``only_if_missing=True``) when report.json already existed under
-    the current identity and every cell was already complete -- a crash or a manual deletion
-    that left report.json present but nvml.csv/review.csv missing must still be repaired on the
-    next resumed invocation, since the per-cell sidecars this reads from remain durable on disk
-    regardless of whether report.json itself needed regenerating.
+    Fix F/K: also called (with ``verify_and_repair=True``) when report.json already existed
+    under the current identity and every cell was already complete -- a crash or a manual
+    deletion/truncation that left report.json present but nvml.csv/review.csv missing or
+    corrupted must still be repaired on the next resumed invocation, since the per-cell sidecars
+    this reads from remain durable on disk regardless of whether report.json itself needed
+    regenerating. ``verify_and_repair`` never trusts mere existence -- see ``_write_csv_file``.
     """
 
     shots = _shot_index(corpus)
@@ -1503,8 +1603,8 @@ def _regenerate_sidecar_outputs(
             cell.conditioning, cell.cap, cell.provider, cell.host_load,
             str(_review_preview_dir(review_dir, cell)), "", "", "", "", "", "",
         ])
-    _write_csv_file(output_dir / "nvml.csv", NVML_CSV_HEADER, nvml_rows, replace=replace, only_if_missing=only_if_missing)
-    _write_csv_file(output_dir / "review.csv", REVIEW_CSV_HEADER, review_rows, replace=replace, only_if_missing=only_if_missing)
+    _write_csv_file(output_dir / "nvml.csv", NVML_CSV_HEADER, nvml_rows, replace=replace, verify_and_repair=verify_and_repair)
+    _write_csv_file(output_dir / "review.csv", REVIEW_CSV_HEADER, review_rows, replace=replace, verify_and_repair=verify_and_repair)
 
 
 def _write_summary_txt(path: Path, report: Mapping[str, Any], plan: MatrixPlan) -> None:
@@ -1692,15 +1792,36 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
     csv_path = config.output_dir / "report.csv"
     summary_path = config.output_dir / "summary.txt"
 
+    current_identity_sha256 = canonical_sha256(identity)
+
     if json_path.exists() and not config.replace:
         # Every cell was already complete, and an earlier invocation already published the
         # report. Re-running assemble_report here would mint a fresh completed_utc/report_id
         # and then collide with the no-clobber write below; instead this resumed invocation is
         # a true no-op that returns exactly what was already published -- but ONLY if it was
         # published under this SAME run identity (Fix A). resume.load_state above already
-        # refuses a state-file identity mismatch for the same --state path; this additionally
-        # catches a stale report.json left in a reused --output-dir under a fresh/different
-        # --state path, which load_state's check does not see.
+        # refuses a state-file identity mismatch for the same --state path; the checks below
+        # additionally catch a stale report.json left in a reused --output-dir under a
+        # fresh/different --state path, which load_state's check does not see.
+        #
+        # Fix J: the AUTHORITATIVE check is the persisted full-identity hash
+        # (.run-identity.json), not report.json's own content. report.json is
+        # schema-constrained and several identity fields (device_index, poll_interval_s,
+        # nvml_enabled) have no home there at all, so an operator switching e.g. --no-nvml
+        # on/off against a reused --output-dir but a FRESH --state path would otherwise pass
+        # every report-derived cross-check while actually being a different run. The
+        # report-derived _report_matches_current_run check is kept as a second, non-authoritative
+        # safety net.
+        persisted_sha256 = _read_run_identity_sha256(config.output_dir)
+        if persisted_sha256 != current_identity_sha256:
+            raise DriverFailure(
+                "report_identity_mismatch",
+                f"{json_path} already exists but its persisted run identity "
+                f"({config.output_dir / '.run-identity.json'}) does not match this invocation's "
+                "identity (different profile, evaluator, matrix selection, candidate artifacts, "
+                "or measurement configuration such as --device-index/--poll-interval-s/--no-nvml); "
+                "rerun with --replace to overwrite, or use a different --output-dir",
+            )
         report = load_json(json_path)
         if not _report_matches_current_run(report, identity):
             raise DriverFailure(
@@ -1712,11 +1833,11 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
         runner_log.write("report.json already published by an earlier invocation under the same identity; not regenerating")
         if not summary_path.exists():
             _write_summary_txt(summary_path, report, plan)
-        # Fix F: repair nvml.csv/review.csv if a crash or manual deletion left them missing --
-        # the per-cell sidecars this reads from are durable regardless of whether report.json
-        # itself needed regenerating. Never touches either file if it already exists.
+        # Fix F/K: repair nvml.csv/review.csv if a crash or manual deletion/truncation left them
+        # missing or incorrect -- the per-cell sidecars this reads from are durable regardless
+        # of whether report.json itself needed regenerating. Byte-verified, not existence-only.
         _regenerate_sidecar_outputs(
-            config.output_dir, review_dir, corpus, plan, completed, replace=config.replace, only_if_missing=True,
+            config.output_dir, review_dir, corpus, plan, completed, replace=config.replace, verify_and_repair=True,
         )
     else:
         report_metadata = _build_report_metadata(config.report_metadata, corpus, environment, profile, hardware, runner_section)
@@ -1730,6 +1851,7 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
         )
         _write_summary_txt(summary_path, report, plan)
         _regenerate_sidecar_outputs(config.output_dir, review_dir, corpus, plan, completed, replace=config.replace)
+        _write_run_identity(config.output_dir, identity)
         runner_log.write("run complete; report.json/summary.txt/nvml.csv/review.csv published")
 
     output_paths = {

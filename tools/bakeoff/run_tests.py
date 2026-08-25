@@ -1105,6 +1105,83 @@ def test_regenerates_missing_sidecar_outputs_when_report_already_published() -> 
 
 
 # --------------------------------------------------------------------------------------------
+# Fix K: sidecar writes are crash-atomic and self-healing (content-verified, not existence-only).
+# --------------------------------------------------------------------------------------------
+
+
+def test_atomic_publish_never_leaves_a_partial_file_on_interruption() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-atomic-") as tmp:
+        directory = Path(tmp)
+        destination = directory / "output.csv"
+        destination.write_bytes(b"original,content\n")
+        original_bytes = destination.read_bytes()
+
+        real_fsync = os.fsync
+
+        def failing_fsync(fd):
+            raise OSError("simulated interruption during atomic publish")
+
+        os.fsync = failing_fsync
+        try:
+            try:
+                run_module._atomic_publish(destination, b"new,content,that,must,never,land\n", replace_existing=True)
+            except DriverFailure as failure:
+                assert failure.kind == "atomic_write"
+            else:
+                raise AssertionError("expected DriverFailure(atomic_write)")
+        finally:
+            os.fsync = real_fsync
+
+        # The destination must be exactly what it was before the interrupted attempt -- never
+        # truncated, never partially overwritten by the staged (but never fsynced/renamed) bytes.
+        assert destination.read_bytes() == original_bytes
+        # No leftover temp file should remain in the directory either.
+        leftovers = [p for p in directory.iterdir() if p.name.startswith(".output.csv.")]
+        assert leftovers == [], f"leftover temp files: {leftovers}"
+
+
+def test_truncated_sidecar_outputs_are_repaired_to_canonical_bytes_and_left_alone_once_correct() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-repair-truncated-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["prod-sample"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        nvml_path = config.output_dir / "nvml.csv"
+        review_path = config.output_dir / "review.csv"
+        original_nvml_bytes = nvml_path.read_bytes()
+        original_review_bytes = review_path.read_bytes()
+        assert original_nvml_bytes and original_review_bytes
+
+        # Simulate a partial/interrupted write left behind by an earlier crash -- a truncated
+        # nvml.csv (matching codex's repro) and an emptied review.csv.
+        nvml_path.write_bytes(b"candidate_id,shot")
+        review_path.write_bytes(b"")
+
+        config2 = copy.copy(config)
+        config2.runtime_module = _FakeRuntime()
+        second = run_bakeoff(config2)
+        assert not second.incomplete
+        assert nvml_path.read_bytes() == original_nvml_bytes
+        assert review_path.read_bytes() == original_review_bytes
+
+        # Idempotence: once both files are already correct, a further resumed run must not even
+        # rewrite them -- same inode, same mtime, not merely byte-identical after a rewrite.
+        nvml_stat_after_repair = nvml_path.stat()
+        review_stat_after_repair = review_path.stat()
+        third = run_bakeoff(config2)
+        assert not third.incomplete
+        nvml_stat_after_idempotent_rerun = nvml_path.stat()
+        review_stat_after_idempotent_rerun = review_path.stat()
+        assert nvml_stat_after_idempotent_rerun.st_ino == nvml_stat_after_repair.st_ino
+        assert nvml_stat_after_idempotent_rerun.st_mtime_ns == nvml_stat_after_repair.st_mtime_ns
+        assert review_stat_after_idempotent_rerun.st_ino == review_stat_after_repair.st_ino
+        assert review_stat_after_idempotent_rerun.st_mtime_ns == review_stat_after_repair.st_mtime_ns
+
+
+# --------------------------------------------------------------------------------------------
 # Fix G: EVERY inference a CUDA cell needs runs inside the isolated child, never the parent.
 # --------------------------------------------------------------------------------------------
 
@@ -1249,6 +1326,67 @@ def test_rerun_with_nvml_disabled_after_nvml_enabled_is_rejected() -> None:
             raise AssertionError("expected the nvml-disabled rerun to be rejected, not silently reused")
 
 
+# --------------------------------------------------------------------------------------------
+# Fix J: the FULL persisted identity, not just report-derived fields, gates report reuse.
+# --------------------------------------------------------------------------------------------
+
+
+def test_fresh_state_path_with_different_nvml_config_reuses_output_dir_but_is_rejected() -> None:
+    """Codex's exact repro: resume.load_state's identity check only guards the SAME --state
+    path. A FRESH --state file pointed at the SAME --output-dir bypasses it entirely, and
+    device_index/poll_interval_s/nvml_enabled have no home in the report-v2 schema at all, so
+    the report-derived cross-check alone cannot catch this either -- only the persisted
+    .run-identity.json hash (Fix J) can.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-nvml-fresh-state-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["syn-identity"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        original_report_bytes = (config.output_dir / "report.json").read_bytes()
+        identity_path = config.output_dir / ".run-identity.json"
+        assert identity_path.is_file()
+
+        config2 = copy.copy(config)
+        config2.nvml_backend_factory = None  # --no-nvml
+        config2.state_path = config.output_dir / "state-no-nvml.json"  # FRESH state path
+        config2.runtime_module = _FakeRuntime()
+        try:
+            run_bakeoff(config2)
+        except DriverFailure as failure:
+            assert failure.kind == "report_identity_mismatch"
+        else:
+            raise AssertionError("expected DriverFailure(report_identity_mismatch)")
+        # The original NVML-measured report must be completely untouched.
+        assert (config.output_dir / "report.json").read_bytes() == original_report_bytes
+
+
+def test_fresh_state_path_with_identical_measurement_config_still_succeeds() -> None:
+    """The persisted-identity check (Fix J) must not be a false-positive trap: a genuinely
+    identical rerun against a fresh --state path (e.g. state.json alone was deleted) succeeds
+    and returns the same report, even though the fresh state forces every cell to re-execute."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-fresh-state-identical-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        first = run_bakeoff(config)
+        assert not first.incomplete
+
+        config2 = copy.copy(config)
+        config2.state_path = config.output_dir / "state-again.json"
+        config2.runtime_module = _FakeRuntime()
+        second = run_bakeoff(config2)
+        assert not second.incomplete
+        assert second.report == first.report
+        # A fresh state path means the plan re-executed from scratch (there was nothing to
+        # resume), proving this succeeded because the freshly recomputed identity genuinely
+        # matched the persisted one -- not because computation was skipped.
+        assert config2.runtime_module.sessions_created >= 1
+
+
 def main() -> int:
     test_cap_megapixels_looks_up_token_and_rejects_unknown()
     test_review_label_is_deterministic_and_does_not_embed_candidate_id()
@@ -1276,10 +1414,14 @@ def main() -> int:
     test_real_subprocess_cuda_measurement_runner_isolates_work_and_reads_post_exit()
     test_interrupted_cell_resume_does_not_duplicate_sidecar_rows()
     test_regenerates_missing_sidecar_outputs_when_report_already_published()
+    test_atomic_publish_never_leaves_a_partial_file_on_interruption()
+    test_truncated_sidecar_outputs_are_repaired_to_canonical_bytes_and_left_alone_once_correct()
     test_cuda_cell_runs_all_inference_in_the_child_not_the_parent()
     test_child_exit_without_queueing_yields_typed_failure_not_a_hang()
     test_identity_differs_for_measurement_config_changes()
     test_rerun_with_nvml_disabled_after_nvml_enabled_is_rejected()
+    test_fresh_state_path_with_different_nvml_config_reuses_output_dir_but_is_rejected()
+    test_fresh_state_path_with_identical_measurement_config_still_succeeds()
     print("P25-6 profile driver tests passed")
     return 0
 
