@@ -516,41 +516,69 @@ def _mean_rgb_residual(first: tuple[float, ...], second: tuple[float, ...]) -> f
     return sum(abs(a - b) for a, b in zip(first, second)) / len(first)
 
 
+def warp_forward_samples(
+    image: Any, forward_flow: Any, visible_mask: Any
+) -> list[list[tuple[float, ...] | None]]:
+    """Sample ``image`` at each visible pixel's forward-advected coordinate.
+
+    This is the "look up where the flow points" step behind :func:`visible_warp_residual`,
+    factored out and made public so a caller that wants the warped IMAGE itself -- not just the
+    residual scalar -- can render it (for example, a local human-review preview showing a
+    candidate's own predicted warp). ``image`` (typically image2) may be a different size than
+    ``forward_flow`` -- only ``visible_mask`` must match the flow's shape -- since it is sampled
+    at arbitrary advected coordinates rather than indexed directly. Returns a grid the same shape
+    as ``forward_flow``; a masked-out pixel or one whose advected coordinate falls outside
+    ``image`` is ``None``.
+    """
+
+    parsed_image, image_shape, image_channels = _parse_numeric_grid(image, "image", 3)
+    parsed_flow, flow_shape, flow_channels = _parse_numeric_grid(forward_flow, "forward_flow", 2)
+    assert image_channels == 3 and flow_channels == 2
+    mask = _parse_required_mask(visible_mask, flow_shape, "visible_mask")
+    samples: list[list[tuple[float, ...] | None]] = [
+        [None] * flow_shape[1] for _ in range(flow_shape[0])
+    ]
+    for row in range(flow_shape[0]):
+        for column in range(flow_shape[1]):
+            if not mask[row][column]:
+                continue
+            displacement = _sample_parsed_grid(
+                parsed_flow, flow_shape, 2, column, row, "forward_flow"
+            )
+            assert isinstance(displacement, tuple)
+            samples[row][column] = _sample_advected_grid(
+                parsed_image,
+                image_shape,
+                3,
+                column + displacement[0],
+                row + displacement[1],
+                "image at forward coordinate",
+            )
+    return samples
+
+
 def visible_warp_residual(
     image1: Any, image2: Any, forward_flow: Any, visible_mask: Any
 ) -> float:
     """Return mean absolute RGB residual after forward-warping image1 into image2."""
 
     parsed_image1, image1_shape, image1_channels = _parse_numeric_grid(image1, "image1", 3)
-    parsed_image2, image2_shape, image2_channels = _parse_numeric_grid(image2, "image2", 3)
-    parsed_flow, flow_shape, flow_channels = _parse_numeric_grid(forward_flow, "forward_flow", 2)
+    _, _, image2_channels = _parse_numeric_grid(image2, "image2", 3)
+    _, flow_shape, flow_channels = _parse_numeric_grid(forward_flow, "forward_flow", 2)
     if image1_shape != flow_shape:
         _fail("shape_mismatch", "image1 and forward_flow source shapes differ")
     assert image1_channels == image2_channels == 3 and flow_channels == 2
-    mask = _parse_required_mask(visible_mask, flow_shape, "visible_mask")
+    warped = warp_forward_samples(image2, forward_flow, visible_mask)
     residuals = []
     for row in range(flow_shape[0]):
         for column in range(flow_shape[1]):
-            if not mask[row][column]:
+            target_rgb = warped[row][column]
+            if target_rgb is None:
                 continue
             source_rgb = _sample_parsed_grid(
                 parsed_image1, image1_shape, 3, column, row, "image1"
             )
-            displacement = _sample_parsed_grid(
-                parsed_flow, flow_shape, 2, column, row, "forward_flow"
-            )
-            assert isinstance(source_rgb, tuple) and isinstance(displacement, tuple)
-            target_rgb = _sample_advected_grid(
-                parsed_image2,
-                image2_shape,
-                3,
-                column + displacement[0],
-                row + displacement[1],
-                "image2 at forward coordinate",
-            )
-            if target_rgb is None:
-                continue
-            assert isinstance(target_rgb, tuple)
+            assert isinstance(source_rgb, tuple)
             residuals.append(_mean_rgb_residual(source_rgb, target_rgb))
     if not residuals:
         _fail(
@@ -861,4 +889,5 @@ __all__ = [
     "nonfinite_fraction",
     "repeated_run_p99_delta_px",
     "visible_warp_residual",
+    "warp_forward_samples",
 ]

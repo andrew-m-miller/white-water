@@ -47,6 +47,8 @@ import argparse
 import csv
 import hashlib
 import json
+import math
+import multiprocessing as _mp
 import os
 import platform as platform_module
 import struct
@@ -54,7 +56,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -78,7 +80,7 @@ try:
     from .matrix import CellKey, MatrixFailure, MatrixPlan, build_matrix
     from . import metrics as metrics_module
     from .metrics import MetricFailure
-    from .nvml import NvmlBackend, NvmlFailure, NvmlSampler, PynvmlBackend, write_or_append_nvml_csv
+    from .nvml import NVML_CSV_HEADER, NvmlBackend, NvmlSampler, PynvmlBackend
     from .resume import ResumeFailure, create_state, load_state
     from .reporting import ReportFailure, assemble_report, write_report_pair
     from .synthetic import SyntheticCase, write_pfm as synthetic_write_pfm
@@ -102,7 +104,7 @@ except ImportError:  # pragma: no cover - supports direct air-gapped invocation
     from matrix import CellKey, MatrixFailure, MatrixPlan, build_matrix  # type: ignore
     import metrics as metrics_module  # type: ignore
     from metrics import MetricFailure  # type: ignore
-    from nvml import NvmlBackend, NvmlFailure, NvmlSampler, PynvmlBackend, write_or_append_nvml_csv  # type: ignore
+    from nvml import NVML_CSV_HEADER, NvmlBackend, NvmlSampler, PynvmlBackend  # type: ignore
     from resume import ResumeFailure, create_state, load_state  # type: ignore
     from reporting import ReportFailure, assemble_report, write_report_pair  # type: ignore
     from synthetic import SyntheticCase, write_pfm as synthetic_write_pfm  # type: ignore
@@ -437,7 +439,7 @@ def _infer_pair(
 
 
 # --------------------------------------------------------------------------------------------
-# Review label and preview.
+# Review label and blinded per-candidate previews.
 # --------------------------------------------------------------------------------------------
 
 
@@ -448,21 +450,243 @@ def _review_label(shot_id: str, candidate_id: str) -> str:
     return f"candidate-{digest[:12]}"
 
 
-def _write_review_preview(
-    review_dir: Path,
-    cell: CellKey,
-    first_grid: Sequence[Sequence[tuple[float, ...]]],
-    second_grid: Sequence[Sequence[tuple[float, ...]]],
-    width: int,
-    height: int,
-) -> str:
-    """Write two small analysis-resolution PFM previews that never leave the box."""
+def _review_preview_dir(review_dir: Path, cell: CellKey) -> Path:
+    """The per-cell preview directory, keyed only by the anonymized label -- never the real
+    candidate id -- plus shot/cap/conditioning. Shared by the writer (during a cell's execution)
+    and the end-of-run review.csv regeneration (Fix E), so both agree on the same path without
+    needing any extra durable state."""
 
-    destination = review_dir / cell.shot / _review_label(cell.shot, cell.candidate) / cell.cap / cell.conditioning
+    return review_dir / cell.shot / _review_label(cell.shot, cell.candidate) / cell.cap / cell.conditioning
+
+
+def _flow_visualization_grid(
+    flow: Sequence[Sequence[tuple[float, float]]], width: int, height: int, *, scale: float = 8.0
+) -> list[list[tuple[float, float, float]]]:
+    """A small, dependency-free color encoding of a flow field for a human review preview.
+
+    Not a metric and not reused anywhere else: R/G encode signed dx/dy (clamped to [-scale,
+    scale] and mapped to [0, 1]), B encodes normalized magnitude. Deterministic and cheap; a PFM
+    viewer is enough to read direction/magnitude by eye without needing real HSV wheel plumbing.
+    """
+
+    grid: list[list[tuple[float, float, float]]] = []
+    for row in range(height):
+        out_row: list[tuple[float, float, float]] = []
+        for column in range(width):
+            dx, dy = flow[row][column]
+            magnitude = min(1.0, math.hypot(dx, dy) / max(scale, 1e-6))
+            red = min(1.0, max(0.0, 0.5 + dx / (2.0 * scale)))
+            green = min(1.0, max(0.0, 0.5 + dy / (2.0 * scale)))
+            out_row.append((red, green, magnitude))
+        grid.append(out_row)
+    return grid
+
+
+def _grid_or_zero(
+    grid: Sequence[Sequence[tuple[float, ...] | None]], width: int, height: int
+) -> list[list[tuple[float, float, float]]]:
+    """Replace out-of-bounds (``None``) warp samples with black so the result is a writable PFM.
+
+    A ``None`` cell already means "this destination pixel is not measurable" (advected outside
+    the target frame); the metric functions drop it, but a preview still needs one value per
+    pixel, so an out-of-bounds sample renders as black rather than being silently omitted.
+    """
+
+    return [
+        [(0.0, 0.0, 0.0) if grid[row][column] is None else tuple(grid[row][column][:3]) for column in range(width)]  # type: ignore[index]
+        for row in range(height)
+    ]
+
+
+def _write_offset_preview(
+    review_dir: Path, cell: CellKey, offset: int, image2: Any, flow: Any, width: int, height: int,
+) -> None:
+    """Write one offset's blinded per-candidate warp + flow-visualization PFM pair.
+
+    Reuses :func:`metrics.warp_forward_samples` (the same warp step
+    :func:`metrics.visible_warp_residual` scores) rather than duplicating the bilinear-advection
+    math here. Filenames carry only the offset number, never the candidate id -- the directory
+    itself (``_review_preview_dir``) is already keyed by the anonymized label.
+    """
+
+    destination = _review_preview_dir(review_dir, cell)
     destination.mkdir(parents=True, exist_ok=True)
-    synthetic_write_pfm(destination / "first.pfm", first_grid, width, height)
-    synthetic_write_pfm(destination / "second.pfm", second_grid, width, height)
-    return str(destination)
+    all_visible = [[True] * width for _ in range(height)]
+    warped = metrics_module.warp_forward_samples(image2, flow, all_visible)
+    synthetic_write_pfm(destination / f"offset_{offset}_warped.pfm", _grid_or_zero(warped, width, height), width, height)
+    synthetic_write_pfm(destination / f"offset_{offset}_flow.pfm", _flow_visualization_grid(flow, width, height), width, height)
+
+
+# --------------------------------------------------------------------------------------------
+# Fix B: supervised CUDA host-load boundary confirmation.
+# --------------------------------------------------------------------------------------------
+
+HostLoadCheckpoint = Callable[[str], None]
+
+_HOST_LOAD_PROMPTS = {
+    "idle": "Confirm the CUDA device is IDLE: no live Flame Batch workload is running.",
+    "live_flame": "Confirm a live Flame Batch workload IS running on the CUDA device.",
+}
+
+
+def interactive_host_load_checkpoint(host_load: str) -> None:
+    """Default :data:`HostLoadCheckpoint`: blocks on an interactive stdin confirmation.
+
+    Used for every group of consecutive cells sharing one CUDA ``host_load`` value, before the
+    first cell of that group runs, so a ``final`` matrix's alternating idle/live_flame CUDA rows
+    are never silently measured under whatever Flame state happens to already exist.
+    """
+
+    prompt = _HOST_LOAD_PROMPTS.get(host_load, f"Confirm host_load={host_load!r} before continuing.")
+    input(f"{prompt} Press Enter to confirm, or Ctrl-C to abort: ")
+
+
+def auto_confirm_host_load_checkpoint(host_load: str) -> None:
+    """Non-interactive :data:`HostLoadCheckpoint` for ``--assume-host-load-ready`` unattended
+    reruns. Still logged by the caller; simply skips the interactive block."""
+
+
+# --------------------------------------------------------------------------------------------
+# Fix D: CUDA measurement isolation (subprocess) and the true post-exit reading.
+# --------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CudaMeasurementResult:
+    """What one CUDA cell's isolated measurement run hands back to the driver."""
+
+    payload: dict[str, Any]
+    samples: list[dict[str, Any]]
+    process_exit_used_mib: float | None
+    process_exit_process_used_mib: float | None
+
+
+# work(stage_sampler) performs the cell's condition+infer call and returns a plain-JSON payload;
+# a CudaMeasurementRunner is responsible for calling it under whatever isolation it provides and
+# returning the NVML evidence collected around it, including a stage_exit reading taken only
+# after that isolation has genuinely ended.
+CudaMeasurementRunner = Callable[
+    [Callable[[Callable[[str], Any]], dict[str, Any]], Callable[[], NvmlBackend], int, float],
+    CudaMeasurementResult,
+]
+
+
+def _measure_cuda_work_once(
+    work: Callable[[Callable[[str], Any]], dict[str, Any]],
+    nvml_backend_factory: Callable[[], NvmlBackend],
+    device_index: int,
+    poll_interval_s: float,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Baseline -> (session_create+first_inference, steady polled) -> cleanup, once.
+
+    Shared by the real subprocess runner (executed inside the child) and, indirectly, by
+    anything that wants the identical staged-sampling sequence without duplicating it.
+    """
+
+    backend = nvml_backend_factory()
+    sampler = NvmlSampler(backend, device_index, poll_interval_s=poll_interval_s)
+    sampler.sample("baseline")
+    payload = work(lambda name: sampler.poll(name))
+    sampler.sample("cleanup")
+    return payload, sampler.samples
+
+
+def run_cuda_measurement_in_subprocess(
+    work: Callable[[Callable[[str], Any]], dict[str, Any]],
+    nvml_backend_factory: Callable[[], NvmlBackend],
+    device_index: int,
+    poll_interval_s: float,
+) -> CudaMeasurementResult:
+    """Default :data:`CudaMeasurementRunner`: isolates the measured work in a forked child.
+
+    Two problems this fixes relative to running everything in-process: (1) an in-process
+    "process_exit" sample is meaningless -- the driver's own process, runtime module, and later
+    cells are all still alive, so it can never reflect the measured work's process actually
+    tearing down; and (2) CUDA context/driver teardown only happens when the process that
+    created it actually exits. Forking BEFORE any CUDA/NVML initialization (the child
+    initializes its own NVML handle fresh, after the fork, never before) is the standard-safe
+    pattern; the parent takes its own fresh device-wide reading only after ``process.join()``
+    has confirmed the child has actually exited and been reaped.
+
+    Only the queued return value crosses the process boundary (a plain dict/list of JSON-safe
+    values); ``work`` itself runs as an inherited closure under fork, so no pickling of the
+    runtime/array modules or the frame data is required.
+    """
+
+    ctx = _mp.get_context("fork")
+    queue: Any = ctx.Queue()
+
+    def _child_main() -> None:
+        try:
+            payload, samples = _measure_cuda_work_once(work, nvml_backend_factory, device_index, poll_interval_s)
+        except BaseException as exc:  # noqa: BLE001 - reported to the parent, not raised here
+            queue.put(("error", repr(exc)))
+            return
+        queue.put(("ok", payload, samples))
+
+    process = ctx.Process(target=_child_main)
+    process.start()
+    outcome = queue.get()
+    process.join()
+    if outcome[0] == "error":
+        raise DriverFailure("cuda_child_failed", f"CUDA measurement subprocess failed: {outcome[1]}")
+    _, payload, samples = outcome
+
+    exit_backend = nvml_backend_factory()
+    handle = exit_backend.device_handle(device_index)
+    used_mib = exit_backend.device_used_mib(handle)
+    try:
+        process_used_mib = exit_backend.process_used_mib(handle, process.pid)
+    except Exception:  # noqa: BLE001 - per-process accounting for an exited pid is best-effort
+        process_used_mib = None
+    return CudaMeasurementResult(payload, samples, used_mib, process_used_mib)
+
+
+# --------------------------------------------------------------------------------------------
+# Fix E: durable per-cell NVML CSV rows, regenerated (never appended) at end-of-run.
+# --------------------------------------------------------------------------------------------
+
+
+def _cell_sidecar_key(cell: CellKey) -> str:
+    return hashlib.sha256(json.dumps(cell.as_dict(), sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _nvml_sidecar_path(output_dir: Path, cell: CellKey) -> Path:
+    return output_dir / ".sidecars" / f"{_cell_sidecar_key(cell)}.nvml.json"
+
+
+def _write_nvml_sidecar(output_dir: Path, cell: CellKey, rows: Sequence[Sequence[str]]) -> None:
+    """Durably record one cell's rendered nvml.csv rows, keyed by cell identity.
+
+    Written (fully overwriting any earlier attempt for the same cell) BEFORE the coordinator
+    marks the cell complete. If the process dies before completion, resume resets the cell to
+    pending and it re-executes from scratch -- this sidecar is simply overwritten again by the
+    new attempt, so end-of-run regeneration (which reads exactly one sidecar per plan cell) can
+    never emit duplicate rows for a cell, regardless of how many partial attempts occurred. This
+    is what makes nvml.csv a deterministic function of durable completed state rather than an
+    incremental append that could double-record a retried cell.
+    """
+
+    path = _nvml_sidecar_path(output_dir, cell)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps({"rows": [list(row) for row in rows]}, sort_keys=True).encode("utf-8")
+    descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _OUTPUT_FILE_MODE)
+    try:
+        os.fchmod(descriptor, _OUTPUT_FILE_MODE)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _read_nvml_sidecar(output_dir: Path, cell: CellKey) -> list[list[str]]:
+    path = _nvml_sidecar_path(output_dir, cell)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    return [list(row) for row in data.get("rows", [])]
 
 
 # --------------------------------------------------------------------------------------------
@@ -486,6 +710,9 @@ class _RunnerContext:
     output_dir: Path
     review_dir: Path | None
     log: Callable[[str], None]
+    host_load_checkpoint: HostLoadCheckpoint
+    cuda_measurement_runner: CudaMeasurementRunner
+    confirmed_host_load: str | None = field(default=None, init=False)
 
 
 def _base_result_fields(cell: CellKey) -> dict[str, Any]:
@@ -503,6 +730,40 @@ def _base_result_fields(cell: CellKey) -> dict[str, Any]:
     }
 
 
+class _ReplayNvmlBackend:
+    """Feeds already-recorded ``nvml_sample`` dicts back through a fresh :class:`NvmlSampler`.
+
+    ``.resource()``/``.csv_rows()`` reduction logic is owned by ``nvml.py``; this lets a caller
+    that already has a plain list of recorded samples (e.g. a CUDA measurement result that
+    crossed a subprocess boundary, where the original live sampler no longer exists) reuse that
+    logic exactly rather than duplicating the peak/baseline arithmetic here.
+    """
+
+    def __init__(self, samples: Sequence[Mapping[str, Any]]):
+        self._samples = list(samples)
+        self.index = 0
+
+    def device_handle(self, device_index: int) -> Any:
+        return device_index
+
+    def device_used_mib(self, handle: Any) -> float:
+        return self._samples[self.index]["used_mib"]
+
+    def process_used_mib(self, handle: Any, pid: int) -> float | None:
+        return self._samples[self.index].get("process_used_mib")
+
+
+def _replay_resource_and_rows(
+    identity_fields: Mapping[str, str], samples: Sequence[Mapping[str, Any]], device_index: int,
+) -> tuple[dict[str, Any], list[list[str]]]:
+    backend = _ReplayNvmlBackend(samples)
+    sampler = NvmlSampler(backend, device_index, poll_interval_s=0.0)
+    for index, sample in enumerate(samples):
+        backend.index = index
+        sampler.sample(sample["stage"])
+    return sampler.resource(), sampler.csv_rows(identity_fields)
+
+
 def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
     artifact = ctx.artifacts.get(cell.candidate)
     if artifact is None:
@@ -513,21 +774,17 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
     if cell.provider not in PROVIDER_EXECUTION_NAMES:
         raise _CellFail(_failure("provider_unavailable", f"unknown provider token: {cell.provider!r}"))
 
+    # Fix B: a supervised host-load boundary, confirmed once per contiguous run of cells that
+    # share one CUDA host_load value, before any cell in that group executes. Re-checked every
+    # invocation (ctx.confirmed_host_load always starts None on a fresh process), so a resumed
+    # run always reconfirms rather than trusting stale state from before an interruption.
+    if cell.provider == "cuda" and ctx.confirmed_host_load != cell.host_load:
+        ctx.host_load_checkpoint(cell.host_load)
+        ctx.confirmed_host_load = cell.host_load
+        ctx.log(f"host load boundary confirmed: host_load={cell.host_load}")
+
     cap_megapixels = _cap_megapixels(ctx.protocol, cell.cap)
     evaluator_instance = Evaluator(artifact, ctx.runtime_module, ctx.array_module)
-
-    sampler: NvmlSampler | None = None
-    if cell.provider == "cuda" and ctx.nvml_backend_factory is not None:
-        try:
-            backend = ctx.nvml_backend_factory()
-            sampler = NvmlSampler(backend, ctx.device_index, poll_interval_s=ctx.poll_interval_s)
-            sampler.sample("baseline")
-        except NvmlFailure as exc:
-            raise _CellFail(_failure("runtime_error", f"NVML setup failed: {exc}", stage="baseline")) from exc
-
-    def stage_sampler(name: str) -> Any:
-        assert sampler is not None
-        return sampler.poll(name)
 
     reference_frame = int(shot_ctx.shot["reference_frame"])
     try:
@@ -535,27 +792,65 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
     except ExrFailure as exc:
         raise _CellFail(_exr_failure(exc, stage="load_input")) from exc
 
-    try:
-        (
-            base_result, geometry, cond_meta, first_nchw, second_nchw,
-        ) = _infer_pair(
+    def _do_infer(stage_sampler: Callable[[str], Any] | None) -> dict[str, Any]:
+        result, geometry, cond_meta, first_nchw, second_nchw = _infer_pair(
             evaluator_instance, artifact, first, second,
             provider=cell.provider,
             conditioning_token=cell.conditioning,
             cap_megapixels=cap_megapixels,
             array_module=ctx.array_module,
             profile=ctx.profile,
-            stage_sampler=stage_sampler if sampler is not None else None,
+            stage_sampler=stage_sampler,
         )
-    except DependencyFailure as exc:
-        raise _CellFail(_failure("runtime_error", str(exc), stage="inference", retryable=True)) from exc
-    except EvaluatorFailure as exc:
-        raise _CellFail(_failure(exc.kind if exc.kind in _RESULT_FAILURE_TYPES else "runtime_error", str(exc), stage="inference")) from exc
+        return {
+            "flow": result["flow"], "geometry": geometry, "timing": result["timing"],
+            "environment": result["environment"], "metrics": result["metrics"],
+            "conditioning_parameters": cond_meta.get("conditioning_parameters") or {},
+            "first_nchw": first_nchw, "second_nchw": second_nchw,
+        }
 
-    if sampler is not None:
-        sampler.sample("cleanup")
+    use_cuda_measurement = cell.provider == "cuda" and ctx.nvml_backend_factory is not None
+    if use_cuda_measurement:
+        try:
+            measurement = ctx.cuda_measurement_runner(
+                _do_infer, ctx.nvml_backend_factory, ctx.device_index, ctx.poll_interval_s,
+            )
+        except DriverFailure as exc:
+            kind = exc.kind if exc.kind in _RESULT_FAILURE_TYPES else "runtime_error"
+            raise _CellFail(_failure(kind, str(exc), stage="inference")) from exc
+        except DependencyFailure as exc:
+            raise _CellFail(_failure("runtime_error", str(exc), stage="inference", retryable=True)) from exc
+        except EvaluatorFailure as exc:
+            # The default subprocess runner reports work()'s exceptions through DriverFailure
+            # (above); an injected test runner may instead raise these directly in-process.
+            raise _CellFail(_failure(exc.kind if exc.kind in _RESULT_FAILURE_TYPES else "runtime_error", str(exc), stage="inference")) from exc
+        payload = measurement.payload
+        nvml_samples = list(measurement.samples)
+        if measurement.process_exit_used_mib is not None:
+            exit_sample: dict[str, Any] = {"stage": "process_exit", "used_mib": measurement.process_exit_used_mib}
+            if measurement.process_exit_process_used_mib is not None:
+                exit_sample["process_used_mib"] = measurement.process_exit_process_used_mib
+            nvml_samples.append(exit_sample)
+        resource, nvml_rows = _replay_resource_and_rows(_base_result_fields(cell), nvml_samples, ctx.device_index)
+        # Durable, not incremental: overwrites this cell's own prior attempt (if any); the
+        # operator-facing nvml.csv itself is assembled once, from every cell's sidecar, only
+        # after every cell in the plan is complete (see _regenerate_sidecar_outputs). See Fix E.
+        _write_nvml_sidecar(ctx.output_dir, cell, nvml_rows)
+    else:
+        try:
+            payload = _do_infer(None)
+        except DependencyFailure as exc:
+            raise _CellFail(_failure("runtime_error", str(exc), stage="inference", retryable=True)) from exc
+        except EvaluatorFailure as exc:
+            raise _CellFail(_failure(exc.kind if exc.kind in _RESULT_FAILURE_TYPES else "runtime_error", str(exc), stage="inference")) from exc
+        resource = {"peak_incremental_device_memory_gib": 0.0}
 
-    predicted_flow = base_result["flow"]
+    base_result = {"metrics": payload["metrics"], "timing": payload["timing"], "environment": payload["environment"]}
+    predicted_flow = payload["flow"]
+    geometry = payload["geometry"]
+    cond_meta = {"conditioning_parameters": payload["conditioning_parameters"]}
+    first_nchw = payload["first_nchw"]
+    second_nchw = payload["second_nchw"]
     analysis_width = geometry["analysis_width"]
     analysis_height = geometry["analysis_height"]
     spacing_x = geometry["spacing_x_source_pixels"]
@@ -649,27 +944,33 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
 
     result_metrics["not_applicable"] = sorted(not_applicable)
 
-    if sampler is not None:
-        sampler.sample("process_exit")
-        resource = sampler.resource()
-        # Written immediately, per cell, rather than batched at end-of-run: a cell already
-        # durably marked complete in resume state must not lose its NVML rows if the process is
-        # killed before a later batched flush would have run.
-        write_or_append_nvml_csv(ctx.output_dir / "nvml.csv", sampler.csv_rows(_base_result_fields(cell)))
-    else:
-        resource = {"peak_incremental_device_memory_gib": 0.0}
-
-    # Anonymous local review for shots without trustworthy automated truth. Also written
-    # immediately per cell for the same resumability reason as nvml.csv above.
+    # Fix C: blinded per-candidate previews of THIS candidate's own predicted output -- a
+    # target-warped-by-predicted-flow image plus a flow visualization -- across every offset in
+    # ctx.chain_offsets that is actually loadable, so a reviewer can see edge adherence and
+    # temporal drift rather than the identical raw input frames every candidate would otherwise
+    # share. Only for shots without trustworthy automated truth; every preview lives under a
+    # directory keyed by the anonymized label, never the real candidate id.
     if not shot_ctx.has_analytic_truth and ctx.review_dir is not None:
-        preview_path = _write_review_preview(
-            ctx.review_dir, cell, image1, image2, analysis_width, analysis_height,
-        )
-        _append_csv_rows(ctx.output_dir / "review.csv", REVIEW_CSV_HEADER, [[
-            _review_label(cell.shot, cell.candidate), cell.shot,
-            (shot_ctx.shot.get("categories") or [""])[0], cell.conditioning, cell.cap,
-            cell.provider, cell.host_load, preview_path, "", "", "", "", "", "",
-        ]])
+        _write_offset_preview(ctx.review_dir, cell, 1, image2, predicted_flow, analysis_width, analysis_height)
+        for offset in sorted(set(ctx.chain_offsets) - {1}):
+            try:
+                offset_first, offset_second = _load_pair(
+                    shot_ctx, reference_frame, reference_frame + offset, exr_decoder=ctx.exr_decoder,
+                )
+                offset_result, offset_geometry, _, _, offset_second_nchw = _infer_pair(
+                    evaluator_instance, artifact, offset_first, offset_second,
+                    provider=cell.provider, conditioning_token=cell.conditioning,
+                    cap_megapixels=cap_megapixels, array_module=ctx.array_module,
+                    profile="smoke", stage_sampler=None,
+                )
+                offset_width = offset_geometry["analysis_width"]
+                offset_height = offset_geometry["analysis_height"]
+                offset_image2 = _unpadded_grid(offset_second_nchw, offset_width, offset_height)
+                _write_offset_preview(
+                    ctx.review_dir, cell, offset, offset_image2, offset_result["flow"], offset_width, offset_height,
+                )
+            except (ExrFailure, EvaluatorFailure, DependencyFailure) as exc:
+                ctx.log(f"review preview offset {offset} skipped for {cell.as_dict()}: {exc}")
 
     input_frames = [
         {"frame": first["frame"], "sha256": first["sha256"]},
@@ -683,7 +984,7 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
         "metrics": result_metrics,
         "resource": resource,
         "environment": base_result["environment"],
-        "conditioning_parameters": cond_meta.get("conditioning_parameters") or {},
+        "conditioning_parameters": cond_meta["conditioning_parameters"],
     }
     if category is not None:
         passing["category"] = category
@@ -715,6 +1016,8 @@ def build_executor(
     output_dir: Path,
     review_dir: Path | None,
     log: Callable[[str], None],
+    host_load_checkpoint: HostLoadCheckpoint,
+    cuda_measurement_runner: CudaMeasurementRunner,
 ) -> tuple[Callable[[CellKey], dict[str, Any]], _RunnerContext]:
     """Build the executor callback plus the mutable context RunCoordinator will drive."""
 
@@ -738,6 +1041,8 @@ def build_executor(
         output_dir=output_dir,
         review_dir=review_dir,
         log=log,
+        host_load_checkpoint=host_load_checkpoint,
+        cuda_measurement_runner=cuda_measurement_runner,
     )
 
     def executor(cell: CellKey) -> dict[str, Any]:
@@ -803,20 +1108,40 @@ def _validate_selected_artifacts(
     return resolved
 
 
+def _require_runner_fields(runner_section: Mapping[str, Any]) -> None:
+    for required in ("evaluator_sha256", "runtime", "runtime_sha256"):
+        if not runner_section.get(required):
+            _fail("report_metadata_missing", f"report_metadata.runner.{required} is required")
+
+
 def _compute_identity(
     protocol: Mapping[str, Any],
     corpus: Mapping[str, Any],
     plan: MatrixPlan,
     environment: str,
+    profile: str,
     artifacts: Mapping[str, ValidatedArtifact],
     runner_metadata: Mapping[str, Any],
     hardware: Mapping[str, Any],
+    chain_offsets: Sequence[int],
 ) -> dict[str, Any]:
+    """Bind every input that can change a cell's produced result or reported resource use.
+
+    ``profile`` in particular is NOT part of ``plan.matrix_sha256`` -- the matrix selector
+    (candidate/shot/conditioning/cap/provider/host_load axes) is identical between e.g. smoke
+    and screen for the same selection, so without ``profile`` here two different profiles run
+    against the same ``--state``/``--output-dir`` would collide on one resume identity and the
+    second run would silently resume/reuse the first's (wrong) results. ``evaluator_sha256``
+    similarly is not otherwise bound: a different evaluator build measuring the same matrix is a
+    different run. ``chain_offsets`` changes which auxiliary frames/metrics a cell attempts.
+    """
+
     return {
         "protocol_id": protocol["protocol_id"],
         "matrix_sha256": plan.matrix_sha256,
         "corpus_sha256": canonical_sha256(corpus),
         "environment": environment,
+        "profile": profile,
         "providers": plan.selector["providers"],
         "candidates": {
             candidate_id: {
@@ -826,6 +1151,7 @@ def _compute_identity(
             }
             for candidate_id in plan.selector["candidate_ids"]
         },
+        "evaluator_sha256": runner_metadata.get("evaluator_sha256", ""),
         "runtime": {
             "runtime": runner_metadata.get("runtime", ""),
             "runtime_sha256": runner_metadata.get("runtime_sha256", ""),
@@ -834,7 +1160,66 @@ def _compute_identity(
             "platform": hardware.get("platform", ""),
             "architecture": hardware.get("architecture", ""),
         },
+        "chain_offsets": sorted(int(offset) for offset in chain_offsets),
     }
+
+
+def _report_matches_current_run(report: Mapping[str, Any], identity: Mapping[str, Any]) -> bool:
+    """Check an already-published report.json against the CURRENT run identity.
+
+    report.json is schema-constrained (report-v2 forbids unknown properties), so the identity
+    dict itself is never stored there; instead this reconstructs the identity-relevant fields
+    from the report's own already-published content and compares them. Used to refuse silently
+    reusing a stale report -- e.g. one produced by an earlier smoke run -- when the output
+    directory is reused for a run with a different identity but report.json happens to already
+    exist there (see also: resume.load_state's own identity check, which already covers the
+    narrower case of the SAME --state path reused with a different identity).
+    """
+
+    try:
+        if report.get("protocol_id") != identity["protocol_id"]:
+            return False
+        if report.get("corpus_sha256") != identity["corpus_sha256"]:
+            return False
+        if report.get("profile") != identity["profile"]:
+            return False
+        if report.get("environment") != identity["environment"]:
+            return False
+        matrix = report.get("matrix")
+        if not isinstance(matrix, Mapping) or matrix.get("matrix_sha256") != identity["matrix_sha256"]:
+            return False
+        providers = matrix.get("providers")
+        if providers != identity["providers"]:
+            return False
+        runner = report.get("runner")
+        if not isinstance(runner, Mapping):
+            return False
+        if runner.get("evaluator_sha256") != identity["evaluator_sha256"]:
+            return False
+        if runner.get("runtime_sha256") != identity["runtime"]["runtime_sha256"]:
+            return False
+        # Candidate manifest_sha256/artifact_sha256 are deliberately NOT compared here.
+        # report["candidates"] carries whatever the *operator's* --candidates input declared
+        # (legal/measurement-admission evidence); identity["candidates"] carries the hashes
+        # validate_manifest_artifact actually computed from the artifact bytes on disk. Nothing
+        # requires those two to be textually identical (an operator's declared manifest_sha256
+        # need not equal the exact re-hash of the file --artifact-map points at), so comparing
+        # them here would reject a perfectly legitimate identical rerun on a false mismatch. The
+        # candidate artifact hashes ARE still fully bound into the resume identity above them --
+        # resume.load_state's own identity_sha256 check (the common case, since --state
+        # defaults to living beside report.json) is what actually enforces that axis; this
+        # report.json check is a narrower safety net for a --state path that was not reused.
+        candidates_by_id = {
+            entry.get("candidate_id"): entry
+            for entry in report.get("candidates", [])
+            if isinstance(entry, Mapping)
+        }
+        for candidate_id in identity["candidates"]:
+            if not isinstance(candidates_by_id.get(candidate_id), Mapping):
+                return False
+        return True
+    except (KeyError, TypeError):
+        return False
 
 
 # --------------------------------------------------------------------------------------------
@@ -874,27 +1259,82 @@ class RunnerLog:
         self._stream.close()
 
 
-def _append_csv_rows(path: Path, header: Sequence[str], rows: Sequence[Sequence[str]]) -> None:
-    """Append driver-owned CSV rows (nvml.csv/review.csv), writing the header exactly once.
+def _write_csv_file(path: Path, header: Sequence[str], rows: Sequence[Sequence[str]], *, replace: bool) -> None:
+    """Write one driver-owned CSV (nvml.csv/review.csv) fresh, exactly once, never appended.
 
-    Simpler than :mod:`tools.bakeoff.reporting`'s/``nvml``'s hard-linked atomic publication:
-    this file is appended to incrementally, once per completed cell, by a single sequential
-    driver process, so the stronger multi-writer guarantees those modules provide are not
-    needed here. Mode 0644 and append-only are still honored.
+    Fix E: both files are a deterministic function of durable completed state (nvml.csv from
+    each cell's sidecar, review.csv from the completed results plus corpus metadata), assembled
+    only after every plan cell is complete -- never incrementally appended to during execution,
+    which could otherwise duplicate a cell's rows if it were retried after a resume. Writes
+    nothing (and creates no file) when ``rows`` is empty, matching the existing contract that
+    these files exist only when there is something to report (e.g. no nvml.csv for a CPU-only
+    run). No-clobber unless ``replace``, mirroring report.json/report.csv.
     """
 
     if not rows:
         return
-    is_new = not path.exists()
-    stream = _open_append_0644(path)
+    if path.exists():
+        if not replace:
+            _fail("output_exists", f"{path} already exists; rerun with --replace to overwrite")
+        path.unlink()
+    from io import StringIO
+    buffer = StringIO(newline="")
+    writer = csv.writer(buffer, delimiter=",", quotechar='"', lineterminator="\n")
+    writer.writerow(header)
+    for row in rows:
+        writer.writerow(row)
+    payload = buffer.getvalue().encode("utf-8")
+    descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, _OUTPUT_FILE_MODE)
     try:
-        writer = csv.writer(stream, delimiter=",", quotechar='"', lineterminator="\n")
-        if is_new:
-            writer.writerow(header)
-        for row in rows:
-            writer.writerow(row)
-    finally:
-        stream.close()
+        os.fchmod(descriptor, _OUTPUT_FILE_MODE)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _shot_has_analytic_truth(shot: Mapping[str, Any]) -> bool:
+    truth = shot.get("truth")
+    return isinstance(truth, Mapping) and truth.get("kind") == "analytic"
+
+
+def _regenerate_sidecar_outputs(
+    output_dir: Path,
+    review_dir: Path | None,
+    corpus: Mapping[str, Any],
+    plan: MatrixPlan,
+    completed: Sequence[Mapping[str, Any]],
+    *,
+    replace: bool,
+) -> None:
+    """Assemble nvml.csv and review.csv once, from durable completed state (Fix E).
+
+    Called only after ``coordinator.completed_records()`` has confirmed every plan cell is
+    complete. Iterates ``plan.cells`` in its fixed order (matching ``completed``'s order, per
+    ``RunCoordinator``), so re-running this after a resume always produces the identical file:
+    exactly one row-set per cell, regardless of how many partial attempts that cell needed.
+    """
+
+    shots = _shot_index(corpus)
+    nvml_rows: list[list[str]] = []
+    review_rows: list[list[str]] = []
+    for cell, record in zip(plan.cells, completed):
+        nvml_rows.extend(_read_nvml_sidecar(output_dir, cell))
+        result = record["result"]
+        if result.get("status") != "pass" or review_dir is None:
+            continue
+        shot_entry = shots.get(cell.shot)
+        if shot_entry is None or _shot_has_analytic_truth(shot_entry[1]):
+            continue
+        category = (shot_entry[1].get("categories") or [""])[0]
+        review_rows.append([
+            _review_label(cell.shot, cell.candidate), cell.shot, category,
+            cell.conditioning, cell.cap, cell.provider, cell.host_load,
+            str(_review_preview_dir(review_dir, cell)), "", "", "", "", "", "",
+        ])
+    _write_csv_file(output_dir / "nvml.csv", NVML_CSV_HEADER, nvml_rows, replace=replace)
+    _write_csv_file(output_dir / "review.csv", REVIEW_CSV_HEADER, review_rows, replace=replace)
 
 
 def _write_summary_txt(path: Path, report: Mapping[str, Any], plan: MatrixPlan) -> None:
@@ -979,6 +1419,8 @@ class RunConfig:
     array_module: Any
     nvml_backend_factory: Callable[[], NvmlBackend] | None
     exr_decoder: Callable[..., dict[str, Any]]
+    host_load_checkpoint: HostLoadCheckpoint = interactive_host_load_checkpoint
+    cuda_measurement_runner: CudaMeasurementRunner = run_cuda_measurement_in_subprocess
 
 
 @dataclass
@@ -1032,8 +1474,11 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
     hardware = _default_hardware()
     hardware.update({k: v for k, v in config.report_metadata.get("hardware", {}).items() if v})
     runner_section = dict(config.report_metadata.get("runner", {}))
+    _require_runner_fields(runner_section)
 
-    identity = _compute_identity(protocol, corpus, plan, environment, artifacts, runner_section, hardware)
+    identity = _compute_identity(
+        protocol, corpus, plan, environment, profile, artifacts, runner_section, hardware, config.chain_offsets,
+    )
 
     if config.state_path.exists():
         state = load_state(config.state_path, identity, plan)
@@ -1058,6 +1503,8 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
         output_dir=config.output_dir,
         review_dir=review_dir,
         log=runner_log.write,
+        host_load_checkpoint=config.host_load_checkpoint,
+        cuda_measurement_runner=config.cuda_measurement_runner,
     )
 
     coordinator = RunCoordinator(config.state_path, identity, plan, executor)
@@ -1077,9 +1524,20 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
         # Every cell was already complete, and an earlier invocation already published the
         # report. Re-running assemble_report here would mint a fresh completed_utc/report_id
         # and then collide with the no-clobber write below; instead this resumed invocation is
-        # a true no-op that returns exactly what was already published.
+        # a true no-op that returns exactly what was already published -- but ONLY if it was
+        # published under this SAME run identity (Fix A). resume.load_state above already
+        # refuses a state-file identity mismatch for the same --state path; this additionally
+        # catches a stale report.json left in a reused --output-dir under a fresh/different
+        # --state path, which load_state's check does not see.
         report = load_json(json_path)
-        runner_log.write("report.json already published by an earlier invocation; not regenerating")
+        if not _report_matches_current_run(report, identity):
+            raise DriverFailure(
+                "report_identity_mismatch",
+                f"{json_path} already exists but was produced under a different run identity "
+                "(different profile, evaluator, matrix selection, or candidate artifacts); "
+                "rerun with --replace to overwrite, or use a different --output-dir",
+            )
+        runner_log.write("report.json already published by an earlier invocation under the same identity; not regenerating")
         if not summary_path.exists():
             _write_summary_txt(summary_path, report, plan)
     else:
@@ -1093,7 +1551,8 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
             replace=config.replace,
         )
         _write_summary_txt(summary_path, report, plan)
-        runner_log.write("run complete; report.json/summary.txt published")
+        _regenerate_sidecar_outputs(config.output_dir, review_dir, corpus, plan, completed, replace=config.replace)
+        runner_log.write("run complete; report.json/summary.txt/nvml.csv/review.csv published")
 
     output_paths = {
         "report.json": json_path,
@@ -1136,13 +1595,12 @@ def _build_report_metadata(
     hardware: Mapping[str, Any],
     runner_section: Mapping[str, Any],
 ) -> dict[str, Any]:
+    # _require_runner_fields already validated evaluator_sha256/runtime/runtime_sha256 are
+    # present, earlier, as part of computing the resume identity -- not re-checked here.
     runner = dict(runner_section)
     runner.setdefault("name", "ww-bakeoff")
     runner.setdefault("version", "0.1.0")
     runner.setdefault("source_commit", _default_source_commit() or "0" * 40)
-    for required in ("evaluator_sha256", "runtime", "runtime_sha256"):
-        if required not in runner:
-            _fail("report_metadata_missing", f"report_metadata.runner.{required} is required")
     runner.setdefault("command", " ".join(sys.argv))
 
     hardware_out = {key: value for key, value in hardware.items() if key != "environment" and value}
@@ -1213,6 +1671,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--no-nvml", action="store_true", help="skip NVML sampling even for CUDA cells")
     parser.add_argument("--replace", action="store_true", help="allow replacing existing report.json/report.csv")
+    parser.add_argument(
+        "--assume-host-load-ready", action="store_true",
+        help=(
+            "skip the interactive idle/live_flame confirmation prompt at each CUDA host_load "
+            "boundary (for unattended reruns); the boundary is still logged to runner.log"
+        ),
+    )
     return parser
 
 
@@ -1261,6 +1726,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         array_module=array_module,
         nvml_backend_factory=nvml_factory,
         exr_decoder=exr_module.frame_from_exr,
+        host_load_checkpoint=(
+            auto_confirm_host_load_checkpoint if args.assume_host_load_ready else interactive_host_load_checkpoint
+        ),
     )
     try:
         result = run_bakeoff(config)
@@ -1276,12 +1744,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 __all__ = [
+    "CudaMeasurementResult",
+    "CudaMeasurementRunner",
     "DriverFailure",
+    "HostLoadCheckpoint",
+    "REVIEW_CSV_HEADER",
     "RunConfig",
     "RunResult",
+    "auto_confirm_host_load_checkpoint",
     "build_executor",
+    "interactive_host_load_checkpoint",
     "main",
     "run_bakeoff",
+    "run_cuda_measurement_in_subprocess",
 ]
 
 

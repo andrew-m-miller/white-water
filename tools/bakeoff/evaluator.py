@@ -530,19 +530,24 @@ class Evaluator:
         counts = PROFILES[profile]
         for session_index in range(counts["fresh_sessions"]):
             create_start = self.clock()
+            # The "session_create" poll window spans session creation THROUGH the first
+            # inference call, not just open_session(): CUDA/cuDNN algorithm-selection and
+            # workspace allocation commonly happen lazily on the first run, not at session
+            # construction, so a window that stopped at open_session() would miss exactly the
+            # transient a P25-6 peak measurement needs to catch.
             with _stage("session_create"):
                 opened = self.open_session(provider)
-            creation_ms = (self.clock() - create_start) * 1000.0
-            session = opened.session
-            input_names = [record["name"] for record in opened.contract.inputs]
-            output_name = opened.contract.outputs[0]["name"]
-            feeds = {input_names[0]: first, input_names[1]: second}
-            first_start = self.clock()
-            try:
-                first_output = session.run([output_name], feeds)
-            except Exception as exc:
-                raise EvaluatorFailure("runtime_error", f"first inference failed: {exc}") from exc
-            first_ms = (self.clock() - first_start) * 1000.0
+                creation_ms = (self.clock() - create_start) * 1000.0
+                session = opened.session
+                input_names = [record["name"] for record in opened.contract.inputs]
+                output_name = opened.contract.outputs[0]["name"]
+                feeds = {input_names[0]: first, input_names[1]: second}
+                first_start = self.clock()
+                try:
+                    first_output = session.run([output_name], feeds)
+                except Exception as exc:
+                    raise EvaluatorFailure("runtime_error", f"first inference failed: {exc}") from exc
+                first_ms = (self.clock() - first_start) * 1000.0
             output = _one_output(first_output)
             _validate_runtime_output(output, arrays, analysis_width, analysis_height, padded_width, padded_height)
             warmup_recorded = counts["warmups_per_session"] == 1
