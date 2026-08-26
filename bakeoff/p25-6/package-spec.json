@@ -1,0 +1,296 @@
+{
+  "schema_id": "whitewater-p25-airgap-package-v1",
+  "protocol_id": "whitewater-p25-v2",
+  "package_id": "whitewater-p25-6-sea-raft-m-el8-x86_64-target",
+  "evaluator": {
+    "entrypoint": "scripts/ww-bakeoff-airgap",
+    "runtime_identity": "python-3.11;microsoft-onnxruntime-linux-x64-gpu_cuda12-1.29.0+whitewater-native-bridge;openimageio+openexr+imath;pynvml;conda-pack;el8-x86_64"
+  },
+  "admission": {
+    "candidates": "__P25_6_ADMISSION_CANDIDATES__"
+  },
+  "files": [
+    {
+      "role": "evaluator",
+      "destination": "scripts/ww-bakeoff-airgap",
+      "source": "../../scripts/ww-bakeoff-airgap",
+      "candidate_id": null,
+      "mode": "0755"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/run.py",
+      "source": "../../tools/bakeoff/run.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/artifact_store.py",
+      "source": "../../tools/bakeoff/artifact_store.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/coordinator.py",
+      "source": "../../tools/bakeoff/coordinator.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/exr.py",
+      "source": "../../tools/bakeoff/exr.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/matrix.py",
+      "source": "../../tools/bakeoff/matrix.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/nvml.py",
+      "source": "../../tools/bakeoff/nvml.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/reporting.py",
+      "source": "../../tools/bakeoff/reporting.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/resume.py",
+      "source": "../../tools/bakeoff/resume.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/run_spec.py",
+      "source": "../../tools/bakeoff/run_spec.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/synthetic.py",
+      "source": "../../tools/bakeoff/synthetic.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/evaluator.py",
+      "source": "../../tools/bakeoff/evaluator.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/native_ort.py",
+      "source": "../../tools/bakeoff/native_ort.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/__init__.py",
+      "source": "../../tools/bakeoff/__init__.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/conditioning.py",
+      "source": "../../tools/bakeoff/conditioning.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/geometry.py",
+      "source": "../../tools/bakeoff/geometry.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/measurement.py",
+      "source": "../../tools/bakeoff/measurement.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/metrics.py",
+      "source": "../../tools/bakeoff/metrics.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/padding.py",
+      "source": "../../tools/bakeoff/padding.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/pfm.py",
+      "source": "../../tools/bakeoff/pfm.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "tools/bakeoff/validator.py",
+      "source": "../../tools/bakeoff/validator.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "models/artifact_workflow.py",
+      "source": "../../models/artifact_workflow.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "models/exclusion_contract.py",
+      "source": "../../models/exclusion_contract.py",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "models/artifact-v1.schema.json",
+      "source": "../../models/artifact-v1.schema.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "bakeoff/corpus-v1.schema.json",
+      "source": "../../bakeoff/corpus-v1.schema.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "bakeoff/protocol-v2.schema.json",
+      "source": "../../bakeoff/protocol-v2.schema.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "bakeoff/report-v2.schema.json",
+      "source": "../../bakeoff/report-v2.schema.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "bakeoff/protocol-v2.json",
+      "source": "../../bakeoff/protocol-v2.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "candidate-manifest",
+      "destination": "models/sea-raft-m/manifest.json",
+      "source": "../../models/sea-raft-m.json",
+      "candidate_id": "sea-raft-m",
+      "mode": "0644"
+    },
+    {
+      "role": "model-artifact",
+      "destination": "models/sea-raft-m/sea-raft-m-opset17.onnx",
+      "source": "../../models/sea-raft-m-opset17.onnx",
+      "candidate_id": "sea-raft-m",
+      "mode": "0644"
+    },
+    {
+      "role": "license",
+      "destination": "legal/SEA-RAFT-LICENSE.txt",
+      "source": "__P25_6_CANDIDATE_LICENSE_SOURCE__",
+      "candidate_id": "sea-raft-m",
+      "mode": "0644"
+    },
+    {
+      "role": "notice",
+      "destination": "legal/SEA-RAFT-NOTICE.txt",
+      "source": "__P25_6_CANDIDATE_NOTICE_SOURCE__",
+      "candidate_id": "sea-raft-m",
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "legal/candidate-license-inventory.json",
+      "source": "__P25_6_CANDIDATE_INVENTORY_SOURCE__",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "license",
+      "destination": "legal/RUNTIME-LICENSES.txt",
+      "source": "__P25_6_RUNTIME_LICENSE_SOURCE__",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "notice",
+      "destination": "legal/RUNTIME-NOTICES.txt",
+      "source": "__P25_6_RUNTIME_NOTICE_SOURCE__",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "legal/runtime-license-inventory.json",
+      "source": "__P25_6_RUNTIME_INVENTORY_SOURCE__",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "legal/runtime-inputs.json",
+      "source": "../../bakeoff/p25-6/runtime-inputs.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "legal/runtime-legal-review.json",
+      "source": "__P25_6_RUNTIME_REVIEW_SOURCE__",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "run-instructions",
+      "destination": "RUN-P25-6.txt",
+      "source": "RUN-P25-6.txt",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "runtime",
+      "destination": "runtime/whitewater-p25-6-runtime.tar.gz",
+      "source": "__P25_6_RUNTIME_ARCHIVE__",
+      "candidate_id": null,
+      "mode": "0644",
+      "sha256": "__P25_6_RUNTIME_SHA256__",
+      "size_bytes": "__P25_6_RUNTIME_SIZE_BYTES__"
+    }
+  ]
+}

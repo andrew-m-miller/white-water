@@ -1,0 +1,196 @@
+White Water P25-6 airgapped target measurement package
+=======================================================
+
+This package drives the Phase 2.5 profile driver (tools/bakeoff/run.py) on the airgapped Flame
+box.  It is a measurement package, not an OFX shipping bundle: it selects no model, assigns no
+OFX choice index, and authorizes no redistribution of any model or runtime.  Do not install the
+extracted directory into Flame as a product plugin.
+
+It is NOT the P25-5 evaluation package and its RUN-P25-5.txt procedure does not apply.  The P25-5
+runtime lacks OpenImageIO/OpenEXR and pynvml; this package carries a separate runtime that has
+both, plus the full profile-driver module closure.
+
+No production images leave the machine.  The operator returns only:
+
+    report.json
+    summary.txt
+    runner.log
+    nvml.csv
+    review.csv       # only when local visual review was performed
+
+What the package carries
+------------------------
+
+* the offline bootstrap `scripts/ww-bakeoff-airgap` (the only 0755 regular file);
+* the profile driver `tools/bakeoff/run.py` and its complete first-party module closure
+  (artifact_store, conditioning, coordinator, evaluator, exr, geometry, matrix, measurement,
+  metrics, native_ort, nvml, padding, pfm, reporting, resume, run_spec, synthetic, validator,
+  plus the package __init__);
+* the active protocol `bakeoff/protocol-v2.json` and the report/corpus/artifact schemas;
+* the candidate manifest and ONNX artifact under `models/sea-raft-m/`;
+* candidate and runtime license/notice aggregates, their hash inventories, the checked-in
+  technical runtime-input manifest, and the approved runtime legal review; and
+* the pinned conda-pack runtime `runtime/whitewater-p25-6-runtime.tar.gz`.
+
+Every carried file except the wrapper is a 0644 regular file.  There are no symlinks.  The
+package is self-contained apart from (a) a writable directory for the relocated conda-pack
+environment and (b) the operator's own per-run input JSON, which references on-box production
+frame paths and is authored on the box (see step 4).  Do not edit any carried file.
+
+1. Verify the outer archive by SHA256 before extraction
+-------------------------------------------------------
+
+From the directory holding the CI artifact files, verify the qualified outer archive.  Its
+SHA256 is emitted by the qualifying CI dispatch (see "Qualifying dispatch" below) and printed in
+the sidecar; do not proceed on an archive whose digest does not match:
+
+    sha256sum -c whitewater-p25-6-el8.tar.gz.sha256
+
+Keep these files together:
+
+    whitewater-p25-6-el8.tar.gz
+    whitewater-p25-6-el8.tar.gz.sha256
+    whitewater-p25-6-el8.inventory.json
+    legal-review.json                 # CI's hash-bound candidate operator evidence
+    legal-review.json.sha256
+
+2. Extract without installing into Flame
+----------------------------------------
+
+Choose a new, writable directory and extract there:
+
+    mkdir -p /path/to/whitewater-p25-6
+    tar -xzf whitewater-p25-6-el8.tar.gz -C /path/to/whitewater-p25-6
+    cd /path/to/whitewater-p25-6
+
+3. First contact: unpack the runtime and confirm the toolchain
+--------------------------------------------------------------
+
+`scripts/ww-bakeoff-airgap` performs the offline conda-pack extraction, runs `conda-unpack`
+once, binds the writable runtime directory to the exact runtime archive SHA256, and sanitizes
+network and Python search-path variables before exec-ing the requested entrypoint.  The driver
+is launched by pointing `WW_BAKEOFF_ENTRYPOINT` at the carried `tools/bakeoff/run.py`; the
+wrapper runs it as `python -m tools.bakeoff.run` with the package root on `PYTHONPATH` so its
+relative imports resolve.  Pick a fresh runtime directory for a different archive.
+
+Confirm the driver, OpenImageIO and pynvml all import from the relocated runtime and print the
+CLI help (this touches no production data):
+
+    WW_BAKEOFF_ENTRYPOINT=tools/bakeoff/run.py \
+    WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-p25-6-runtime.tar.gz \
+    WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-p25-6-runtime-env \
+    scripts/ww-bakeoff-airgap --help
+
+4. Author the per-run inputs on the box
+---------------------------------------
+
+The driver reads five small JSON inputs plus the production corpus.  They reference on-box
+production frame paths and the candidate subset under measurement, so they are authored on the
+box and kept OUTSIDE the extracted package (never edit a carried file).  Author them against the
+carried contracts:
+
+  --corpus           a production corpus manifest validating against the carried
+                     `bakeoff/corpus-v1.schema.json`.  It carries anonymous metadata and the
+                     `path_pattern`/frame numbers of your production EXR sequences; the frames
+                     themselves stay on the box and are read locally.
+  --candidates       the candidate-entries array (each entry a `candidate_id` and its
+                     `measurement_providers`) for the candidates you are measuring; for this
+                     package that is `sea-raft-m` unless more candidates have been admitted and
+                     carried.
+  --artifact-map     maps each `candidate_id` to its carried manifest and ONNX artifact, e.g.
+                     `sea-raft-m` -> `models/sea-raft-m/manifest.json` and
+                     `models/sea-raft-m/sea-raft-m-opset17.onnx`.
+  --selection        the profile and matrix axes (`profile`, providers, caps, conditionings,
+                     chain offsets).  `profile` is one of `smoke`, `screen`, `final`.
+  --report-metadata  report identity (corpus id, hardware, runner) merged into report.json.
+
+The active protocol (`--protocol`, default `bakeoff/protocol-v2.json`) and the report/corpus
+schemas are carried and used by default.  Run `... run.py --help` for the full flag list.
+
+5. Run the three resumable profiles
+------------------------------------
+
+Each profile is resumable: the driver commits per-cell results into an artifact store under
+`--output-dir` and republishes the five outputs atomically.  If a run is interrupted, rerun the
+IDENTICAL command to resume; it re-establishes the run identity, skips completed cells, and
+continues.  A different configuration against a populated output directory is refused rather than
+silently mixing runs.
+
+Invoke each profile through the wrapper (adjust paths; keep the runtime-env and output-dir
+OUTSIDE the package):
+
+    WW_BAKEOFF_ENTRYPOINT=tools/bakeoff/run.py \
+    WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-p25-6-runtime.tar.gz \
+    WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-p25-6-runtime-env \
+    scripts/ww-bakeoff-airgap \
+      --selection       /path/to/inputs/selection-smoke.json \
+      --corpus          /path/to/inputs/production-corpus.json \
+      --candidates      /path/to/inputs/candidate-entries.json \
+      --artifact-map    /path/to/inputs/artifact-map.json \
+      --report-metadata /path/to/inputs/report-metadata.json \
+      --output-dir      /path/to/out/smoke
+
+* smoke  (`profile=smoke` in the selection): verifies archive/artifact hashes, runtime/provider
+  selection and directions against a small production sample.
+* screen (`profile=screen`): compares all surviving candidates across curves and practical caps.
+* final  (`profile=final`): applies the expensive repeated timing/VRAM protocol to finalists.
+
+CUDA memory is sampled with device-wide NVML plus per-process data where available.  For the
+final profile, measure both idle and beside a live Flame Batch workload: at each CUDA
+`host_load` boundary the driver pauses for an interactive idle/live_flame confirmation (logged to
+runner.log).  For an unattended rerun that must not block, pass `--assume-host-load-ready`; the
+boundary is still logged.  `--no-nvml` skips NVML sampling but is refused for a final profile with
+CUDA cells.  Do not treat time-to-failure as performance: first, warm and steady latency are all
+recorded.
+
+6. Collect exactly the five outputs
+-----------------------------------
+
+From each profile's `--output-dir`, return `report.json`, `summary.txt`, `runner.log`,
+`nvml.csv`, and `review.csv` (the last only when local visual review was performed).  The report
+validator (carried `bakeoff/report-v2.schema.json`) must accept `report.json`.  Do not copy
+production footage, checkpoints, or runtime files into a source repository.
+
+Legal record
+------------
+
+The candidate aggregates are `SEA-RAFT-LICENSE.txt` and `SEA-RAFT-NOTICE.txt`; the runtime
+aggregates are `RUNTIME-LICENSES.txt` and `RUNTIME-NOTICES.txt`, covering the conda runtime
+(python, numpy, OpenImageIO, OpenEXR, Imath and their transitive natives, pynvml, conda-pack),
+the official ONNX Runtime CUDA-12 payload and the White Water native ORT bridge.  A separate
+Andrew Miller runtime legal-review JSON (schema `whitewater-p25-runtime-legal-review-v1`,
+reviewer `Andrew Miller`, `reviewed: true`) approving the exact generated runtime inventory hash
+is required before CI packages anything; the carried `legal/runtime-legal-review.json` is that
+approval.  Neither review substitutes for the carried license or notice text.
+
+Qualifying dispatch
+-------------------
+
+This package is built and qualified by the `p25-6` lane of the `build` workflow
+(.github/workflows/ci.yml), which runs `scripts/ci-p25-6-qualify.sh` inside an `almalinux:8`
+container.  The first dispatch (with the runtime legal-review inputs left empty) generates the
+runtime license inventory and uploads it for Andrew Miller to review; the second dispatch,
+supplied with the Andrew Miller runtime legal-review file and its SHA256, packages the archive
+and emits `whitewater-p25-6-el8.tar.gz`, its `.sha256`, and the inventory.  The archive SHA256
+that names this qualified package is that emitted digest.
+
+Package-spec admission note
+---------------------------
+
+The checked-in template `bakeoff/p25-6/package-spec.json` uses only the placeholders
+materialized by `scripts/ci-p25-6-qualify.sh`:
+
+    __P25_6_ADMISSION_CANDIDATES__
+    __P25_6_CANDIDATE_LICENSE_SOURCE__
+    __P25_6_CANDIDATE_NOTICE_SOURCE__
+    __P25_6_CANDIDATE_INVENTORY_SOURCE__
+    __P25_6_RUNTIME_LICENSE_SOURCE__
+    __P25_6_RUNTIME_NOTICE_SOURCE__
+    __P25_6_RUNTIME_INVENTORY_SOURCE__
+    __P25_6_RUNTIME_REVIEW_SOURCE__
+    __P25_6_RUNTIME_ARCHIVE__
+    __P25_6_RUNTIME_SHA256__
+    __P25_6_RUNTIME_SIZE_BYTES__
+
+Every evaluator, support, protocol, schema, manifest, artifact and instruction source is an
+explicit local path.  The template invents no runtime evidence and no legal approval.

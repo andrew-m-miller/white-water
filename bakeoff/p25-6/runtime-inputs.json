@@ -1,0 +1,26 @@
+{
+  "schema_id": "whitewater-p25-runtime-inputs-v1",
+  "target": "el8-x86_64-glibc-2.28",
+  "python": "3.11",
+  "conda": {
+    "installer_url": "https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh",
+    "installer_sha256": "848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c",
+    "explicit_lock": "bakeoff/p25-6/conda-el8-x86_64.lock",
+    "explicit_lock_sha256": "61fa6c3cf89b1cd950d7ccef49a6194f66b18f4f72758bea125f286baf15e48b",
+    "explicit_lock_is_requested_spec": true,
+    "note": "explicit_lock is a REQUESTED match-spec (not @EXPLICIT); CI solves it on EL8 x86_64 and emits the pinned lock as evidence. If CI re-pins the lock, update explicit_lock_sha256 to the pinned lock SHA256 before the qualifying dispatch."
+  },
+  "onnxruntime_cuda12": {
+    "version": "1.29.0",
+    "cuda_major": 12,
+    "archive_url": "https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-linux-x64-gpu_cuda12-1.29.0.tgz",
+    "archive_sha256": "4ca594a0da83927befbd73fe020d7f569be151d70bb4fe9741ad405f4882e2ad",
+    "license": "MIT",
+    "payload_root": "lib/whitewater/ort-cuda12/onnxruntime"
+  },
+  "native_bridge": {
+    "source": "tools/bakeoff/ort_native_bridge.cpp",
+    "source_sha256": "fdf39e596308c5428c942392b138f810bc45d08bdd29086652a8568d06d4aa5c",
+    "payload": "lib/whitewater/ort-cuda12/libwhitewater_ort_bridge.so"
+  }
+}
