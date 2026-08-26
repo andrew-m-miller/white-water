@@ -1,0 +1,7 @@
+{
+  "sea-raft-m": {
+    "manifest": "models/sea-raft-m/manifest.json",
+    "artifact": "models/sea-raft-m/sea-raft-m-opset17.onnx",
+    "platform": "macos-arm64"
+  }
+}

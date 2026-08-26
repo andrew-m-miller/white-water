@@ -1560,7 +1560,7 @@ jobs:
           test "$actual_legal_review_sha" = "$P25_6_LEGAL_REVIEW_SHA256" || {
             echo "P25-6 legal-review SHA256 mismatch: expected $P25_6_LEGAL_REVIEW_SHA256, got $actual_legal_review_sha" >&2
             exit 1; }
-          python3.11 tools/p25_6/legal_review.py \
+          python3.11 tools/p25_5/legal_review.py \
             --protocol bakeoff/protocol-v2.json \
             --manifest sea-raft-m models/sea-raft-m.json \
             --review "$legal_review_file" \
@@ -1701,7 +1701,7 @@ jobs:
           import sys
           from pathlib import Path
 
-          from tools.p25_6.licenses import canonical_sha256
+          from tools.p25_5.licenses import canonical_sha256
 
           source = Path(sys.argv[1])
           output = Path(sys.argv[2])
@@ -1734,7 +1734,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$P25_6_OUTPUT_DIR"
-          python3.11 tools/p25_6/admission.py \
+          python3.11 tools/p25_5/admission.py \
             --protocol bakeoff/protocol-v2.json \
             --candidate models/sea-raft-m.json models/sea-raft-m-opset17.onnx linux-x86_64 \
             --provider cpu \
@@ -1981,7 +1981,7 @@ jobs:
           # Generate and collect against the final conda-pack extraction after conda-unpack. The
           # package cache and explicit lock remain available outside the carried prefix, while
           # the reviewed payload identity now includes conda-pack's activation/unpack files.
-          python3.11 tools/p25_6/licenses.py generate-runtime-input \
+          python3.11 tools/p25_5/licenses.py generate-runtime-input \
             --prefix "$RUNNER_TEMP/p25-6-runtime-extracted" \
             --lock "$RUNNER_TEMP/p25-6-inputs/environment.lock" \
             --package-cache "$RUNNER_TEMP/miniforge/pkgs" \
@@ -1991,7 +1991,7 @@ jobs:
             --output "$generated_runtime_input"
           echo "P25_6_RUNTIME_LICENSE_INPUT=$generated_runtime_input" >> "$GITHUB_ENV"
           mkdir -p "$P25_6_RUNTIME_LEGAL_DIR"
-          python3.11 tools/p25_6/licenses.py runtime \
+          python3.11 tools/p25_5/licenses.py runtime \
             --prefix "$RUNNER_TEMP/p25-6-runtime-extracted" \
             --lock "$RUNNER_TEMP/p25-6-inputs/environment.lock" \
             --input "$generated_runtime_input" \
@@ -2042,14 +2042,14 @@ jobs:
           test "$actual_review_sha" = "$P25_6_RUNTIME_LEGAL_REVIEW_SHA256" || {
             echo "P25-6 runtime legal-review SHA256 mismatch: expected $P25_6_RUNTIME_LEGAL_REVIEW_SHA256, got $actual_review_sha" >&2
             exit 1; }
-          python3.11 tools/p25_6/licenses.py validate-runtime-review \
+          python3.11 tools/p25_5/licenses.py validate-runtime-review \
             --input "$review_file" \
             --sha256 "$P25_6_RUNTIME_LEGAL_REVIEW_SHA256" \
             --inventory-sha256 "$inventory_sha"
           # Recheck the exact final prefix after the human gate and immediately before any outer
           # package is assembled. No source prefix is supplied: the approved identity is the
           # relocated runtime that will actually be carried.
-          python3.11 tools/p25_6/licenses.py verify-runtime-content \
+          python3.11 tools/p25_5/licenses.py verify-runtime-content \
             --prefix "$P25_6_RUNTIME_ROOT" \
             --inventory "$inventory" \
             --inventory-sha256 "$inventory_sha"

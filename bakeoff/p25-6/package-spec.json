@@ -277,6 +277,55 @@
       "mode": "0644"
     },
     {
+      "role": "evaluator-support",
+      "destination": "inputs/candidate-entries.json",
+      "source": "inputs/candidate-entries.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "inputs/artifact-map.json",
+      "source": "inputs/artifact-map.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "inputs/selection-smoke.json",
+      "source": "inputs/selection-smoke.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "inputs/selection-screen.json",
+      "source": "inputs/selection-screen.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "inputs/selection-screen-neuflow-shared-lattice.json",
+      "source": "inputs/selection-screen-neuflow-shared-lattice.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "inputs/report-metadata.json",
+      "source": "inputs/report-metadata.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
+      "destination": "inputs/corpus.template.json",
+      "source": "inputs/corpus.template.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
       "role": "run-instructions",
       "destination": "RUN-P25-6.txt",
       "source": "RUN-P25-6.txt",

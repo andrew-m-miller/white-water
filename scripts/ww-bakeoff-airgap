@@ -146,6 +146,12 @@ sanitize_environment() {
   export PYTHONNOUSERSITE=1
   export PIP_NO_INDEX=1
   export PATH="$RUNTIME_ENV/bin:/usr/bin:/bin"
+  # LD_LIBRARY_PATH is DELIBERATELY not unset here.  This runtime does not bundle the Flame-owned
+  # CUDA math libraries (libcublas/libcublasLt/libcudart/libcurand); on a standalone box a CUDA
+  # profile only resolves them when the operator exports LD_LIBRARY_PATH to the target host's
+  # Flame CUDA lib directory before invoking this wrapper (see RUN-P25-6.txt step 5).  Preserving
+  # it verbatim is what lets that exported value reach ONNX Runtime.  We do not set or synthesize
+  # a value: an empty/absent LD_LIBRARY_PATH is correct for a pure-cpu run.
 }
 
 # WW_BAKEOFF_ENTRYPOINT lets the operator launch a different carried bake-off module (e.g. the

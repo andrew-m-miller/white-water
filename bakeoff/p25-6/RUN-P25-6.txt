@@ -28,6 +28,9 @@ What the package carries
   plus the package __init__);
 * the active protocol `bakeoff/protocol-v2.json` and the report/corpus/artifact schemas;
 * the candidate manifest and ONNX artifact under `models/sea-raft-m/`;
+* ready-to-run, schema-valid driver-input templates under `inputs/` (candidate-entries,
+  artifact-map, selection-smoke, selection-screen, a NeuFlow shared-lattice screen that requires
+  neuflow-v2 to be admitted first, report-metadata, and corpus.template) -- see step 4;
 * candidate and runtime license/notice aggregates, their hash inventories, the checked-in
   technical runtime-input manifest, and the approved runtime legal review; and
 * the pinned conda-pack runtime `runtime/whitewater-p25-6-runtime.tar.gz`.
@@ -81,33 +84,103 @@ CLI help (this touches no production data):
     WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-p25-6-runtime-env \
     scripts/ww-bakeoff-airgap --help
 
-4. Author the per-run inputs on the box
----------------------------------------
+4. Use the carried, ready-to-run driver inputs
+----------------------------------------------
 
-The driver reads five small JSON inputs plus the production corpus.  They reference on-box
-production frame paths and the candidate subset under measurement, so they are authored on the
-box and kept OUTSIDE the extracted package (never edit a carried file).  Author them against the
-carried contracts:
+The driver reads five small JSON inputs plus the production corpus.  Rather than authoring these
+from prose, this package CARRIES schema-valid, ready-to-run templates under `inputs/`.  Three of
+them are complete and are used IN PLACE (never edited); two carry clearly-marked
+`REPLACE_WITH_...` placeholders for the only values that are host/CI-specific, so you copy those
+two OUT of the package, fill the placeholders, and point the driver at your copies.  Do not edit
+any carried file.
 
-  --corpus           a production corpus manifest validating against the carried
-                     `bakeoff/corpus-v1.schema.json`.  It carries anonymous metadata and the
-                     `path_pattern`/frame numbers of your production EXR sequences; the frames
-                     themselves stay on the box and are read locally.
-  --candidates       the candidate-entries array (each entry a `candidate_id` and its
-                     `measurement_providers`) for the candidates you are measuring; for this
-                     package that is `sea-raft-m` unless more candidates have been admitted and
-                     carried.
-  --artifact-map     maps each `candidate_id` to its carried manifest and ONNX artifact, e.g.
-                     `sea-raft-m` -> `models/sea-raft-m/manifest.json` and
-                     `models/sea-raft-m/sea-raft-m-opset17.onnx`.
-  --selection        the profile and matrix axes (`profile`, providers, caps, conditionings,
-                     chain offsets).  `profile` is one of `smoke`, `screen`, `final`.
-  --report-metadata  report identity (corpus id, hardware, runner) merged into report.json.
+Used in place (already complete for the carried sea-raft-m candidate):
+
+  --candidates      inputs/candidate-entries.json
+                    The sea-raft-m candidate entry.  Per docs/phase2.5-protocol-v2.md a v2
+                    candidate carries BOTH `status` and `measurement_status` (here
+                    `excluded`/`measurable`: P25-6 measures but does not select a shipping
+                    default -- that is P25-7).  Its identity hashes and license verdicts are the
+                    reviewed values from models/sea-raft-m.json.  The older `candidate_id` +
+                    `measurement_providers`-only shape is rejected by the carried validator, so do
+                    not hand-write a candidate entry from that shorter description.
+  --artifact-map    inputs/artifact-map.json
+                    Maps `sea-raft-m` -> the carried `models/sea-raft-m/manifest.json` and
+                    `models/sea-raft-m/sea-raft-m-opset17.onnx`.  Run the driver from the
+                    extracted package root so these package-relative paths resolve.
+  --selection       inputs/selection-smoke.json   (profile `smoke`, cpu, cap mp0_5)
+                    inputs/selection-screen.json  (profile `screen`, cpu, shared-lattice cap
+                                                    mp0_331776, synthetic FHD+UHD 16:9 targets)
+                    `profile` is one of `smoke`, `screen`, `final`.  A NeuFlow shared-lattice
+                    screen (inputs/selection-screen-neuflow-shared-lattice.json) is also carried,
+                    spelled exactly as docs/phase2.5-protocol-v2.md prescribes, but it names
+                    `neuflow-v2`; it REQUIRES that candidate to be admitted, carried, and added to
+                    your candidate-entries before use, and is rejected until then.  A `final`
+                    profile still needs the CUDA `mp2` FHD/UHD coverage described in step 6; author
+                    its selection from selection-screen.json by switching to cuda + mp2 and adding
+                    your production FHD/UHD shots.
+
+Copied out and filled (host/CI-specific placeholders only):
+
+  --corpus          copy inputs/corpus.template.json, set `corpus_id`, and set the production
+                    smoke shot's `path_pattern` to your on-box EXR sequence.  It already declares
+                    the built-in synthetic `syn-fhd-1920x1080-par1`/`syn-uhd-3840x2160-par1`
+                    targets the screen selection uses; the production frames stay on the box and
+                    are read locally.  It validates against the carried `bakeoff/corpus-v1.schema.json`.
+  --report-metadata copy inputs/report-metadata.json and fill the `REPLACE_WITH_...` runner hashes
+                    (the white-water build commit, the carried evaluator SHA256, and the carried
+                    runtime tarball SHA256 -- the last is the CI-emitted digest, not to be
+                    invented) and the target `os_release`/`cpu`/`gpu`/`driver`.
 
 The active protocol (`--protocol`, default `bakeoff/protocol-v2.json`) and the report/corpus
 schemas are carried and used by default.  Run `... run.py --help` for the full flag list.
 
-5. Run the three resumable profiles
+5. Set up the target CUDA loader path and run the dependency preflight (CUDA runs only)
+--------------------------------------------------------------------------------------
+
+This step is MANDATORY before any CUDA profile (any selection whose provider is `cuda`,
+including the whole `final` profile).  Skip it only for a pure-cpu smoke run.
+
+This runtime deliberately does NOT bundle the CUDA math libraries (`libcublas.so.12`,
+`libcublasLt.so.12`, `libcudart.so.12`, `libcurand.so.10`).  On a generic loader path
+(`/usr/lib:/usr/local/lib`) those four SONAMEs are UNRESOLVED and a CUDA session dies before it
+measures anything; on the measured Flame host they resolved only from the live Flame process's
+own CUDA library directory (`/opt/Autodesk/lib64/2026.2.1/` on that box -- this path is
+version- and host-specific, so locate YOUR box's directory rather than copying that literal).
+
+The wrapper `scripts/ww-bakeoff-airgap` sanitizes Python/conda/proxy variables but DELIBERATELY
+preserves `LD_LIBRARY_PATH` (see its `sanitize_environment`), so an `LD_LIBRARY_PATH` you export
+here reaches ONNX Runtime unchanged.
+
+a. Locate your box's Flame CUDA library directory (the one holding all four SONAMEs):
+
+    flame_cuda_dir=$(dirname "$(ls /opt/Autodesk/lib64/*/libcublas.so.12 2>/dev/null | sort | tail -n1)")
+    for soname in libcublas.so.12 libcublasLt.so.12 libcudart.so.12 libcurand.so.10; do
+      test -e "$flame_cuda_dir/$soname" || { echo "MISSING $soname in $flame_cuda_dir" >&2; exit 1; }
+    done
+    echo "Flame CUDA lib dir: $flame_cuda_dir"
+
+   If your Flame is not under `/opt/Autodesk/lib64/<version>/`, set `flame_cuda_dir` to the exact
+   directory on your box that contains those four `.so` files.
+
+b. Export it for every CUDA invocation in steps 6 (prepend, never replace, an existing value):
+
+    export LD_LIBRARY_PATH="$flame_cuda_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+c. Dependency preflight -- a STOP, not a warning.  With `LD_LIBRARY_PATH` exported and the
+   runtime already unpacked (step 3), confirm the carried ORT CUDA provider resolves every CUDA
+   library.  A single `not found` line means STOP and fix `flame_cuda_dir`; do not start a CUDA
+   profile until this reports clean:
+
+    provider="/path/to/whitewater-p25-6-runtime-env/lib/whitewater/ort-cuda12/onnxruntime/libonnxruntime_providers_cuda.so"
+    unresolved=$(ldd "$provider" | grep -E 'libcublas\.so\.12|libcublasLt\.so\.12|libcudart\.so\.12|libcurand\.so\.10' | grep -c 'not found' || true)
+    test "$unresolved" -eq 0 || { echo "Unresolved CUDA dependencies: $unresolved -- fix LD_LIBRARY_PATH before measuring" >&2; exit 1; }
+    echo "Unresolved dependencies: <none>"
+
+   The expected clean result mirrors the measured host evidence (`Unresolved dependencies:
+   <none>`).  Only after it prints that may you run the CUDA profiles.
+
+6. Run the three resumable profiles
 ------------------------------------
 
 Each profile is resumable: the driver commits per-cell results into an artifact store under
@@ -116,19 +189,26 @@ IDENTICAL command to resume; it re-establishes the run identity, skips completed
 continues.  A different configuration against a populated output directory is refused rather than
 silently mixing runs.
 
-Invoke each profile through the wrapper (adjust paths; keep the runtime-env and output-dir
-OUTSIDE the package):
+Invoke each profile through the wrapper from the extracted package root (so the carried
+`inputs/` and `models/` paths resolve; keep the runtime-env, output-dir and your filled
+corpus/report-metadata copies OUTSIDE the package).  For a CUDA selection, `LD_LIBRARY_PATH` from
+step 5 must already be exported and the preflight must have passed:
 
     WW_BAKEOFF_ENTRYPOINT=tools/bakeoff/run.py \
     WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-p25-6-runtime.tar.gz \
     WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-p25-6-runtime-env \
     scripts/ww-bakeoff-airgap \
-      --selection       /path/to/inputs/selection-smoke.json \
-      --corpus          /path/to/inputs/production-corpus.json \
-      --candidates      /path/to/inputs/candidate-entries.json \
-      --artifact-map    /path/to/inputs/artifact-map.json \
-      --report-metadata /path/to/inputs/report-metadata.json \
+      --selection       inputs/selection-smoke.json \
+      --candidates      inputs/candidate-entries.json \
+      --artifact-map    inputs/artifact-map.json \
+      --corpus          /path/to/your/corpus.json \
+      --report-metadata /path/to/your/report-metadata.json \
       --output-dir      /path/to/out/smoke
+
+For the `screen` profile, swap `--selection inputs/selection-screen.json`.  The carried smoke and
+screen selections use the cpu correctness provider; switch a selection's provider to `cuda` (and,
+for `final`, add `mp2` plus your production FHD/UHD shots) only after the step 5 CUDA preflight
+passes.
 
 * smoke  (`profile=smoke` in the selection): verifies archive/artifact hashes, runtime/provider
   selection and directions against a small production sample.
@@ -143,7 +223,7 @@ boundary is still logged.  `--no-nvml` skips NVML sampling but is refused for a 
 CUDA cells.  Do not treat time-to-failure as performance: first, warm and steady latency are all
 recorded.
 
-6. Collect exactly the five outputs
+7. Collect exactly the five outputs
 -----------------------------------
 
 From each profile's `--output-dir`, return `report.json`, `summary.txt`, `runner.log`,
