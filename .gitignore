@@ -38,3 +38,4 @@ third_party/onnxruntime-*/
 # Agent worktrees: real git checkouts that live inside the repo. Committing them adds
 # gitlinks that no clone can resolve.
 .claude/worktrees/
+.claude/refactor-review-handoff.md

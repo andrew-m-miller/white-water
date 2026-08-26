@@ -20,19 +20,22 @@ import errno
 import json
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
 import types
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from . import run as run_module
 from . import synthetic as synthetic_module
 from .exr import ExrFailure
 from .matrix import build_matrix
 from .nvml import NVML_CSV_HEADER, NvmlFailure, NvmlSampler
-from .resume import mark_in_progress
+from .resume import ResumeFailure, mark_in_progress
 from .run import CudaMeasurementResult, DriverFailure, RunConfig, run_bakeoff
+from .run_spec import RunSpec
 from .validator import canonical_sha256, load_json, validate_report_consistency
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -431,6 +434,7 @@ def _config(
     shot_ids: list[str],
     provider: str = "cpu",
     host_loads: list[str] | None = None,
+    chain_offsets: tuple[int, ...] | list[int] = (1, 2, 4, 8),
     nvml_backend_factory=None,
     exr_decoder=None,
     hardware: dict[str, str] | None = None,
@@ -451,7 +455,7 @@ def _config(
         state_path=output_dir / "state.json",
         device_index=0,
         poll_interval_s=0.01,
-        chain_offsets=(1, 2, 4, 8),
+        chain_offsets=chain_offsets,
         report_metadata=_report_metadata(extra_hardware=hardware),
         protocol_path=V2_PROTOCOL_PATH,
         replace=False,
@@ -545,6 +549,29 @@ def test_write_csv_file_is_single_write_no_clobber_unless_replace_and_skips_empt
         assert rows == [["a", "b"], ["9", "9"]]
 
 
+def test_verify_repair_rejects_a_symlink_even_when_target_is_canonical() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-csv-symlink-") as tmp:
+        directory = Path(tmp)
+        target = directory / "target.csv"
+        path = directory / "review.csv"
+        payload_rows = [["1", "2"]]
+        run_module._write_csv_file(target, ("a", "b"), payload_rows, replace=False)
+        original_target = target.read_bytes()
+        path.symlink_to(target)
+
+        try:
+            run_module._write_csv_file(
+                path, ("a", "b"), payload_rows, replace=False, verify_and_repair=True,
+            )
+        except DriverFailure as failure:
+            assert failure.kind == "output_path"
+        else:
+            raise AssertionError("verify/repair must reject a symlinked CSV path")
+        assert path.is_symlink()
+        assert path.resolve() == target.resolve()
+        assert target.read_bytes() == original_target
+
+
 def test_runner_log_appends_timestamped_lines_and_survives_reopen() -> None:
     with tempfile.TemporaryDirectory(prefix="whitewater-run-log-") as tmp:
         path = Path(tmp) / "runner.log"
@@ -558,6 +585,62 @@ def test_runner_log_appends_timestamped_lines_and_survives_reopen() -> None:
         assert len(content) == 2
         assert content[0].endswith("first line")
         assert content[1].endswith("second line")
+
+
+def test_driver_direct_and_module_help_use_the_same_package_imports() -> None:
+    commands = (
+        [sys.executable, str(ROOT / "tools" / "bakeoff" / "run.py"), "--help"],
+        [sys.executable, "-m", "tools.bakeoff.run", "--help"],
+    )
+    for command in commands:
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        assert completed.stdout.startswith("usage: run.py")
+        assert "ImportError" not in completed.stderr
+
+
+def test_runner_log_fsync_failure_is_typed() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-log-fsync-") as tmp:
+        path = Path(tmp) / "runner.log"
+        log = run_module.RunnerLog(path)
+        original_fsync = os.fsync
+
+        def failing_fsync(_fd: int) -> None:
+            raise OSError("simulated log durability failure")
+
+        os.fsync = failing_fsync
+        try:
+            try:
+                log.write("must be durable")
+            except DriverFailure as failure:
+                assert failure.kind == "log_write"
+            else:
+                raise AssertionError("expected DriverFailure(log_write)")
+        finally:
+            os.fsync = original_fsync
+            log.close()
+
+
+def test_report_semantic_unicode_failure_is_typed() -> None:
+    """A lone surrogate cannot be UTF-8 encoded and must not escape the reuse gate."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-report-unicode-") as tmp:
+        try:
+            run_module._compare_reusable_report_semantics(
+                {"unexpected": "\ud800"},
+                {"unexpected": "valid"},
+                json_path=Path(tmp) / "report.json",
+            )
+        except DriverFailure as failure:
+            assert failure.kind == "report_identity_mismatch"
+        else:
+            raise AssertionError("expected DriverFailure(report_identity_mismatch)")
 
 
 def test_replay_resource_and_rows_matches_a_live_sampler() -> None:
@@ -574,6 +657,81 @@ def test_replay_resource_and_rows_matches_a_live_sampler() -> None:
     assert resource["peak_device_memory_mib"] == 5000.0
     assert resource["baseline_device_memory_mib"] == 1000.0
     assert tuple(rows[1][:6]) == ("c", "s", "t", "cap", "cuda", "idle")
+
+
+def test_nvml_evidence_is_cell_bound_at_commit_and_exact_ref_regeneration() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-nvml-binding-") as tmp:
+        directory = Path(tmp).resolve()
+        cell = run_module.CellKey("candidate", "shot", "conditioning", "cap", "cuda", "idle")
+        result = {**run_module._base_result_fields(cell), "status": "pass"}
+        valid_row = [
+            "candidate", "shot", "conditioning", "cap", "cuda", "idle",
+            "baseline", "0", "1.0", "100.0", "",
+        ]
+        wrong_identity_row = [
+            "other-candidate", "other-shot", "conditioning", "cap", "cpu", "idle",
+            "baseline", "0", "1.0", "100.0", "",
+        ]
+        bad_stage_row = list(valid_row)
+        bad_stage_row[6] = "not-a-stage"
+        identity = {"test": "nvml-binding"}
+
+        with run_module.ArtifactStore(directory / "artifacts", identity) as store:
+            for rows, expected_kind in (
+                ((tuple(wrong_identity_row),), "nvml_identity"),
+                ((tuple(bad_stage_row),), "nvml_stage"),
+            ):
+                try:
+                    run_module._commit_cell_bundle(
+                        store,
+                        cell,
+                        run_module.CellBundle(result=result, nvml_rows=rows),
+                        nvml_enabled=True,
+                    )
+                except run_module.ArtifactStoreFailure as failure:
+                    assert failure.kind == expected_kind
+                else:
+                    raise AssertionError(f"expected ArtifactStoreFailure({expected_kind})")
+
+        # A store-level publisher can create a structurally valid but semantically wrong evidence
+        # payload; the exact-ref regeneration boundary must bind it to the paired CellKey again.
+        config = _config(
+            directory,
+            shot_ids=["syn-identity"],
+            provider="cuda",
+            host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+        )
+        selection_axes = {
+            key: config.selection[key]
+            for key in ("candidate_ids", "shot_ids", "conditioning_tokens", "cap_tokens", "providers")
+        }
+        plan = build_matrix(
+            config.protocol, config.corpus, config.candidate_entries, selection_axes,
+            config.selection["profile"], config.selection["environment"],
+        )
+        exact_cell = plan.cells[0]
+        exact_result = {**run_module._base_result_fields(exact_cell), "status": "pass"}
+        wrong_payload = run_module._canonical_nvml_rows_bytes((tuple(wrong_identity_row),))
+        with run_module.ArtifactStore(directory / "exact-artifacts", {"test": "nvml-exact-ref"}) as store:
+            attempt = store.begin(run_module._artifact_cell_id(exact_cell))
+            attempt.stage_bytes("result.json", run_module._canonical_result_bytes(exact_result))
+            attempt.stage_bytes("evidence/nvml_rows.json", wrong_payload)
+            artifact_ref = attempt.commit()
+            try:
+                run_module._regenerate_public_evidence_outputs(
+                    store,
+                    config.output_dir,
+                    config.corpus,
+                    plan,
+                    [{"result": exact_result, "artifact_ref": artifact_ref}],
+                    replace=True,
+                    nvml_enabled=True,
+                )
+            except run_module.ArtifactStoreFailure as failure:
+                assert failure.kind == "nvml_identity"
+            else:
+                raise AssertionError("exact-ref regeneration must reject cross-cell NVML evidence")
 
 
 # --------------------------------------------------------------------------------------------
@@ -599,6 +757,9 @@ def test_smoke_profile_synthetic_identity_produces_a_valid_report_and_no_nvml_cs
 
         for name in ("report.json", "report.csv", "summary.txt", "runner.log"):
             assert (config.output_dir / name).is_file(), name
+        log_text = (config.output_dir / "runner.log").read_text(encoding="utf-8")
+        assert "cell artifact committed status=pass" in log_text
+        assert "cell pass" not in log_text
         assert not (config.output_dir / "nvml.csv").exists()
         assert not (config.output_dir / "review.csv").exists()
 
@@ -806,6 +967,144 @@ def test_identity_differs_between_profiles_for_an_otherwise_identical_selection(
         assert canonical_sha256(identity_smoke) != canonical_sha256(identity_diff_evaluator)
 
 
+def test_run_spec_builder_returns_compact_complete_identity() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-spec-driver-") as tmp:
+        directory = Path(tmp)
+        protocol = _protocol()
+        corpus = _corpus()
+        selection_axes = {
+            "candidate_ids": [CANDIDATE_ID], "shot_ids": ["syn-identity"],
+            "conditioning_tokens": ["native-clamp01-v1"], "cap_tokens": ["mp0_5"],
+            "providers": [{"token": "cpu", "host_loads": ["not_applicable"]}],
+        }
+        plan = build_matrix(protocol, corpus, _candidate_entries(), selection_axes, "smoke", "el8-x86_64")
+        artifacts = run_module._validate_selected_artifacts(plan, _artifact_map(directory), V2_PROTOCOL_PATH)
+        runner = dict(_report_metadata()["runner"])
+        runner.pop("name")
+        runner.pop("version")
+        runner.pop("source_commit")
+        spec = run_module._build_run_spec(
+            protocol, corpus, plan, "el8-x86_64", "smoke", artifacts,
+            runner, _report_metadata()["hardware"], (1, 2, 4, 8),
+            candidate_entries=_candidate_entries(), report_schema=REPORT_SCHEMA,
+            corpus_schema=CORPUS_SCHEMA, device_index=0, poll_interval_s=0.05,
+            nvml_enabled=False,
+            report_inputs={"warnings": ["operator warning"], "summary": {"final_quality_score": 80.0}},
+        )
+        assert isinstance(spec, RunSpec)
+        stable = spec.stable_inputs
+        assert stable["protocol"]["protocol_id"] == protocol["protocol_id"]
+        assert stable["protocol"]["sha256"] == canonical_sha256(protocol)
+        assert "analysis_caps" not in stable["protocol"]
+        assert stable["corpus"]["sha256"] == canonical_sha256(corpus)
+        assert stable["matrix"] == plan.selector
+        assert stable["artifacts"][CANDIDATE_ID]["artifact_sha256"]
+        assert stable["runner"]["name"] == "ww-bakeoff"
+        assert stable["runner"]["version"] == "0.1.0"
+        assert "command" not in stable["runner"]
+        assert stable["report_inputs"]["warnings"] == ["operator warning"]
+        assert stable["report_inputs"]["summary"]["final_quality_score"] == 80.0
+
+
+def test_chain_offsets_are_sorted_unique_before_execution_and_identity() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-chain-offsets-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"], chain_offsets=[8, 4, 4, 1])
+        assert config.chain_offsets == (1, 4, 8)
+
+        protocol = _protocol()
+        corpus = _corpus()
+        selection_axes = {
+            "candidate_ids": [CANDIDATE_ID], "shot_ids": ["syn-identity"],
+            "conditioning_tokens": ["native-clamp01-v1"], "cap_tokens": ["mp0_5"],
+            "providers": [{"token": "cpu", "host_loads": ["not_applicable"]}],
+        }
+        plan = build_matrix(protocol, corpus, _candidate_entries(), selection_axes, "smoke", "el8-x86_64")
+        artifacts = run_module._validate_selected_artifacts(plan, _artifact_map(Path(tmp)), V2_PROTOCOL_PATH)
+        runner = _report_metadata()["runner"]
+        hardware = _report_metadata()["hardware"]
+        first = run_module._compute_identity(
+            protocol, corpus, plan, "el8-x86_64", "smoke", artifacts, runner, hardware, (8, 4, 4, 1),
+            candidate_entries=_candidate_entries(), report_schema=REPORT_SCHEMA, corpus_schema=CORPUS_SCHEMA,
+            device_index=0, poll_interval_s=0.05, nvml_enabled=False,
+        )
+        second = run_module._compute_identity(
+            protocol, corpus, plan, "el8-x86_64", "smoke", artifacts, runner, hardware, (1, 4, 8),
+            candidate_entries=_candidate_entries(), report_schema=REPORT_SCHEMA, corpus_schema=CORPUS_SCHEMA,
+            device_index=0, poll_interval_s=0.05, nvml_enabled=False,
+        )
+        assert first["chain_offsets"] == [1, 4, 8]
+        assert first == second
+        assert canonical_sha256(first) == canonical_sha256(second)
+
+
+def test_runner_and_hardware_metadata_preflight_is_strict_and_normalized() -> None:
+    metadata = _report_metadata()
+    uppercase_runner = copy.deepcopy(metadata["runner"])
+    uppercase_runner["source_commit"] = uppercase_runner["source_commit"].upper()
+    uppercase_runner["evaluator_sha256"] = uppercase_runner["evaluator_sha256"].upper()
+    uppercase_runner["runtime_sha256"] = uppercase_runner["runtime_sha256"].upper()
+    normalized_runner = run_module._normalise_runner_metadata(uppercase_runner)
+    assert normalized_runner["source_commit"] == "6" * 40
+    assert normalized_runner["evaluator_sha256"] == "7" * 64
+    assert normalized_runner["runtime_sha256"] == "8" * 64
+
+    base_hardware = run_module._normalise_hardware(metadata["hardware"])
+    absent_optional = run_module._normalise_hardware({**metadata["hardware"], "gpu": None, "driver": ""})
+    assert absent_optional == base_hardware
+    assert "gpu" not in absent_optional and "driver" not in absent_optional
+
+    for section, unknown_key in (("runner", "unexpected_runner"), ("hardware", "unexpected_hardware")):
+        with tempfile.TemporaryDirectory(prefix=f"whitewater-run-metadata-{section}-") as tmp:
+            config = _config(Path(tmp), shot_ids=["syn-identity"])
+            changed = copy.deepcopy(config.report_metadata)
+            changed[section][unknown_key] = "must be rejected"
+            config.report_metadata = changed
+            runtime = config.runtime_module
+            try:
+                run_bakeoff(config)
+            except DriverFailure as exc:
+                assert exc.kind == "report_metadata_unknown"
+            else:
+                raise AssertionError(f"unknown {section} metadata must fail during preflight")
+            assert runtime.sessions_created == 0, "metadata failure must happen before any cell executes"
+
+    for key, value in (("evaluator_sha256", "not-a-sha"), ("runtime_sha256", ""), ("source_commit", "xyz")):
+        with tempfile.TemporaryDirectory(prefix=f"whitewater-run-metadata-invalid-{key}-") as tmp:
+            config = _config(Path(tmp), shot_ids=["syn-identity"])
+            changed = copy.deepcopy(config.report_metadata)
+            changed["runner"][key] = value
+            config.report_metadata = changed
+            try:
+                run_bakeoff(config)
+            except DriverFailure as exc:
+                assert exc.kind == "report_metadata_value"
+            else:
+                raise AssertionError(f"invalid runner {key} must fail during preflight")
+
+
+def test_legacy_v1_resume_state_is_rejected_with_fresh_replace_diagnostic() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-legacy-state-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        config.output_dir.mkdir(parents=True)
+        legacy_state = {
+            "schema_version": 1,
+            "identity": {},
+            "identity_sha256": canonical_sha256({}),
+            "entries": [],
+        }
+        config.state_path.write_text(json.dumps(legacy_state), encoding="utf-8")
+        runtime = config.runtime_module
+        try:
+            run_bakeoff(config)
+        except DriverFailure as exc:
+            assert exc.kind == "legacy_resume_state"
+            diagnostic = str(exc).lower()
+            assert "fresh" in diagnostic and "replace" in diagnostic
+        else:
+            raise AssertionError("schema-v1 state must be rejected without migration")
+        assert runtime.sessions_created == 0, "legacy state rejection must happen before any cell executes"
+
+
 def test_rerun_with_different_profile_same_state_path_is_rejected_not_reused() -> None:
     with tempfile.TemporaryDirectory(prefix="whitewater-run-smoke-then-screen-") as tmp:
         config = _config(Path(tmp), shot_ids=["syn-identity"])
@@ -826,6 +1125,33 @@ def test_rerun_with_different_profile_same_state_path_is_rejected_not_reused() -
         # The original smoke report.json must be untouched -- never silently overwritten with,
         # or presented as, a screen-profile result.
         assert (config.output_dir / "report.json").read_bytes() == original_report_bytes
+
+
+def test_changed_report_warnings_and_summary_are_rejected_on_reuse() -> None:
+    for field, changed_value in (
+        ("warnings", ["changed operator warning"]),
+        ("summary", {"final_quality_score": 82.0}),
+    ):
+        with tempfile.TemporaryDirectory(prefix=f"whitewater-run-report-input-{field}-") as tmp:
+            config = _config(Path(tmp), shot_ids=["syn-identity"])
+            baseline_metadata = copy.deepcopy(config.report_metadata)
+            baseline_metadata["warnings"] = ["baseline operator warning"]
+            baseline_metadata["summary"] = {"final_quality_score": 81.0}
+            config.report_metadata = baseline_metadata
+            first = run_bakeoff(config)
+            assert not first.incomplete
+
+            config2 = copy.copy(config)
+            config2.runtime_module = _FakeRuntime()
+            changed_metadata = copy.deepcopy(baseline_metadata)
+            changed_metadata[field] = changed_value
+            config2.report_metadata = changed_metadata
+            try:
+                run_bakeoff(config2)
+            except DriverFailure as exc:
+                assert "identity" in str(exc).lower()
+            else:
+                raise AssertionError(f"changed report {field} must not reuse completed output")
 
 
 def test_stale_report_json_under_a_different_identity_is_explicitly_rejected() -> None:
@@ -1014,7 +1340,7 @@ def test_real_subprocess_cuda_measurement_runner_isolates_work_and_reads_post_ex
 # --------------------------------------------------------------------------------------------
 
 
-def test_interrupted_cell_resume_does_not_duplicate_sidecar_rows() -> None:
+def test_interrupted_cell_resume_does_not_duplicate_bundle_evidence_rows() -> None:
     with tempfile.TemporaryDirectory(prefix="whitewater-run-interrupt-") as tmp:
         config = _config(
             Path(tmp), shot_ids=["syn-identity"], provider="cuda", host_loads=["idle"],
@@ -1046,33 +1372,193 @@ def test_interrupted_cell_resume_does_not_duplicate_sidecar_rows() -> None:
         cell = plan.cells[0]
         mark_in_progress(config.state_path, identity, plan, cell)
 
-        review_dir = config.output_dir / "review-previews"
         executor, _ctx = run_module.build_executor(
             protocol=config.protocol, corpus=config.corpus, profile=config.selection["profile"],
             artifacts=artifacts, runtime_module=config.runtime_module, array_module=config.array_module,
             nvml_backend_factory=config.nvml_backend_factory, device_index=config.device_index,
             poll_interval_s=config.poll_interval_s, chain_offsets=config.chain_offsets,
-            exr_decoder=config.exr_decoder, output_dir=config.output_dir, review_dir=review_dir,
-            log=lambda message: None, host_load_checkpoint=lambda host_load: None,
+            exr_decoder=config.exr_decoder, review_enabled=True,
+            host_load_checkpoint=lambda host_load: None,
             cuda_measurement_runner=config.cuda_measurement_runner,
         )
-        # Simulate an "interrupted" attempt: the cell's real work runs (writing its nvml
-        # sidecar) but the process dies before RunCoordinator would have marked it complete --
-        # state.json is left with this cell still "in_progress".
-        executor(cell)
-        stale_rows = run_module._read_nvml_sidecar(config.output_dir, cell)
-        assert stale_rows, "the interrupted attempt should have written a sidecar"
+        # The executor is pure: running it creates no public evidence files. Simulate
+        # an interrupted state transition by committing its exact bundle, but leaving state.json
+        # with this cell still in_progress before RunCoordinator can mark it complete.
+        bundle = executor(cell)
+        # Deliberately include both a duplicate-looking sample and a unique row from this
+        # abandoned generation. Regeneration must preserve duplicates in the selected exact
+        # generation while excluding every row that belongs only to this interrupted attempt.
+        assert bundle.nvml_rows
+        abandoned_row = list(bundle.nvml_rows[0])
+        abandoned_row[8] = "999999.0"
+        stale_bundle = run_module.CellBundle(
+            result=bundle.public_result(),
+            nvml_rows=(*bundle.nvml_rows, bundle.nvml_rows[0], tuple(abandoned_row)),
+            previews=bundle.previews,
+            log_messages=bundle.log_messages,
+        )
+        before = {
+            path.relative_to(config.output_dir)
+            for path in config.output_dir.rglob("*")
+            if ".artifacts" not in path.relative_to(config.output_dir).parts
+        }
+        assert not (config.output_dir / "review-previews").exists()
+        with run_module.ArtifactStore(
+            config.output_dir.resolve() / ".artifacts", identity,
+        ) as store:
+            stale_execution = run_module._commit_cell_bundle(
+                store, cell, stale_bundle, nvml_enabled=True,
+            )
+            stale_rows = run_module._decode_nvml_rows(
+                store.read_artifact(stale_execution.artifact_ref, "evidence/nvml_rows.json")
+            )
+        assert len(stale_rows) > len({tuple(row) for row in stale_rows})
+        assert any(row[8] == "999999.0" for row in stale_rows)
+        after = {
+            path.relative_to(config.output_dir)
+            for path in config.output_dir.rglob("*")
+            if ".artifacts" not in path.relative_to(config.output_dir).parts
+        }
+        assert after == before
+        assert stale_rows, "the interrupted attempt should have committed exact NVML evidence"
 
         # A fresh run_bakeoff call now resumes: resume.load_state recovers the in_progress cell
         # to pending (documented behavior) and RunCoordinator re-executes it, which must
-        # OVERWRITE, not append to, the sidecar written above.
+        # Regeneration follows only the completed state's exact ref and must not append the
+        # abandoned generation's rows to the retried cell's current generation.
         result = run_bakeoff(config)
         assert not result.incomplete
         nvml_path = config.output_dir / "nvml.csv"
         with nvml_path.open(newline="", encoding="utf-8") as stream:
             rows = list(csv.reader(stream))
         data_rows = rows[1:]
-        assert len(data_rows) == len(stale_rows), "resume must not duplicate the retried cell's rows"
+        state_after = json.loads(config.state_path.read_text(encoding="utf-8"))
+        current_ref = state_after["entries"][0]["artifact_ref"]
+        with run_module.ArtifactStore(
+            config.output_dir.resolve() / ".artifacts", identity,
+        ) as store:
+            current_rows = run_module._decode_nvml_rows(
+                store.read_artifact(current_ref, "evidence/nvml_rows.json")
+            )
+        assert data_rows == current_rows, "regeneration must use only the completed exact generation"
+        assert any(tuple(row) == tuple(current_rows[0]) for row in data_rows)
+        assert not any(row[8] == "999999.0" for row in data_rows)
+
+
+def test_regeneration_reads_old_exact_ref_after_current_pointer_advances() -> None:
+    """Public evidence follows the state-held generation, never a newer current pointer."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-exact-ref-publication-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["prod-sample"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        state = json.loads(config.state_path.read_text(encoding="utf-8"))
+        identity = state["identity"]
+        entry_a = state["entries"][0]
+        ref_a = entry_a["artifact_ref"]
+        result_a = entry_a["result"]
+        with (config.output_dir / "review.csv").open(newline="", encoding="utf-8") as stream:
+            review_a = list(csv.reader(stream))[1:]
+        assert review_a and review_a[0][7]
+        preview_path_a = review_a[0][7]
+
+        selection_axes = {
+            key: config.selection[key]
+            for key in ("candidate_ids", "shot_ids", "conditioning_tokens", "cap_tokens", "providers")
+        }
+        plan = build_matrix(
+            config.protocol, config.corpus, config.candidate_entries, selection_axes,
+            config.selection["profile"], config.selection["environment"],
+        )
+        cell = plan.cells[0]
+        with run_module.ArtifactStore(config.output_dir.resolve() / ".artifacts", identity) as store:
+            rows_a = run_module._decode_nvml_rows(
+                store.read_artifact(ref_a, "evidence/nvml_rows.json")
+            )
+            rows_b = [list(row) for row in rows_a]
+            rows_b[0][8] = "999998.0"
+            execution_b = run_module._commit_cell_bundle(
+                store,
+                cell,
+                run_module.CellBundle(
+                    result=result_a,
+                    nvml_rows=tuple(tuple(row) for row in rows_b),
+                    previews=(
+                        run_module.PreviewPayload("previews/offset_1_warped.pfm", b"current-warped"),
+                        run_module.PreviewPayload("previews/offset_1_flow.pfm", b"current-flow"),
+                    ),
+                ),
+                nvml_enabled=True,
+            )
+            assert execution_b.artifact_ref["attempt_id"] != ref_a["attempt_id"]
+            assert store.artifact_path(execution_b.artifact_ref, "previews/offset_1_warped.pfm").parent != Path(preview_path_a)
+
+            run_module._regenerate_public_evidence_outputs(
+                store,
+                config.output_dir,
+                config.corpus,
+                plan,
+                [{"result": result_a, "artifact_ref": ref_a}],
+                replace=True,
+                nvml_enabled=True,
+                review_enabled=True,
+            )
+
+        with (config.output_dir / "nvml.csv").open(newline="", encoding="utf-8") as stream:
+            public_nvml_rows = list(csv.reader(stream))[1:]
+        assert public_nvml_rows == rows_a
+        with (config.output_dir / "review.csv").open(newline="", encoding="utf-8") as stream:
+            public_review_rows = list(csv.reader(stream))[1:]
+        assert public_review_rows[0][7] == preview_path_a
+        assert "999998.0" not in {row[8] for row in public_nvml_rows}
+
+
+def test_regeneration_rejects_short_or_misordered_completed_records_before_writing() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-evidence-records-") as tmp:
+        directory = Path(tmp)
+        config = _config(directory, shot_ids=["syn-identity", "syn-chain1"], provider="cpu")
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        state = json.loads(config.state_path.read_text(encoding="utf-8"))
+        completed = [
+            {"result": entry["result"], "artifact_ref": entry["artifact_ref"]}
+            for entry in state["entries"]
+        ]
+        selection_axes = {
+            key: config.selection[key]
+            for key in ("candidate_ids", "shot_ids", "conditioning_tokens", "cap_tokens", "providers")
+        }
+        plan = build_matrix(
+            config.protocol, config.corpus, config.candidate_entries, selection_axes,
+            config.selection["profile"], config.selection["environment"],
+        )
+        sentinel = config.output_dir / "nvml.csv"
+        sentinel.write_bytes(b"must-not-be-touched\n")
+        with run_module.ArtifactStore(config.output_dir.resolve() / ".artifacts", state["identity"]) as store:
+            try:
+                run_module._regenerate_public_evidence_outputs(
+                    store, config.output_dir, config.corpus, plan, completed[:-1],
+                    replace=True, nvml_enabled=False,
+                )
+            except run_module.ArtifactStoreFailure as failure:
+                assert failure.kind == "completed_count"
+            else:
+                raise AssertionError("short completed records must be rejected")
+
+            try:
+                run_module._regenerate_public_evidence_outputs(
+                    store, config.output_dir, config.corpus, plan, list(reversed(completed)),
+                    replace=True, nvml_enabled=False,
+                )
+            except run_module.ArtifactStoreFailure as failure:
+                assert failure.kind == "cell_mismatch"
+            else:
+                raise AssertionError("misordered completed records must be rejected")
+        assert sentinel.read_bytes() == b"must-not-be-touched\n"
 
 
 # --------------------------------------------------------------------------------------------
@@ -1273,6 +1759,96 @@ def test_child_exit_without_queueing_yields_typed_failure_not_a_hang() -> None:
         raise AssertionError("expected DriverFailure for a child that exited without queueing")
 
 
+def test_final_cuda_without_nvml_is_rejected_before_state_or_cells() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-final-no-nvml-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["syn-identity"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=None,
+        )
+        # Use a smoke-shaped fixture plan only to reach the driver's final/NVML preflight; the
+        # real matrix planner separately enforces final coverage before this same guard runs.
+        selection_axes = {
+            key: config.selection[key]
+            for key in ("candidate_ids", "shot_ids", "conditioning_tokens", "cap_tokens", "providers")
+        }
+        plan = build_matrix(
+            config.protocol, config.corpus, config.candidate_entries, selection_axes,
+            config.selection["profile"], config.selection["environment"],
+        )
+        config.selection = {**config.selection, "profile": "final"}
+        original_build_matrix = run_module.build_matrix
+        run_module.build_matrix = lambda *args, **kwargs: plan
+        try:
+            try:
+                run_bakeoff(config)
+            except DriverFailure as failure:
+                assert failure.kind == "nvml_required"
+            else:
+                raise AssertionError("final CUDA without NVML must be rejected before execution")
+        finally:
+            run_module.build_matrix = original_build_matrix
+        assert not config.state_path.exists()
+        assert not (config.output_dir / "report.json").exists()
+        assert config.host_load_checkpoint.calls == []
+
+
+def test_final_cuda_missing_nvml_stage_becomes_a_typed_cell_failure() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-final-missing-stage-") as tmp:
+        directory = Path(tmp)
+        config = _config(
+            directory, shot_ids=["syn-identity"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+        )
+        selection_axes = {
+            key: config.selection[key]
+            for key in ("candidate_ids", "shot_ids", "conditioning_tokens", "cap_tokens", "providers")
+        }
+        plan = build_matrix(
+            config.protocol, config.corpus, config.candidate_entries, selection_axes,
+            config.selection["profile"], config.selection["environment"],
+        )
+        artifacts = run_module._validate_selected_artifacts(plan, config.artifact_map, config.protocol_path)
+
+        def incomplete_measurement(work, nvml_backend_factory, device_index, poll_interval_s):
+            complete = _fake_cuda_measurement_runner(
+                work, nvml_backend_factory, device_index, poll_interval_s,
+            )
+            return CudaMeasurementResult(complete.payload, [complete.samples[0]], None, None)
+
+        executor, _context = run_module.build_executor(
+            protocol=config.protocol,
+            corpus=config.corpus,
+            profile="final",
+            artifacts=artifacts,
+            runtime_module=config.runtime_module,
+            array_module=config.array_module,
+            nvml_backend_factory=config.nvml_backend_factory,
+            device_index=config.device_index,
+            poll_interval_s=config.poll_interval_s,
+            chain_offsets=config.chain_offsets,
+            exr_decoder=config.exr_decoder,
+            review_enabled=True,
+            host_load_checkpoint=lambda _host_load: None,
+            cuda_measurement_runner=incomplete_measurement,
+        )
+        bundle = executor(plan.cells[0])
+        assert bundle.result["status"] == "fail"
+        assert bundle.result["failure"]["type"] == "runtime_error"
+        assert bundle.result["failure"]["stage"] == "resource"
+
+        identity = {"test": "final-missing-stage"}
+        with run_module.ArtifactStore(directory.resolve() / "artifacts", identity) as store:
+            execution = run_module._commit_cell_bundle(
+                store,
+                plan.cells[0],
+                bundle,
+                nvml_enabled=True,
+                require_nvml_stages=True,
+            )
+            assert execution.result["status"] == "fail"
+            assert {entry["path"] for entry in store.load_ref(execution.artifact_ref)["artifacts"]} == {"result.json"}
+
+
 # --------------------------------------------------------------------------------------------
 # Fix I: device/NVML/hardware measurement config is bound into the resume identity.
 # --------------------------------------------------------------------------------------------
@@ -1414,10 +1990,13 @@ def test_fresh_state_path_with_different_nvml_config_reuses_output_dir_but_is_re
         assert (config.output_dir / "report.json").read_bytes() == original_report_bytes
 
 
-def test_fresh_state_path_with_identical_measurement_config_still_succeeds() -> None:
-    """The persisted-identity check (Fix J) must not be a false-positive trap: a genuinely
-    identical rerun against a fresh --state path (e.g. state.json alone was deleted) succeeds
-    and returns the same report, even though the fresh state forces every cell to re-execute."""
+def test_fresh_state_path_with_identical_measurement_config_cannot_reuse_old_report() -> None:
+    """A fresh state re-executes cells, so its nonvolatile timing/results are not the old report.
+
+    Full report-semantic reuse intentionally rejects that case.  Operators can use the original
+    state for an idempotent publication repair, or explicitly choose ``--replace`` when they want
+    to publish a newly measured report.
+    """
 
     with tempfile.TemporaryDirectory(prefix="whitewater-run-fresh-state-identical-") as tmp:
         config = _config(Path(tmp), shot_ids=["syn-identity"])
@@ -1427,13 +2006,15 @@ def test_fresh_state_path_with_identical_measurement_config_still_succeeds() -> 
         config2 = copy.copy(config)
         config2.state_path = config.output_dir / "state-again.json"
         config2.runtime_module = _FakeRuntime()
-        second = run_bakeoff(config2)
-        assert not second.incomplete
-        assert second.report == first.report
-        # A fresh state path means the plan re-executed from scratch (there was nothing to
-        # resume), proving this succeeded because the freshly recomputed identity genuinely
-        # matched the persisted one -- not because computation was skipped.
+        original_report_bytes = (config.output_dir / "report.json").read_bytes()
+        try:
+            run_bakeoff(config2)
+        except DriverFailure as failure:
+            assert failure.kind == "report_identity_mismatch"
+        else:
+            raise AssertionError("freshly measured nonvolatile results must not reuse the old report")
         assert config2.runtime_module.sessions_created >= 1
+        assert (config.output_dir / "report.json").read_bytes() == original_report_bytes
 
 
 # --------------------------------------------------------------------------------------------
@@ -1448,14 +2029,7 @@ def _snapshot_tree(directory: Path) -> dict[Path, bytes]:
 
 
 def test_fresh_state_path_reusing_output_dir_is_rejected_before_any_cell_executes() -> None:
-    """Codex's Fix L repro: resume.load_state's identity check only guards the SAME --state
-    path. A FRESH --state file pointed at the SAME --output-dir, with a different
-    --poll-interval-s, bypasses it entirely and used to be caught only by the end-of-run Fix J
-    guard -- by which point RunCoordinator had already executed every cell, overwriting the
-    ORIGINAL run's .sidecars/ entries and review previews (both keyed only by CellKey). The
-    guard must now run up front: no resume state file created, no cell executed, and every
-    durable byte the original run produced left exactly as it was.
-    """
+    """A fresh state path with a different identity is rejected before any store mutation."""
 
     with tempfile.TemporaryDirectory(prefix="whitewater-run-fixl-") as tmp:
         config = _config(
@@ -1466,15 +2040,13 @@ def test_fresh_state_path_reusing_output_dir_is_rejected_before_any_cell_execute
         first = run_bakeoff(config)
         assert not first.incomplete
 
-        sidecars_dir = config.output_dir / ".sidecars"
-        previews_dir = config.output_dir / "review-previews"
+        artifacts_dir = config.output_dir / ".artifacts"
         original_nvml_bytes = (config.output_dir / "nvml.csv").read_bytes()
         original_review_bytes = (config.output_dir / "review.csv").read_bytes()
         original_identity_bytes = (config.output_dir / ".run-identity.json").read_bytes()
-        original_sidecars = _snapshot_tree(sidecars_dir)
-        original_previews = _snapshot_tree(previews_dir)
-        assert original_sidecars, "expected at least one durable nvml sidecar from the CUDA cell"
-        assert original_previews, "expected at least one review preview from the passing cell"
+        original_runner_bytes = (config.output_dir / "runner.log").read_bytes()
+        original_artifacts = _snapshot_tree(artifacts_dir)
+        assert original_artifacts, "expected at least one durable committed bundle"
 
         config2 = copy.copy(config)
         config2.poll_interval_s = config.poll_interval_s * 5  # different measurement config
@@ -1492,13 +2064,44 @@ def test_fresh_state_path_reusing_output_dir_is_rejected_before_any_cell_execute
         assert not fresh_state_path.exists()
 
         # Every durable output the original run produced is byte-for-byte untouched -- not just
-        # report.json, but the internal .sidecars/ and review-previews/ a cell's *execution*
-        # (not merely the later finalize check) would have overwritten.
+        # report.json and the immutable artifact generations must all remain untouched.
         assert (config.output_dir / "nvml.csv").read_bytes() == original_nvml_bytes
         assert (config.output_dir / "review.csv").read_bytes() == original_review_bytes
         assert (config.output_dir / ".run-identity.json").read_bytes() == original_identity_bytes
-        assert _snapshot_tree(sidecars_dir) == original_sidecars
-        assert _snapshot_tree(previews_dir) == original_previews
+        assert (config.output_dir / "runner.log").read_bytes() == original_runner_bytes
+        assert _snapshot_tree(artifacts_dir) == original_artifacts
+
+
+def test_replace_validates_existing_state_before_overwriting_identity_or_log() -> None:
+    """An incompatible --replace state must fail closed before sidecar/log mutation."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-replace-state-guard-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        identity_path = config.output_dir / ".run-identity.json"
+        runner_path = config.output_dir / "runner.log"
+        original_identity = identity_path.read_bytes()
+        original_runner = runner_path.read_bytes()
+        original_state = config.state_path.read_bytes()
+        original_report = (config.output_dir / "report.json").read_bytes()
+
+        incompatible = copy.copy(config)
+        incompatible.poll_interval_s = config.poll_interval_s * 5
+        incompatible.replace = True
+        incompatible.runtime_module = _FakeRuntime()
+        try:
+            run_bakeoff(incompatible)
+        except ResumeFailure as failure:
+            assert failure.kind == "identity_mismatch"
+        else:
+            raise AssertionError("--replace must reject an incompatible existing state")
+
+        assert identity_path.read_bytes() == original_identity
+        assert runner_path.read_bytes() == original_runner
+        assert config.state_path.read_bytes() == original_state
+        assert (config.output_dir / "report.json").read_bytes() == original_report
+        assert incompatible.runtime_module.sessions_created == 0
 
 
 # --------------------------------------------------------------------------------------------
@@ -1545,6 +2148,35 @@ def test_report_json_without_identity_sidecar_recovers_without_replace() -> None
         assert not third.incomplete
         assert third.report == first.report
         assert (config.output_dir / "report.json").read_bytes() == original_report_bytes
+
+
+def test_missing_identity_sidecar_does_not_adopt_tampered_exact_generation() -> None:
+    """A missing identity sidecar is repaired only after exact refs validate successfully."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-fixm-tampered-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        identity_path = config.output_dir / ".run-identity.json"
+        identity_path.unlink()
+
+        state = json.loads(config.state_path.read_text(encoding="utf-8"))
+        ref = state["entries"][0]["artifact_ref"]
+        manifest_path = (
+            config.output_dir.resolve() / ".artifacts" / state["identity_sha256"] / "cells"
+            / ref["cell_sha256"] / "manifests" / f"{ref['attempt_id']}.json"
+        )
+        manifest_path.unlink()
+
+        config2 = copy.copy(config)
+        config2.runtime_module = _FakeRuntime()
+        try:
+            run_bakeoff(config2)
+        except Exception as exc:  # noqa: BLE001 - backend-specific exact-ref failure
+            assert "artifact" in str(exc).lower() or "manifest" in str(exc).lower()
+        else:
+            raise AssertionError("tampered exact generation must refuse reuse")
+        assert not identity_path.exists(), "failed exact-ref validation must not create identity sidecar"
 
 
 def test_report_json_without_identity_sidecar_but_mismatched_content_is_still_refused() -> None:
@@ -1734,16 +2366,13 @@ def test_same_state_path_with_deleted_sidecar_and_matching_complete_state_still_
 
 
 # --------------------------------------------------------------------------------------------
-# Fix P: distinct provider/host_load cells get distinct blinded preview directories -- the
-# protocol measures CUDA both idle and beside a live Flame Batch, and those two cells (same
-# shot/candidate/cap/conditioning, differing only by host_load) must not collide.
+# Exact-generation previews are distinct for each provider/host_load cell because each committed
+# bundle lives under its own immutable attempt directory.
 # --------------------------------------------------------------------------------------------
 
 
 def test_idle_and_live_flame_cells_get_distinct_preview_dirs_and_review_paths() -> None:
-    """Before Fix P, _review_preview_dir omitted provider/host_load, so the idle and live_flame
-    cells for the same shot/candidate/cap/conditioning collided into ONE directory -- whichever
-    cell wrote its previews last silently stood in as "evidence" for both review.csv rows."""
+    """Each review row resolves to the exact immutable generation that produced its previews."""
 
     with tempfile.TemporaryDirectory(prefix="whitewater-run-fixp-") as tmp:
         config = _config(
@@ -1772,10 +2401,12 @@ def test_idle_and_live_flame_cells_get_distinct_preview_dirs_and_review_paths() 
         for preview_dir in preview_paths.values():
             warped_file = preview_dir / "offset_1_warped.pfm"
             assert warped_file.is_file(), f"missing per-cell preview evidence in {preview_dir}"
-        # Discriminated specifically by host_load (not merely coincidentally distinct), and the
-        # path still never leaks the real candidate id.
-        assert preview_paths["idle"].name == "idle"
-        assert preview_paths["live_flame"].name == "live_flame"
+        # Both paths are immutable artifact-store preview directories, not a mutable public
+        # review tree; neither leaks the real candidate id.
+        assert preview_paths["idle"].name == "previews"
+        assert preview_paths["live_flame"].name == "previews"
+        assert "attempts" in preview_paths["idle"].parts
+        assert "attempts" in preview_paths["live_flame"].parts
         assert CANDIDATE_ID not in str(preview_paths["idle"])
 
 
@@ -1824,6 +2455,19 @@ def test_replace_with_empty_optional_rows_removes_stale_csvs_and_stops_advertisi
         assert not review_path.exists()
         assert "nvml.csv" not in second.output_paths
         assert "review.csv" not in second.output_paths
+
+
+def test_fresh_empty_optional_rows_remove_stale_csvs_after_identity_is_established() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-fresh-empty-sidecars-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"], provider="cpu")
+        config.output_dir.mkdir(parents=True)
+        (config.output_dir / "nvml.csv").write_text("stale,nvml\n", encoding="utf-8")
+        (config.output_dir / "review.csv").write_text("stale,review\n", encoding="utf-8")
+
+        result = run_bakeoff(config)
+        assert not result.incomplete
+        assert not (config.output_dir / "nvml.csv").exists()
+        assert not (config.output_dir / "review.csv").exists()
 
 
 def test_truncated_summary_and_report_csv_repaired_on_reuse_and_left_alone_once_correct() -> None:
@@ -2016,21 +2660,20 @@ def test_nonfinite_derived_metric_degrades_to_not_applicable_not_a_whole_run_abo
 
 
 def test_review_preview_write_failure_degrades_to_logged_skip_not_a_cell_failure() -> None:
-    # An OSError while writing a non-load-bearing review preview must degrade to a logged skip:
-    # the MEASURED cell still passes, its metrics/report are unaffected, and only the preview PFMs
-    # for that offset are missing.
+    # A pure preview encoding failure must degrade to a logged skip: the measured cell still
+    # passes, while the exact bundle contains no preview pair and review.csv advertises no path.
     with tempfile.TemporaryDirectory(prefix="whitewater-run-preview-fail-") as tmp:
         config = _config(Path(tmp), shot_ids=["prod-sample"], exr_decoder=_fake_exr_decoder(8, 6))
-        original = run_module.synthetic_write_pfm
+        original = run_module.encode_pfm
 
-        def _failing_write(*args: Any, **kwargs: Any) -> None:
-            raise OSError(errno.ENOSPC, "simulated disk full while writing preview")
+        def _failing_encode(*args: Any, **kwargs: Any) -> bytes:
+            raise ValueError("simulated preview encoding failure")
 
-        run_module.synthetic_write_pfm = _failing_write
+        run_module.encode_pfm = _failing_encode
         try:
             result = run_bakeoff(config)
         finally:
-            run_module.synthetic_write_pfm = original
+            run_module.encode_pfm = original
 
         assert not result.incomplete
         validate_report_consistency(result.report, config.protocol, config.report_schema, config.corpus, config.corpus_schema)
@@ -2039,14 +2682,14 @@ def test_review_preview_write_failure_degrades_to_logged_skip_not_a_cell_failure
         assert "visible_warp_residual" in cell_result["metrics"]
         log_text = (config.output_dir / "runner.log").read_text(encoding="utf-8")
         assert "review preview offset 1 skipped" in log_text
-        # No preview PFMs were produced, but review.csv still records the (blinded) row.
+        # No preview artifacts were committed, but review.csv still records the blinded row with
+        # a blank preview path.
         review_path = config.output_dir / "review.csv"
         assert review_path.is_file()
         with review_path.open(newline="", encoding="utf-8") as stream:
             rows = list(csv.reader(stream))
         assert len(rows) == 2
-        preview_dir = Path(rows[1][7])
-        assert not (preview_dir / "offset_1_warped.pfm").exists()
+        assert rows[1][7] == ""
 
 
 def test_identity_binds_candidate_entries_report_schema_and_corpus_schema() -> None:
@@ -2106,6 +2749,206 @@ def test_changed_excluded_candidate_legal_evidence_is_refused_on_reuse() -> None
             raise AssertionError("a changed candidate legal surface must be refused on reuse, not silently reused")
 
 
+def _assert_report_reuse_tamper_is_rejected_without_derivative_repair(
+    config: RunConfig,
+    baseline_report: Mapping[str, Any],
+    mutate: Any,
+) -> None:
+    """Run one report mutation through the complete reuse gate and snapshot every derivative."""
+
+    output_dir = config.output_dir
+    derivative_names = ("summary.txt", "report.csv", "nvml.csv", "review.csv")
+    original_derivatives = {
+        name: (output_dir / name).read_bytes()
+        for name in derivative_names
+        if (output_dir / name).exists()
+    }
+    original_identity = (output_dir / ".run-identity.json").read_bytes()
+    mutated_report = copy.deepcopy(baseline_report)
+    mutate(mutated_report)
+    report_path = output_dir / "report.json"
+    report_path.write_text(json.dumps(mutated_report), encoding="utf-8")
+    config2 = copy.copy(config)
+    config2.runtime_module = _FakeRuntime()
+    try:
+        run_bakeoff(config2)
+    except DriverFailure as failure:
+        assert failure.kind == "report_identity_mismatch", failure
+    else:
+        raise AssertionError("tampered report must be rejected before derivative repair")
+    assert report_path.read_text(encoding="utf-8") == json.dumps(mutated_report)
+    assert (output_dir / ".run-identity.json").read_bytes() == original_identity
+    for name, expected in original_derivatives.items():
+        assert (output_dir / name).read_bytes() == expected, name
+
+
+def test_report_semantic_tampering_is_rejected_before_any_derivative_repair() -> None:
+    """Every nonvolatile report surface is binding, even when its JSON shape remains valid."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-report-semantic-tamper-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["prod-sample"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        config.report_metadata = {
+            **config.report_metadata,
+            "warnings": ["baseline operator warning"],
+            "summary": {"final_quality_score": 81.0},
+        }
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        assert first.report is not None
+        baseline = copy.deepcopy(first.report)
+
+        mutations = (
+            ("result metric", lambda report: report["results"][0]["metrics"].__setitem__(
+                "repeated_run_p99_delta_px", 0.01,
+            )),
+            # identity is a schema-valid id but is not a declared category for this shot.
+            ("result category", lambda report: report["results"][0].__setitem__("category", "identity")),
+            (
+                "candidate legal content",
+                lambda report: report["candidates"][0]["exclusion_reason"].__setitem__(
+                    "message", "edited legal-review message",
+                ),
+            ),
+            ("corpus id", lambda report: report.__setitem__("corpus_id", "other-corpus")),
+            ("corpus hash", lambda report: report.__setitem__("corpus_sha256", "0" * 64)),
+            ("warnings added", lambda report: report["warnings"].append("new warning")),
+            ("warnings removed", lambda report: report.pop("warnings")),
+            ("warnings changed", lambda report: report["warnings"].__setitem__(0, "changed warning")),
+            (
+                "summary added",
+                lambda report: report["summary"].__setitem__("category_scores", {"motion-blur": 81.0}),
+            ),
+            ("summary removed", lambda report: report["summary"].pop("final_quality_score")),
+            ("summary changed", lambda report: report["summary"].__setitem__("final_quality_score", 82.0)),
+            ("unknown property", lambda report: report.__setitem__("unexpected_property", True)),
+        )
+        for name, mutate in mutations:
+            _assert_report_reuse_tamper_is_rejected_without_derivative_repair(
+                config, baseline, mutate,
+            )
+            # Each mutation helper writes its own complete copy, so the next case starts from the
+            # original valid report rather than from the previous rejected mutation.
+
+
+def test_report_reuse_ignores_only_explicit_volatile_publication_metadata() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-report-volatile-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["prod-sample"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        assert first.report is not None
+        mutated = copy.deepcopy(first.report)
+        mutated["report_id"] = "reused-report"
+        mutated["started_utc"] = "2020-01-01T00:00:00+00:00"
+        mutated["completed_utc"] = "2020-01-01T00:00:01+00:00"
+        mutated["runner"]["command"] = "operator-repair-command"
+        (config.output_dir / "report.json").write_text(json.dumps(mutated), encoding="utf-8")
+
+        config2 = copy.copy(config)
+        config2.runtime_module = _FakeRuntime()
+        second = run_bakeoff(config2)
+        assert not second.incomplete
+        assert second.report == mutated
+
+
+def test_missing_identity_sidecar_plus_semantic_report_tamper_stays_unrepaired() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-report-sidecar-tamper-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["prod-sample"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        assert first.report is not None
+        identity_path = config.output_dir / ".run-identity.json"
+        identity_path.unlink()
+        tampered_report = copy.deepcopy(first.report)
+        tampered_report["results"][0]["metrics"]["repeated_run_p99_delta_px"] = 0.01
+        report_path = config.output_dir / "report.json"
+        report_path.write_text(json.dumps(tampered_report), encoding="utf-8")
+        derivative_names = ("summary.txt", "report.csv", "nvml.csv", "review.csv")
+        original_derivatives = {
+            name: (config.output_dir / name).read_bytes()
+            for name in derivative_names
+        }
+
+        config2 = copy.copy(config)
+        config2.runtime_module = _FakeRuntime()
+        try:
+            run_bakeoff(config2)
+        except DriverFailure as failure:
+            assert failure.kind == "report_identity_mismatch"
+        else:
+            raise AssertionError("missing-sidecar semantic tamper must be rejected")
+        assert not identity_path.exists(), "semantic validation must precede sidecar recreation"
+        assert report_path.read_text(encoding="utf-8") == json.dumps(tampered_report)
+        for name, expected in original_derivatives.items():
+            assert (config.output_dir / name).read_bytes() == expected, name
+
+
+def test_candidate_order_tampering_is_rejected_by_the_ordered_projection() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-candidate-order-") as tmp:
+        directory = Path(tmp)
+        candidate_a, candidate_b = "candidate-a", "candidate-b"
+        protocol = _protocol()
+        protocol["candidate_ids"] = [
+            {"id": candidate_a, "role": "shipping-candidate"},
+            {"id": candidate_b, "role": "shipping-candidate"},
+        ]
+        config = RunConfig(
+            protocol=protocol,
+            corpus=_corpus(),
+            candidate_entries=[_candidate_entry(candidate_a), _candidate_entry(candidate_b)],
+            selection={
+                "profile": "smoke", "environment": "el8-x86_64",
+                "candidate_ids": [candidate_a, candidate_b],
+                "conditioning_tokens": ["native-clamp01-v1"], "cap_tokens": ["mp0_5"],
+                "providers": [{"token": "cpu", "host_loads": ["not_applicable"]}],
+                "shot_ids": ["prod-sample"],
+            },
+            artifact_map={
+                candidate_a: _artifact_map_entry_for(directory, candidate_a, "a"),
+                candidate_b: _artifact_map_entry_for(directory, candidate_b, "b"),
+            },
+            report_schema=REPORT_SCHEMA, corpus_schema=CORPUS_SCHEMA,
+            output_dir=directory / "output", state_path=directory / "output" / "state.json",
+            device_index=0, poll_interval_s=0.01, chain_offsets=(1, 2, 4, 8),
+            report_metadata=_report_metadata(), protocol_path=V2_PROTOCOL_PATH, replace=False,
+            runtime_module=_FakeRuntime(path_dependent=True), array_module=_FakeArrays(),
+            nvml_backend_factory=None, exr_decoder=_fake_exr_decoder(8, 6),
+        )
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        assert first.report is not None
+        baseline = copy.deepcopy(first.report)
+        derivative_names = ("summary.txt", "report.csv", "review.csv")
+        original_derivatives = {
+            name: (config.output_dir / name).read_bytes()
+            for name in derivative_names
+        }
+        tampered = copy.deepcopy(baseline)
+        tampered["candidates"].reverse()
+        (config.output_dir / "report.json").write_text(json.dumps(tampered), encoding="utf-8")
+        config2 = copy.copy(config)
+        config2.runtime_module = _FakeRuntime(path_dependent=True)
+        try:
+            run_bakeoff(config2)
+        except DriverFailure as failure:
+            assert failure.kind == "report_identity_mismatch"
+        else:
+            raise AssertionError("candidate order tampering must be rejected")
+        for name, expected in original_derivatives.items():
+            assert (config.output_dir / name).read_bytes() == expected, name
+
+
 def _pid_gated_failing_backend_factory():
     """Factory whose backend succeeds inside the forked child (a different pid) but raises
     NvmlFailure at the PARENT's post-exit device query (the original pid)."""
@@ -2146,65 +2989,74 @@ def test_post_exit_nvml_query_failure_is_a_typed_cell_failure_not_a_whole_run_ab
         assert all(r["failure"]["type"] == "runtime_error" for r in results), results
 
 
-def test_nvml_sidecar_write_failure_is_a_typed_cell_failure_not_a_whole_run_abort() -> None:
-    # Surface B: a CUDA cell's REQUIRED nvml sidecar write failing mid-run (e.g. disk full) must
-    # become a typed cell failure, never an uncaught OSError that aborts the matrix nor a silently
-    # missing sidecar row.
-    with tempfile.TemporaryDirectory(prefix="whitewater-run-sidecar-fail-") as tmp:
+def test_required_bundle_failure_leaves_cell_recoverably_in_progress() -> None:
+    # Surface B: a CUDA cell's REQUIRED evidence bundle write failing mid-run (e.g. disk full)
+    # must remain recoverably in progress, never silently producing a missing NVML row.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-bundle-fail-") as tmp:
         config = _config(
             Path(tmp), shot_ids=["syn-identity"], provider="cuda", host_loads=["idle"],
             nvml_backend_factory=lambda: _FakeNvmlBackend(),
             hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
         )
-        original = run_module._write_nvml_sidecar
+        original = run_module._commit_cell_bundle
 
-        def _failing_sidecar(*args: Any, **kwargs: Any) -> None:
-            raise OSError(errno.ENOSPC, "simulated full disk while writing NVML sidecar")
+        def _failing_bundle(*args: Any, **kwargs: Any) -> Any:
+            raise run_module.ArtifactStoreFailure("write", "simulated required bundle failure")
 
-        run_module._write_nvml_sidecar = _failing_sidecar
+        run_module._commit_cell_bundle = _failing_bundle
         try:
-            result = run_bakeoff(config)
+            try:
+                run_bakeoff(config)
+            except run_module.ArtifactStoreFailure as exc:
+                assert exc.kind == "write"
+            else:
+                raise AssertionError("required bundle failure must escape without completing state")
         finally:
-            run_module._write_nvml_sidecar = original
+            run_module._commit_cell_bundle = original
 
-        assert not result.incomplete
-        cell_result = result.report["results"][0]
-        assert cell_result["status"] == "fail"
-        assert cell_result["failure"]["type"] == "runtime_error"
-        assert "NVML sidecar" in cell_result["failure"]["message"]
+        state = json.loads(config.state_path.read_text(encoding="utf-8"))
+        assert state["entries"][0]["state"] == "in_progress"
+        assert not (config.output_dir / "report.json").exists()
+        log_text = (config.output_dir / "runner.log").read_text(encoding="utf-8")
+        assert "cell start" in log_text
+        assert "cell persistence failed" in log_text
+        assert "cell pass" not in log_text
 
 
-def test_partial_preview_write_leaves_no_file_behind() -> None:
-    # Finding 3: synthetic_write_pfm writes to a same-dir temp; a mid-write failure must leave NO
-    # file at the final path (no truncated PFM for review.csv to advertise). The cell still passes.
+def test_optional_preview_store_failure_retries_without_previews() -> None:
+    # A failure while staging optional preview bytes poisons that attempt. A fresh attempt must
+    # re-stage the required result and commit a valid pass with no preview pair.
     with tempfile.TemporaryDirectory(prefix="whitewater-run-partial-preview-") as tmp:
-        config = _config(Path(tmp), shot_ids=["prod-sample"], exr_decoder=_fake_exr_decoder(8, 6))
-        original = run_module.synthetic_write_pfm
+        cell = run_module.CellKey("candidate", "shot", "conditioning", "cap", "cpu", "idle")
+        result = {
+            "candidate_id": "candidate", "shot_id": "shot", "conditioning_token": "conditioning",
+            "cap_token": "cap", "provider": "cpu", "host_load": "idle", "status": "pass",
+        }
+        bundle = run_module.CellBundle(
+            result=result,
+            previews=(
+                run_module.PreviewPayload("previews/offset_1_warped.pfm", b"warped"),
+                run_module.PreviewPayload("previews/offset_1_flow.pfm", b"flow"),
+            ),
+        )
+        failed = False
 
-        def _partial_then_fail(path: Any, rows: Any, width: int, height: int) -> None:
-            # Write a truncated (header-only) PFM to the target, then fail mid-write.
-            Path(path).write_bytes(f"PF\n{width} {height}\n-1.0\n".encode("ascii") + b"\x00\x00")
-            raise OSError(errno.EIO, "simulated mid-write failure")
+        def fault_hook(operation: str, path: Path) -> None:
+            nonlocal failed
+            if operation == "write" and "offset_1_warped.pfm" in path.name and not failed:
+                failed = True
+                raise run_module.ArtifactStoreFailure("write", "simulated preview staging failure")
 
-        run_module.synthetic_write_pfm = _partial_then_fail
-        try:
-            result = run_bakeoff(config)
-        finally:
-            run_module.synthetic_write_pfm = original
-
-        assert not result.incomplete
-        cell_result = result.report["results"][0]
-        assert cell_result["status"] == "pass", "a partial preview write must not fail the measured cell"
-        review_path = config.output_dir / "review.csv"
-        assert review_path.is_file()
-        with review_path.open(newline="", encoding="utf-8") as stream:
-            rows = list(csv.reader(stream))
-        preview_dir = Path(rows[1][7])
-        # No final PFM and no leftover staging temp for the failed offset.
-        assert not (preview_dir / "offset_1_warped.pfm").exists()
-        assert not (preview_dir / "offset_1_flow.pfm").exists()
-        leftovers = list(preview_dir.glob("*.tmp")) if preview_dir.exists() else []
-        assert leftovers == [], f"leftover staging temp files: {leftovers}"
+        identity = {"test": "optional-preview-retry"}
+        with run_module.ArtifactStore(Path(tmp).resolve() / "artifacts", identity, fault_hook=fault_hook) as store:
+            execution = run_module._commit_cell_bundle(store, cell, bundle, nvml_enabled=False)
+            manifest = store.load_ref(execution.artifact_ref)
+            paths = {entry["path"] for entry in manifest["artifacts"]}
+            assert paths == {"result.json"}
+            assert store.read_artifact(execution.artifact_ref, "result.json") == run_module._canonical_result_bytes(result)
+            attempts = list((store.run_root / "cells" / execution.artifact_ref["cell_sha256"] / "attempts").iterdir())
+            assert len(attempts) >= 2, "preview failure must abandon the first attempt"
+        assert failed
 
 
 def main() -> int:
@@ -2214,8 +3066,13 @@ def main() -> int:
     test_unpadded_grid_crops_bottom_left_region()
     test_dense_truth_and_mask_identity_case_is_zero_everywhere()
     test_write_csv_file_is_single_write_no_clobber_unless_replace_and_skips_empty()
+    test_verify_repair_rejects_a_symlink_even_when_target_is_canonical()
     test_runner_log_appends_timestamped_lines_and_survives_reopen()
+    test_driver_direct_and_module_help_use_the_same_package_imports()
+    test_runner_log_fsync_failure_is_typed()
+    test_report_semantic_unicode_failure_is_typed()
     test_replay_resource_and_rows_matches_a_live_sampler()
+    test_nvml_evidence_is_cell_bound_at_commit_and_exact_ref_regeneration()
     test_smoke_profile_synthetic_identity_produces_a_valid_report_and_no_nvml_csv()
     test_rerun_with_same_state_is_idempotent_and_does_not_recompute()
     test_production_partition_uses_injected_exr_decoder_and_emits_review_row()
@@ -2224,7 +3081,12 @@ def main() -> int:
     test_missing_artifact_map_entry_raises_typed_driver_failure()
     test_manifest_candidate_id_mismatch_is_a_typed_driver_failure()
     test_identity_differs_between_profiles_for_an_otherwise_identical_selection()
+    test_run_spec_builder_returns_compact_complete_identity()
+    test_chain_offsets_are_sorted_unique_before_execution_and_identity()
+    test_runner_and_hardware_metadata_preflight_is_strict_and_normalized()
+    test_legacy_v1_resume_state_is_rejected_with_fresh_replace_diagnostic()
     test_rerun_with_different_profile_same_state_path_is_rejected_not_reused()
+    test_changed_report_warnings_and_summary_are_rejected_on_reuse()
     test_stale_report_json_under_a_different_identity_is_explicitly_rejected()
     test_host_load_checkpoint_called_once_per_group_in_order()
     test_host_load_checkpoint_does_not_refire_for_a_repeated_host_load()
@@ -2232,7 +3094,11 @@ def main() -> int:
     test_two_candidates_blinded_previews_differ_and_review_csv_references_them()
     test_cuda_peak_captures_a_first_run_transient_a_boundary_only_design_would_miss()
     test_real_subprocess_cuda_measurement_runner_isolates_work_and_reads_post_exit()
-    test_interrupted_cell_resume_does_not_duplicate_sidecar_rows()
+    test_final_cuda_without_nvml_is_rejected_before_state_or_cells()
+    test_final_cuda_missing_nvml_stage_becomes_a_typed_cell_failure()
+    test_interrupted_cell_resume_does_not_duplicate_bundle_evidence_rows()
+    test_regeneration_reads_old_exact_ref_after_current_pointer_advances()
+    test_regeneration_rejects_short_or_misordered_completed_records_before_writing()
     test_regenerates_missing_sidecar_outputs_when_report_already_published()
     test_atomic_publish_never_leaves_a_partial_file_on_interruption()
     test_truncated_sidecar_outputs_are_repaired_to_canonical_bytes_and_left_alone_once_correct()
@@ -2242,15 +3108,22 @@ def main() -> int:
     test_identity_binds_protocol_content_not_just_protocol_id()
     test_rerun_with_nvml_disabled_after_nvml_enabled_is_rejected()
     test_fresh_state_path_with_different_nvml_config_reuses_output_dir_but_is_rejected()
-    test_fresh_state_path_with_identical_measurement_config_still_succeeds()
+    test_fresh_state_path_with_identical_measurement_config_cannot_reuse_old_report()
     test_fresh_state_path_reusing_output_dir_is_rejected_before_any_cell_executes()
+    test_replace_validates_existing_state_before_overwriting_identity_or_log()
     test_report_json_without_identity_sidecar_recovers_without_replace()
+    test_missing_identity_sidecar_does_not_adopt_tampered_exact_generation()
     test_report_json_without_identity_sidecar_but_mismatched_content_is_still_refused()
+    test_report_semantic_tampering_is_rejected_before_any_derivative_repair()
+    test_report_reuse_ignores_only_explicit_volatile_publication_metadata()
+    test_missing_identity_sidecar_plus_semantic_report_tamper_stays_unrepaired()
+    test_candidate_order_tampering_is_rejected_by_the_ordered_projection()
     test_review_csv_repair_preserves_human_edits_and_still_fixes_driver_owned_corruption()
     test_nvml_disabled_fresh_state_with_deleted_sidecar_reusing_output_dir_is_refused()
     test_same_state_path_with_deleted_sidecar_and_matching_complete_state_still_recovers()
     test_idle_and_live_flame_cells_get_distinct_preview_dirs_and_review_paths()
     test_replace_with_empty_optional_rows_removes_stale_csvs_and_stops_advertising_them()
+    test_fresh_empty_optional_rows_remove_stale_csvs_after_identity_is_established()
     test_truncated_summary_and_report_csv_repaired_on_reuse_and_left_alone_once_correct()
     test_interrupted_canonical_publish_never_leaves_a_partial_summary_file()
     test_cuda_fork_start_failure_maps_errno_to_typed_driver_failure()
@@ -2260,8 +3133,8 @@ def main() -> int:
     test_identity_binds_candidate_entries_report_schema_and_corpus_schema()
     test_changed_excluded_candidate_legal_evidence_is_refused_on_reuse()
     test_post_exit_nvml_query_failure_is_a_typed_cell_failure_not_a_whole_run_abort()
-    test_nvml_sidecar_write_failure_is_a_typed_cell_failure_not_a_whole_run_abort()
-    test_partial_preview_write_leaves_no_file_behind()
+    test_required_bundle_failure_leaves_cell_recoverably_in_progress()
+    test_optional_preview_store_failure_retries_without_previews()
     print("P25-6 profile driver tests passed")
     return 0
 

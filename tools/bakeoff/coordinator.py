@@ -9,6 +9,8 @@ outside this module.
 from __future__ import annotations
 
 import math
+from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -34,7 +36,24 @@ class IncompleteFailure(CoordinatorFailure):
         super().__init__("incomplete", message)
 
 
-Executor = Callable[[CellKey], Mapping[str, Any]]
+@dataclass(frozen=True)
+class CommittedExecution:
+    """The only executor result that can complete a cell.
+
+    ``result`` is the public report record; ``artifact_ref`` is the exact immutable artifact
+    generation that proves it.  Keeping these together makes it impossible for a caller to
+    accidentally persist a result without the generation that produced it.
+    """
+
+    result: Mapping[str, Any]
+    artifact_ref: Mapping[str, Any]
+
+
+Executor = Callable[[CellKey], CommittedExecution]
+# The validator receives the complete association being persisted.  Validating only the ref
+# proves that *some* generation exists, but cannot reject a valid generation swapped between
+# cells or a result edited while retaining the same ref.
+ArtifactRefValidator = Callable[[CellKey, Mapping[str, Any], Mapping[str, Any]], Any]
 
 _IDENTITY_FIELDS = (
     ("candidate_id", "candidate"),
@@ -175,13 +194,68 @@ def _record(entry: Mapping[str, Any]) -> dict[str, Any]:
     # the in-memory transition result.  Nested values are JSON data and are not shared with the
     # persisted file.
     return {
-        "cell": dict(entry["cell"]),
+        "cell": deepcopy(entry["cell"]),
         "state": "complete",
-        "result": dict(entry["result"]),
+        "result": deepcopy(entry["result"]),
     }
 
 
-def _completed_records(state: Mapping[str, Any], plan: MatrixPlan) -> list[dict[str, Any]]:
+def _record_with_ref(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """Return an internal record retaining the exact ref for publication/recovery callers."""
+
+    return {
+        "cell": deepcopy(entry["cell"]),
+        "state": "complete",
+        "result": deepcopy(entry["result"]),
+        "artifact_ref": deepcopy(entry["artifact_ref"]),
+    }
+
+
+def _validate_artifact_ref(
+    cell: CellKey,
+    result: Mapping[str, Any],
+    artifact_ref: Any,
+    validator: ArtifactRefValidator,
+) -> dict[str, Any]:
+    if not isinstance(artifact_ref, Mapping):
+        _fail("artifact_ref_shape", "executor artifact_ref must be a mapping")
+    # The resume module performs the strict serialized shape check.  Make a detached plain
+    # mapping before invoking the store so a validator cannot mutate executor-owned state.
+    detached = deepcopy(dict(artifact_ref))
+    try:
+        accepted = validator(cell, deepcopy(result), detached)
+    except CoordinatorFailure:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the injected store has backend-specific errors
+        _fail("artifact_ref", f"artifact_ref validation failed for {cell!r}: {exc}")
+    if accepted is False:
+        _fail("artifact_ref", f"artifact_ref validator rejected the exact reference for {cell!r}")
+    return detached
+
+
+def _validated_execution(
+    execution: Any,
+    cell: CellKey,
+    validator: ArtifactRefValidator,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if not isinstance(execution, CommittedExecution):
+        _fail(
+            "executor_contract",
+            "executor must return CommittedExecution(result, artifact_ref); "
+            "legacy result-only mappings cannot complete a cell",
+        )
+    validated_result = _validate_result(execution.result, cell)
+    validated_ref = _validate_artifact_ref(cell, validated_result, execution.artifact_ref, validator)
+    return deepcopy(validated_result), validated_ref
+
+
+def _completed_records(
+    state: Mapping[str, Any],
+    plan: MatrixPlan,
+    artifact_ref_validator: ArtifactRefValidator,
+    *,
+    include_refs: bool = False,
+) -> list[dict[str, Any]]:
     entries = state["entries"]
     incomplete = [
         (index, entry["cell"])
@@ -195,7 +269,10 @@ def _completed_records(state: Mapping[str, Any], plan: MatrixPlan) -> list[dict[
     records: list[dict[str, Any]] = []
     for cell, entry in zip(plan.cells, entries):
         _validate_result(entry["result"], cell)
-        records.append(_record(entry))
+        _validate_artifact_ref(
+            cell, entry["result"], entry["artifact_ref"], artifact_ref_validator,
+        )
+        records.append(_record_with_ref(entry) if include_refs else _record(entry))
     return records
 
 
@@ -208,13 +285,17 @@ class RunCoordinator:
         expected_identity: Mapping[str, Any],
         plan: MatrixPlan,
         executor: Executor,
+        artifact_ref_validator: ArtifactRefValidator,
     ) -> None:
         if not callable(executor):
             raise CoordinatorFailure("executor", "executor must be callable")
+        if not callable(artifact_ref_validator):
+            raise CoordinatorFailure("artifact_ref_validator", "artifact_ref_validator must be callable")
         self.state_path = Path(state_path)
         self.expected_identity = expected_identity
         self.plan = plan
         self.executor = executor
+        self.artifact_ref_validator = artifact_ref_validator
 
     def run(self) -> list[dict[str, Any]]:
         """Resume the state file, execute pending cells, and return ordered complete records.
@@ -233,20 +314,26 @@ class RunCoordinator:
                 # records therefore need their coordinator-level semantic check exactly once
                 # during this invocation.
                 _validate_result(entry["result"], cell)
+                _validate_artifact_ref(
+                    cell, entry["result"], entry["artifact_ref"], self.artifact_ref_validator,
+                )
                 records[index] = _record(entry)
                 continue
             # load_state recovers interrupted work, so a non-complete entry here must be pending.
             state = mark_in_progress(
                 self.state_path, self.expected_identity, self.plan, cell
             )
-            result = self.executor(cell)
-            validated = _validate_result(result, cell)
+            execution = self.executor(cell)
+            validated, artifact_ref = _validated_execution(
+                execution, cell, self.artifact_ref_validator,
+            )
             state = mark_complete(
                 self.state_path,
                 self.expected_identity,
                 self.plan,
                 cell,
                 validated,
+                artifact_ref,
             )
             records[index] = _record(state["entries"][index])
         # Every plan cell is either an existing complete record or was completed above.  Avoid a
@@ -258,7 +345,15 @@ class RunCoordinator:
         """Return complete resume records in MatrixPlan order, or raise ``IncompleteFailure``."""
 
         state = load_state(self.state_path, self.expected_identity, self.plan)
-        return _completed_records(state, self.plan)
+        return _completed_records(state, self.plan, self.artifact_ref_validator)
+
+    def completed_records_with_refs(self) -> list[dict[str, Any]]:
+        """Return complete records including exact refs for internal publication/recovery code."""
+
+        state = load_state(self.state_path, self.expected_identity, self.plan)
+        return _completed_records(
+            state, self.plan, self.artifact_ref_validator, include_refs=True,
+        )
 
 
 def run(
@@ -266,25 +361,31 @@ def run(
     expected_identity: Mapping[str, Any],
     plan: MatrixPlan,
     executor: Executor,
+    artifact_ref_validator: ArtifactRefValidator,
 ) -> list[dict[str, Any]]:
     """Convenience wrapper around :class:`RunCoordinator`."""
 
-    return RunCoordinator(state_path, expected_identity, plan, executor).run()
+    return RunCoordinator(
+        state_path, expected_identity, plan, executor, artifact_ref_validator,
+    ).run()
 
 
 def completed_records(
     state_path: Path | str,
     expected_identity: Mapping[str, Any],
     plan: MatrixPlan,
+    artifact_ref_validator: ArtifactRefValidator,
 ) -> list[dict[str, Any]]:
     """Expose persisted complete records without executing any cell."""
 
     state = load_state(Path(state_path), expected_identity, plan)
-    return _completed_records(state, plan)
+    return _completed_records(state, plan, artifact_ref_validator)
 
 
 __all__ = [
     "CoordinatorFailure",
+    "CommittedExecution",
+    "ArtifactRefValidator",
     "Executor",
     "IncompleteFailure",
     "RunCoordinator",

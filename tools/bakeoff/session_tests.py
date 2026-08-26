@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from .coordinator import CommittedExecution
 from .matrix import build_matrix
 from .reporting import ReportFailure
 from .resume import ResumeFailure
@@ -58,12 +59,29 @@ class SessionTests(unittest.TestCase):
         result["host_load"] = cell.host_load
         return result
 
+    def _execution_for(self, cell, result=None):
+        return CommittedExecution(
+            self._result_for(cell) if result is None else result,
+            {
+                "schema_version": 1,
+                "identity_sha256": "1" * 64,
+                "cell_id": cell.candidate + "/" + cell.shot,
+                "cell_sha256": "2" * 64,
+                "attempt_id": "attempt-" + cell.conditioning,
+                "manifest_sha256": "3" * 64,
+            },
+        )
+
+    @staticmethod
+    def _validate_ref(_cell, _result, _ref):
+        return None
+
     def _run(self, directory: Path, selections=None, metadata=None, candidates=None, executor=None):
         selected = self.selections if selections is None else selections
         report_metadata = self.metadata if metadata is None else metadata
         candidate_entries = self.candidates if candidates is None else candidates
         if executor is None:
-            executor = lambda cell: self._result_for(cell)
+            executor = lambda cell: self._execution_for(cell)
         return run_session(
             self.protocol,
             self.corpus,
@@ -78,6 +96,7 @@ class SessionTests(unittest.TestCase):
             directory / "report.json",
             directory / "report.csv",
             executor,
+            artifact_ref_validator=self._validate_ref,
         )
 
     def test_initial_run_returns_valid_report_and_deterministic_pair(self):
@@ -120,7 +139,7 @@ class SessionTests(unittest.TestCase):
                 first_seen.append(cell)
                 if len(first_seen) == 2:
                     raise RuntimeError("interrupted")
-                return self._result_for(cell)
+                return self._execution_for(cell)
 
             with self.assertRaises(RuntimeError):
                 self._run(directory, selections=selections, executor=interrupt)
@@ -132,7 +151,7 @@ class SessionTests(unittest.TestCase):
 
             def resume(cell):
                 resumed_seen.append(cell)
-                return self._result_for(cell)
+                return self._execution_for(cell)
 
             resumed_metadata = copy.deepcopy(self.metadata)
             resumed_metadata.update({
@@ -192,7 +211,7 @@ class SessionTests(unittest.TestCase):
             original_json, original_csv = json_path.read_bytes(), csv_path.read_bytes()
             called = []
             with self.assertRaises(ReportFailure) as context:
-                self._run(directory, executor=lambda cell: (called.append(cell), self._result_for(cell))[1])
+                self._run(directory, executor=lambda cell: (called.append(cell), self._execution_for(cell))[1])
             self.assertEqual(context.exception.kind, "output_exists")
             self.assertEqual(called, [])
             self.assertEqual(json_path.read_bytes(), original_json)
@@ -228,7 +247,7 @@ class SessionTests(unittest.TestCase):
                     self._run(
                         Path(temporary),
                         metadata=metadata,
-                        executor=lambda cell: (called.append(cell), self._result_for(cell))[1],
+                        executor=lambda cell: (called.append(cell), self._execution_for(cell))[1],
                     )
                 self.assertEqual(context.exception.kind, kind)
                 self.assertEqual(called, [])

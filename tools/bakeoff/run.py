@@ -53,6 +53,7 @@ import multiprocessing as _mp
 import os
 import platform as platform_module
 import queue as _queue_module
+import re
 import struct
 import subprocess
 import sys
@@ -62,56 +63,43 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
-try:
-    from . import exr as exr_module
-    from . import synthetic as synthetic_module
-    from .coordinator import CoordinatorFailure, IncompleteFailure, RunCoordinator
-    from .evaluator import (
-        DependencyFailure,
-        Evaluator,
-        EvaluatorFailure,
-        PROVIDER_EXECUTION_NAMES,
-        REPORT_METRICS,
-        ValidatedArtifact,
-        V2_PROTOCOL,
-        condition_and_pad_pair,
-        validate_manifest_artifact,
-    )
-    from .exr import ExrFailure
-    from .matrix import CellKey, MatrixFailure, MatrixPlan, build_matrix
-    from . import metrics as metrics_module
-    from .metrics import MetricFailure
-    from .nvml import NVML_CSV_HEADER, NvmlBackend, NvmlSampler, PynvmlBackend
-    from .resume import ResumeFailure, create_state, load_state
-    from .reporting import ReportFailure, assemble_report, render_csv, write_report_pair
-    from .synthetic import SyntheticCase, write_pfm as synthetic_write_pfm
-    from .validator import canonical_sha256, load_json
-except ImportError:  # pragma: no cover - supports direct air-gapped invocation
-    import exr as exr_module  # type: ignore
-    import synthetic as synthetic_module  # type: ignore
-    from coordinator import CoordinatorFailure, IncompleteFailure, RunCoordinator  # type: ignore
-    from evaluator import (  # type: ignore
-        DependencyFailure,
-        Evaluator,
-        EvaluatorFailure,
-        PROVIDER_EXECUTION_NAMES,
-        REPORT_METRICS,
-        ValidatedArtifact,
-        V2_PROTOCOL,
-        condition_and_pad_pair,
-        validate_manifest_artifact,
-    )
-    from exr import ExrFailure  # type: ignore
-    from matrix import CellKey, MatrixFailure, MatrixPlan, build_matrix  # type: ignore
-    import metrics as metrics_module  # type: ignore
-    from metrics import MetricFailure  # type: ignore
-    from nvml import NVML_CSV_HEADER, NvmlBackend, NvmlSampler, PynvmlBackend  # type: ignore
-    from resume import ResumeFailure, create_state, load_state  # type: ignore
-    from reporting import ReportFailure, assemble_report, render_csv, write_report_pair  # type: ignore
-    from synthetic import SyntheticCase, write_pfm as synthetic_write_pfm  # type: ignore
-    from validator import canonical_sha256, load_json  # type: ignore
+if not __package__:
+    # Keep direct python tools/bakeoff/run.py invocation on the same package-import path as
+    # python -m tools.bakeoff.run. The bake-off siblings intentionally use relative imports,
+    # so importing them as top-level modules would fail (or create duplicate module state).
+    _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+    if str(_REPOSITORY_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPOSITORY_ROOT))
+    __package__ = "tools.bakeoff"
+
+from . import exr as exr_module
+from . import synthetic as synthetic_module
+from .artifact_store import ArtifactStore, ArtifactStoreFailure
+from .coordinator import CommittedExecution, CoordinatorFailure, IncompleteFailure, RunCoordinator
+from .evaluator import (
+    DependencyFailure,
+    Evaluator,
+    EvaluatorFailure,
+    PROVIDER_EXECUTION_NAMES,
+    REPORT_METRICS,
+    ValidatedArtifact,
+    V2_PROTOCOL,
+    condition_and_pad_pair,
+    validate_manifest_artifact,
+)
+from .exr import ExrFailure
+from .matrix import CellKey, MatrixFailure, MatrixPlan, build_matrix
+from . import metrics as metrics_module
+from .metrics import MetricFailure
+from .nvml import NVML_CSV_HEADER, STAGES as NVML_STAGES, NvmlBackend, NvmlSampler, PynvmlBackend
+from .resume import ResumeFailure, create_state, load_state
+from .reporting import ReportFailure, assemble_report, render_csv, write_report_pair
+from .run_spec import IDENTITY_SCHEMA_VERSION, RunSpec, RunSpecError
+from .synthetic import SyntheticCase, encode_pfm
+from .validator import canonical_sha256, load_json, validate_report_consistency
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -119,6 +107,25 @@ DEFAULT_PROTOCOL = V2_PROTOCOL
 DEFAULT_REPORT_SCHEMA = ROOT / "bakeoff" / "report-v2.schema.json"
 DEFAULT_CORPUS_SCHEMA = ROOT / "bakeoff" / "corpus-v1.schema.json"
 DEFAULT_CHAIN_OFFSETS: tuple[int, ...] = (1, 2, 4, 8)
+DEFAULT_RUNNER_NAME = "ww-bakeoff"
+DEFAULT_RUNNER_VERSION = "0.1.0"
+
+# These are the only runner/hardware metadata properties accepted by report-v2.  Keep this
+# boundary local to the driver so an operator typo cannot become a stable identity field while
+# also being silently omitted from the published report.  ``command`` is accepted as a known
+# report property but is generated at publication time and never enters the stable runner map.
+_RUNNER_REPORT_KEYS = frozenset({
+    "name", "version", "source_commit", "evaluator_sha256", "runtime", "runtime_sha256", "command",
+})
+_HARDWARE_REPORT_KEYS = frozenset({
+    "platform", "architecture", "os_release", "cpu", "gpu", "driver",
+})
+_RUNNER_REQUIRED_KEYS = ("name", "version", "source_commit", "evaluator_sha256", "runtime", "runtime_sha256")
+# The report schema only marks platform/architecture as structurally required, but every
+# supported CPU/CUDA/CoreML matrix needs OS and CPU identity too.  Defaults are filled before
+# this validation, so the stable/report surfaces always agree on these four strings.
+_HARDWARE_REQUIRED_KEYS = ("platform", "architecture", "os_release", "cpu")
+_OPTIONAL_HARDWARE_KEYS = frozenset({"gpu", "driver"})
 
 # The stable, driver-owned review.csv header. Rows are anonymous: candidate_id is replaced by
 # a deterministic pseudonymous label so a human review pass does not see which candidate is
@@ -141,6 +148,13 @@ _REVIEW_HUMAN_COLUMN_COUNT = 6  # edge_adherence, occlusion_reveal, blur, jitter
 
 _OUTPUT_FILE_MODE = 0o644
 
+_NVML_IDENTITY_FIELDS: tuple[str, ...] = (
+    "candidate_id", "shot_id", "conditioning_token", "cap_token", "provider", "host_load",
+)
+_REQUIRED_FINAL_NVML_STAGES = frozenset({
+    "baseline", "session_create", "steady", "cleanup", "process_exit",
+})
+
 
 class DriverFailure(ValueError):
     """Stable, reportable driver-level (non-per-cell) failure."""
@@ -155,6 +169,28 @@ class DriverFailure(ValueError):
 
 def _fail(kind: str, message: str) -> None:
     raise DriverFailure(kind, message)
+
+
+def _canonical_chain_offsets(values: Any) -> tuple[int, ...]:
+    """Return the execution/identity representation of the requested chain offsets.
+
+    Chain offsets are a set of requested measurements, not an ordered user-visible list.  The
+    driver therefore validates the actual integer type and stores one sorted, duplicate-free
+    tuple before either building the executor or hashing the ``RunSpec``.  Rejecting rather than
+    coercing strings/floats keeps a malformed CLI/test boundary from changing the requested
+    measurement accidentally.
+    """
+
+    if isinstance(values, (str, bytes, bytearray)) or not isinstance(values, Sequence):
+        _fail("chain_offsets", "chain_offsets must be a non-empty sequence of integers")
+    offsets: list[int] = []
+    for index, value in enumerate(values):
+        if type(value) is not int:
+            _fail("chain_offsets", f"chain_offsets[{index}] must be an integer")
+        offsets.append(value)
+    if not offsets:
+        _fail("chain_offsets", "chain_offsets must contain at least one offset")
+    return tuple(sorted(set(offsets)))
 
 
 # --------------------------------------------------------------------------------------------
@@ -176,6 +212,77 @@ class _CellFail(_CellOutcome):
 
 class _CellSkip(_CellOutcome):
     pass
+
+
+def _freeze_bundle_value(value: Any) -> Any:
+    """Detach JSON-shaped result data into immutable containers for a :class:`CellBundle`."""
+
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(key): _freeze_bundle_value(child) for key, child in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_bundle_value(child) for child in value)
+    return value
+
+
+def _thaw_bundle_value(value: Any) -> Any:
+    """Turn a frozen bundle value back into the plain JSON containers the coordinator accepts."""
+
+    if isinstance(value, Mapping):
+        return {key: _thaw_bundle_value(child) for key, child in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_bundle_value(child) for child in value]
+    return value
+
+
+@dataclass(frozen=True)
+class PreviewPayload:
+    """One immutable preview file staged inside a committed cell generation."""
+
+    relative_path: str
+    payload: bytes
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "payload", bytes(self.payload))
+
+
+@dataclass(frozen=True)
+class CellBundle:
+    """The complete immutable output of one cell execution.
+
+    The public report result is always present.  NVML rows and previews are optional evidence
+    payloads; no member of this bundle writes to the output directory.  The frozen result tree
+    and tuple payloads prevent a later staging/retry operation from observing caller mutations.
+    """
+
+    result: Mapping[str, Any]
+    nvml_rows: tuple[tuple[str, ...], ...] = ()
+    previews: tuple[PreviewPayload, ...] = ()
+    log_messages: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "result", _freeze_bundle_value(dict(self.result)))
+        object.__setattr__(
+            self,
+            "nvml_rows",
+            tuple(tuple(row) for row in self.nvml_rows),
+        )
+        normalized_previews: list[PreviewPayload] = []
+        for preview in self.previews:
+            if isinstance(preview, PreviewPayload):
+                normalized_previews.append(preview)
+            else:
+                relative_path, payload = preview  # type: ignore[misc]
+                normalized_previews.append(PreviewPayload(relative_path, payload))
+        object.__setattr__(self, "previews", tuple(normalized_previews))
+        object.__setattr__(self, "log_messages", tuple(self.log_messages))
+
+    def public_result(self) -> dict[str, Any]:
+        """Return a detached plain result mapping suitable for coordinator validation."""
+
+        value = _thaw_bundle_value(self.result)
+        if not isinstance(value, dict):  # pragma: no cover - constructor enforces a mapping
+            raise TypeError("CellBundle result must be a mapping")
+        return value
 
 
 def _failure(kind: str, message: str, *, stage: str | None = None, retryable: bool | None = None) -> dict[str, Any]:
@@ -475,26 +582,6 @@ def _review_label(shot_id: str, candidate_id: str) -> str:
     return f"candidate-{digest[:12]}"
 
 
-def _review_preview_dir(review_dir: Path, cell: CellKey) -> Path:
-    """The per-cell preview directory, keyed only by the anonymized label -- never the real
-    candidate id -- plus every other CellKey axis. Shared by the writer (during a cell's
-    execution) and the end-of-run review.csv regeneration (Fix E), so both agree on the same
-    path without needing any extra durable state.
-
-    Fix P: MUST include ``provider`` and ``host_load``, not just shot/cap/conditioning -- the
-    protocol measures CUDA both idle and beside a live Flame Batch (the same shot, candidate,
-    cap, and conditioning token, differing only by host_load), and previously those two distinct
-    cells collided into the SAME directory: whichever cell wrote its previews last silently
-    stood in as "evidence" for both review.csv rows. provider/host_load are cell axes, not
-    candidate identity, so including them in the path does not un-blind anything.
-    """
-
-    return (
-        review_dir / cell.shot / _review_label(cell.shot, cell.candidate) / cell.cap / cell.conditioning
-        / cell.provider / cell.host_load
-    )
-
-
 def _flow_visualization_grid(
     flow: Sequence[Sequence[tuple[float, float]]], width: int, height: int, *, scale: float = 8.0
 ) -> list[list[tuple[float, float, float]]]:
@@ -534,48 +621,23 @@ def _grid_or_zero(
     ]
 
 
-def _write_offset_preview(
-    review_dir: Path, cell: CellKey, offset: int, image2: Any, flow: Any, width: int, height: int,
-) -> None:
-    """Write one offset's blinded per-candidate warp + flow-visualization PFM pair.
+def _preview_payloads(
+    offset: int, image2: Any, flow: Any, width: int, height: int,
+) -> tuple[PreviewPayload, PreviewPayload]:
+    """Render one immutable preview pair without touching the filesystem."""
 
-    Reuses :func:`metrics.warp_forward_samples` (the same warp step
-    :func:`metrics.visible_warp_residual` scores) rather than duplicating the bilinear-advection
-    math here. Filenames carry only the offset number, never the candidate id -- the directory
-    itself (``_review_preview_dir``) is already keyed by the anonymized label.
-
-    Crash-safe for the caller's degradation path: each PFM is written to a same-directory temp
-    file first, and the pair is renamed into place only after BOTH temps are fully written, so a
-    mid-write ENOSPC/permission error (or a ``ValueError`` from the writer) never leaves a
-    TRUNCATED ``offset_N_*.pfm`` at the final path for review.csv to advertise as reviewable
-    evidence. On any failure every temp AND every final path for this offset is removed, so a
-    skipped preview leaves NO file behind rather than masquerading as a real one.
-    """
-
-    destination = _review_preview_dir(review_dir, cell)
-    destination.mkdir(parents=True, exist_ok=True)
     all_visible = [[True] * width for _ in range(height)]
     warped = metrics_module.warp_forward_samples(image2, flow, all_visible)
-    outputs = (
-        (destination / f"offset_{offset}_warped.pfm", _grid_or_zero(warped, width, height)),
-        (destination / f"offset_{offset}_flow.pfm", _flow_visualization_grid(flow, width, height)),
+    return (
+        PreviewPayload(
+            f"previews/offset_{offset}_warped.pfm",
+            encode_pfm(_grid_or_zero(warped, width, height), width, height),
+        ),
+        PreviewPayload(
+            f"previews/offset_{offset}_flow.pfm",
+            encode_pfm(_flow_visualization_grid(flow, width, height), width, height),
+        ),
     )
-    staged: list[tuple[Path, Path]] = []
-    try:
-        for final_path, grid in outputs:
-            temporary = final_path.with_name(final_path.name + ".tmp")
-            synthetic_write_pfm(temporary, grid, width, height)
-            staged.append((temporary, final_path))
-        for temporary, final_path in staged:
-            os.replace(temporary, final_path)
-    except BaseException:
-        # Remove every temp AND every final for this offset -- including a temp that was being
-        # written when the failure hit (not yet in ``staged``), and any final an earlier rename
-        # already installed -- so a skipped preview leaves NO file, partial or whole, behind.
-        for final_path, _ in outputs:
-            final_path.with_name(final_path.name + ".tmp").unlink(missing_ok=True)
-            final_path.unlink(missing_ok=True)
-        raise
 
 
 # --------------------------------------------------------------------------------------------
@@ -804,54 +866,249 @@ def run_cuda_measurement_in_subprocess(
 
 
 # --------------------------------------------------------------------------------------------
-# Fix E: durable per-cell NVML CSV rows, regenerated (never appended) at end-of-run.
+# Transactional per-cell bundle publication and exact-generation evidence.
 # --------------------------------------------------------------------------------------------
 
 
-def _cell_sidecar_key(cell: CellKey) -> str:
-    return hashlib.sha256(json.dumps(cell.as_dict(), sort_keys=True).encode("utf-8")).hexdigest()
+def _artifact_cell_id(cell: CellKey) -> str:
+    """Return the stable artifact-store cell id derived from canonical CellKey JSON."""
+
+    encoded = json.dumps(
+        cell.as_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
-def _nvml_sidecar_path(output_dir: Path, cell: CellKey) -> Path:
-    return output_dir / ".sidecars" / f"{_cell_sidecar_key(cell)}.nvml.json"
+def _canonical_result_bytes(result: Mapping[str, Any]) -> bytes:
+    try:
+        return (
+            json.dumps(
+                result, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError, OverflowError) as exc:
+        raise ArtifactStoreFailure("result_encoding", f"cell result is not canonical UTF-8 JSON: {exc}") from exc
 
 
-def _write_nvml_sidecar(output_dir: Path, cell: CellKey, rows: Sequence[Sequence[str]]) -> None:
-    """Durably record one cell's rendered nvml.csv rows, keyed by cell identity.
+def _validate_nvml_float_text(value: str, field: str, row_index: int) -> None:
+    """Validate one canonical non-negative finite number emitted by :mod:`nvml`."""
 
-    Written (fully overwriting any earlier attempt for the same cell) BEFORE the coordinator
-    marks the cell complete. If the process dies before completion, resume resets the cell to
-    pending and it re-executes from scratch -- this sidecar is simply overwritten again by the
-    new attempt, so end-of-run regeneration (which reads exactly one sidecar per plan cell) can
-    never emit duplicate rows for a cell, regardless of how many partial attempts occurred. This
-    is what makes nvml.csv a deterministic function of durable completed state rather than an
-    incremental append that could double-record a retried cell.
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise ArtifactStoreFailure(
+            "nvml_rows_value", f"NVML row {row_index} {field} must be a finite number",
+        ) from exc
+    if not math.isfinite(parsed) or parsed < 0.0:
+        raise ArtifactStoreFailure(
+            "nvml_rows_value", f"NVML row {row_index} {field} must be a non-negative finite number",
+        )
+    if repr(float(parsed)) != value:
+        raise ArtifactStoreFailure(
+            "nvml_rows_value", f"NVML row {row_index} {field} is not canonical numeric text",
+        )
+
+
+def _canonical_nvml_rows_bytes(
+    rows: Sequence[Sequence[str]],
+    *,
+    expected_identity: Mapping[str, str] | None = None,
+    required_stages: set[str] | frozenset[str] | None = None,
+) -> bytes:
+    """Return deterministic, cell-bound NVML evidence bytes.
+
+    The optional identity and required-stage arguments are used at the CellBundle and exact-ref
+    boundaries.  Keeping the generic form available preserves the small decoder seam used by
+    existing tests, while every production commit/regeneration supplies the current CellKey
+    identity.
     """
 
-    path = _nvml_sidecar_path(output_dir, cell)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps({"rows": [list(row) for row in rows]}, sort_keys=True).encode("utf-8")
-    descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _OUTPUT_FILE_MODE)
+    normalized: list[list[str]] = []
+    expected_prefix: tuple[str, ...] | None = None
+    if expected_identity is not None:
+        if set(expected_identity) != set(_NVML_IDENTITY_FIELDS):
+            raise ArtifactStoreFailure(
+                "nvml_identity", "expected NVML identity must contain exactly the six cell fields",
+            )
+        expected_prefix = tuple(expected_identity[field] for field in _NVML_IDENTITY_FIELDS)
+    for index, row in enumerate(rows):
+        if not isinstance(row, (list, tuple)) or len(row) != len(NVML_CSV_HEADER):
+            raise ArtifactStoreFailure(
+                "nvml_rows_shape",
+                f"NVML row {index} must contain exactly {len(NVML_CSV_HEADER)} columns",
+            )
+        if any(type(value) is not str for value in row):
+            raise ArtifactStoreFailure("nvml_rows_shape", f"NVML row {index} must contain only strings")
+        if expected_prefix is not None and tuple(row[:len(_NVML_IDENTITY_FIELDS)]) != expected_prefix:
+            raise ArtifactStoreFailure(
+                "nvml_identity",
+                f"NVML row {index} identity does not match the current cell",
+            )
+        stage = row[6]
+        if stage not in NVML_STAGES:
+            raise ArtifactStoreFailure(
+                "nvml_stage", f"NVML row {index} has unsupported stage {stage!r}",
+            )
+        if re.fullmatch(r"(?:0|[1-9][0-9]*)", row[7]) is None:
+            raise ArtifactStoreFailure(
+                "nvml_sample_index",
+                f"NVML row {index} sample_index must be a canonical non-negative integer",
+            )
+        _validate_nvml_float_text(row[8], "timestamp_unix_s", index)
+        _validate_nvml_float_text(row[9], "device_used_mib", index)
+        if row[10] != "":
+            _validate_nvml_float_text(row[10], "process_used_mib", index)
+        normalized.append(list(row))
+    if required_stages is not None:
+        present_stages = {row[6] for row in normalized}
+        missing = sorted(set(required_stages) - present_stages)
+        if missing:
+            raise ArtifactStoreFailure(
+                "nvml_stages", f"NVML evidence is missing required stages: {', '.join(missing)}",
+            )
     try:
-        os.fchmod(descriptor, _OUTPUT_FILE_MODE)
-        with os.fdopen(descriptor, "wb") as stream:
-            descriptor = -1  # ownership transferred to the file object; only its close() now
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-    except BaseException:
-        if descriptor >= 0:
-            os.close(descriptor)
+        return (
+            json.dumps(
+                {"rows": normalized},
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError, OverflowError) as exc:
+        raise ArtifactStoreFailure("nvml_rows_encoding", f"NVML rows are not canonical UTF-8 JSON: {exc}") from exc
+
+
+def _decode_nvml_rows(
+    payload: bytes,
+    *,
+    expected_identity: Mapping[str, str] | None = None,
+    required_stages: set[str] | frozenset[str] | None = None,
+) -> list[list[str]]:
+    """Validate one exact canonical NVML evidence payload before CSV regeneration."""
+
+    try:
+        value = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ArtifactStoreFailure("nvml_rows_encoding", f"NVML evidence is not UTF-8 JSON: {exc}") from exc
+    if type(value) is not dict or set(value) != {"rows"} or type(value["rows"]) is not list:
+        raise ArtifactStoreFailure("nvml_rows_shape", "NVML evidence must contain only a rows list")
+    rows = value["rows"]
+    canonical = _canonical_nvml_rows_bytes(
+        rows, expected_identity=expected_identity, required_stages=required_stages,
+    )
+    if canonical != payload:
+        raise ArtifactStoreFailure("nvml_rows_encoding", "NVML evidence is not canonical JSON")
+    return [list(row) for row in rows]
+
+
+def _validate_committed_ref(
+    store: ArtifactStore,
+    cell: CellKey,
+    result: Mapping[str, Any],
+    artifact_ref: Mapping[str, Any],
+) -> None:
+    """Prove that one exact generation belongs to this cell and this public result."""
+
+    if not isinstance(artifact_ref, Mapping):
+        raise ArtifactStoreFailure("artifact_ref_shape", "artifact_ref must be a mapping")
+    expected_cell_id = _artifact_cell_id(cell)
+    if artifact_ref.get("cell_id") != expected_cell_id:
+        raise ArtifactStoreFailure(
+            "cell_mismatch",
+            f"artifact_ref cell_id does not match CellKey {cell!r}",
+        )
+    # load_ref validates the immutable manifest and every named artifact before the exact read.
+    store.load_ref(artifact_ref)
+    stored = store.read_artifact(artifact_ref, "result.json")
+    expected = _canonical_result_bytes(result)
+    if stored != expected:
+        raise ArtifactStoreFailure(
+            "result_artifact_mismatch",
+            f"result.json does not match the persisted result for {cell!r}",
+        )
+
+
+def _commit_cell_bundle(
+    store: ArtifactStore,
+    cell: CellKey,
+    bundle: CellBundle,
+    *,
+    nvml_enabled: bool,
+    require_nvml_stages: bool = False,
+) -> CommittedExecution:
+    """Commit one complete CellBundle, retrying optional preview staging without the previews."""
+
+    result = bundle.public_result()
+    required_nvml = result.get("status") == "pass" and result.get("provider") == "cuda" and nvml_enabled
+    if required_nvml and not bundle.nvml_rows:
+        raise ArtifactStoreFailure(
+            "nvml_missing",
+            f"CUDA cell {cell!r} passed with NVML enabled but returned no NVML evidence rows",
+        )
+    result_payload = _canonical_result_bytes(result)
+    nvml_payload = (
+        _canonical_nvml_rows_bytes(
+            bundle.nvml_rows,
+            expected_identity=_base_result_fields(cell),
+            required_stages=_REQUIRED_FINAL_NVML_STAGES if require_nvml_stages else None,
+        )
+        if required_nvml else None
+    )
+
+    def publish(*, include_previews: bool) -> CommittedExecution:
+        attempt = store.begin(_artifact_cell_id(cell))
+        try:
+            attempt.stage_bytes("result.json", result_payload)
+            if required_nvml:
+                assert nvml_payload is not None
+                attempt.stage_bytes("evidence/nvml_rows.json", nvml_payload)
+            if include_previews:
+                for preview in bundle.previews:
+                    try:
+                        attempt.stage_bytes(preview.relative_path, preview.payload)
+                    except ArtifactStoreFailure as exc:
+                        # This marker is consumed only by the outer optional-preview retry.  The
+                        # attempt is already closed/poisoned by ArtifactAttempt on a publication
+                        # failure, so no partially staged generation can later complete state.
+                        setattr(exc, "optional_preview_failure", True)
+                        raise
+            try:
+                artifact_ref = attempt.commit()
+            except ArtifactStoreFailure as exc:
+                artifact_ref = getattr(exc, "artifact_ref", None)
+                if artifact_ref is None:
+                    raise
+            _validate_committed_ref(store, cell, result, artifact_ref)
+            if required_nvml:
+                evidence = store.read_artifact(artifact_ref, "evidence/nvml_rows.json")
+                if evidence != nvml_payload:
+                    raise ArtifactStoreFailure("nvml_rows_mismatch", "committed NVML evidence differs from the bundle")
+            if include_previews:
+                for preview in bundle.previews:
+                    if store.read_artifact(artifact_ref, preview.relative_path) != preview.payload:
+                        raise ArtifactStoreFailure(
+                            "preview_mismatch",
+                            f"committed preview differs from the bundle: {preview.relative_path}",
+                        )
+            return CommittedExecution(result=result, artifact_ref=dict(artifact_ref))
+        except ArtifactStoreFailure:
+            # ArtifactAttempt.commit/stage closes itself on every publication failure.  Explicitly
+            # retaining no attempt object outside this scope prevents a failed required artifact
+            # from being accidentally reused as a completion.
+            raise
+
+    try:
+        return publish(include_previews=True)
+    except ArtifactStoreFailure as exc:
+        if bundle.previews and getattr(exc, "optional_preview_failure", False):
+            # The old generation, if any, is untouched.  A fresh attempt re-stages result and
+            # required evidence, then commits a valid pass with no preview artifacts.
+            return publish(include_previews=False)
         raise
-
-
-def _read_nvml_sidecar(output_dir: Path, cell: CellKey) -> list[list[str]]:
-    path = _nvml_sidecar_path(output_dir, cell)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return []
-    return [list(row) for row in data.get("rows", [])]
 
 
 # --------------------------------------------------------------------------------------------
@@ -872,9 +1129,7 @@ class _RunnerContext:
     poll_interval_s: float
     chain_offsets: Sequence[int]
     exr_decoder: Callable[..., dict[str, Any]]
-    output_dir: Path
-    review_dir: Path | None
-    log: Callable[[str], None]
+    review_enabled: bool
     host_load_checkpoint: HostLoadCheckpoint
     cuda_measurement_runner: CudaMeasurementRunner
     confirmed_host_load: str | None = field(default=None, init=False)
@@ -1012,7 +1267,7 @@ def _perform_cell_inference(
     # Blinded per-candidate review previews -- optional, per offset, only for shots without
     # trustworthy automated truth. Only the flow/image DATA is returned; file writing (pure
     # I/O, no CUDA) happens back in the parent.
-    if not shot_ctx.has_analytic_truth and ctx.review_dir is not None:
+    if not shot_ctx.has_analytic_truth and ctx.review_enabled:
         review_offsets: dict[str, dict[str, Any]] = {}
         for offset in sorted(set(ctx.chain_offsets) - {1}):
             try:
@@ -1032,7 +1287,7 @@ def _perform_cell_inference(
     return payload
 
 
-def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
+def _run_cell(cell: CellKey, ctx: _RunnerContext) -> CellBundle:
     artifact = ctx.artifacts.get(cell.candidate)
     if artifact is None:
         raise _CellFail(_failure("artifact_missing", f"candidate {cell.candidate!r} was not validated at startup"))
@@ -1047,6 +1302,8 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
     if chain_length is not None and chain_length not in ctx.chain_offsets and chain_length not in (1, 2, 4, 8):
         raise _CellFail(_failure("input_invalid", f"unsupported chain_length {chain_length}", stage="metrics"))
 
+    log_messages: list[str] = []
+
     # Fix B: a supervised host-load boundary, confirmed once per contiguous run of cells that
     # share one CUDA host_load value, before any cell in that group executes. Re-checked every
     # invocation (ctx.confirmed_host_load always starts None on a fresh process), so a resumed
@@ -1054,7 +1311,7 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
     if cell.provider == "cuda" and ctx.confirmed_host_load != cell.host_load:
         ctx.host_load_checkpoint(cell.host_load)
         ctx.confirmed_host_load = cell.host_load
-        ctx.log(f"host load boundary confirmed: host_load={cell.host_load}")
+        log_messages.append(f"host load boundary confirmed: host_load={cell.host_load}")
 
     # Fix G: for a CUDA cell, EVERY inference this cell needs (base + reverse + chain links +
     # review offsets) runs inside _perform_cell_inference, and that whole function is what gets
@@ -1065,6 +1322,7 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
     def _inference_work(stage_sampler: Callable[[str], Any] | None) -> dict[str, Any]:
         return _perform_cell_inference(cell, ctx, artifact, shot_ctx, stage_sampler)
 
+    nvml_rows: list[list[str]] = []
     use_cuda_measurement = cell.provider == "cuda" and ctx.nvml_backend_factory is not None
     if use_cuda_measurement:
         try:
@@ -1089,20 +1347,27 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
             if measurement.process_exit_process_used_mib is not None:
                 exit_sample["process_used_mib"] = measurement.process_exit_process_used_mib
             nvml_samples.append(exit_sample)
-        resource, nvml_rows = _replay_resource_and_rows(_base_result_fields(cell), nvml_samples, ctx.device_index)
-        # Durable, not incremental: overwrites this cell's own prior attempt (if any); the
-        # operator-facing nvml.csv itself is assembled once, from every cell's sidecar, only
-        # after every cell in the plan is complete (see _regenerate_sidecar_outputs). See Fix E.
-        # A CUDA cell's resource evidence is REQUIRED; if it cannot be durably persisted (e.g. an
-        # OSError such as a full disk mid-run), the cell is not a complete measurement, so this is
-        # a TYPED cell failure rather than an uncaught OSError that would abort the whole matrix or
-        # -- worse -- a silently missing sidecar row that lets the cell pass without its evidence.
         try:
-            _write_nvml_sidecar(ctx.output_dir, cell, nvml_rows)
-        except OSError as exc:
+            resource, nvml_rows = _replay_resource_and_rows(
+                _base_result_fields(cell), nvml_samples, ctx.device_index,
+            )
+        except Exception as exc:  # noqa: BLE001 - malformed sampler payload is a cell-local failure
             raise _CellFail(
-                _failure(_resource_exhaustion_or_runtime_kind(exc), f"could not persist NVML sidecar: {exc}", stage="measurement")
+                _failure("runtime_error", f"NVML evidence reduction failed: {exc}", stage="resource"),
             ) from exc
+        if ctx.profile == "final":
+            present_stages = {
+                sample.get("stage")
+                for sample in nvml_samples
+                if isinstance(sample, Mapping)
+            }
+            missing_stages = sorted(_REQUIRED_FINAL_NVML_STAGES - present_stages)
+            if missing_stages:
+                raise _CellFail(_failure(
+                    "runtime_error",
+                    "required NVML stages missing: " + ", ".join(missing_stages),
+                    stage="resource",
+                ))
     else:
         try:
             payload = _inference_work(None)
@@ -1116,8 +1381,7 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
 
     # From here on: PURE scoring and preview rendering from `payload`'s already-returned data.
     # No inference call of any kind happens below this line, for either provider.
-    for message in payload.get("log_messages", []):
-        ctx.log(message)
+    log_messages.extend(payload.get("log_messages", []))
 
     base = payload["base"]
     base_result = {"metrics": base["metrics"], "timing": base["timing"], "environment": base["environment"]}
@@ -1192,12 +1456,14 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
         # comes back nonfinite degrades to a logged not_applicable, exactly like the MetricFailure
         # path below, so the cell still passes and its required metrics are unaffected.
         if not _is_finite_number(visible):
-            ctx.log(f"visible_warp_residual nonfinite ({visible!r}); dropped to not_applicable for {cell.as_dict()}")
+            log_messages.append(
+                f"visible_warp_residual nonfinite ({visible!r}); dropped to not_applicable for {cell.as_dict()}"
+            )
         else:
             result_metrics["visible_warp_residual"] = visible
             not_applicable.discard("visible_warp_residual")
     except MetricFailure as exc:
-        ctx.log(f"visible_warp_residual skipped for {cell.as_dict()}: {exc}")
+        log_messages.append(f"visible_warp_residual skipped for {cell.as_dict()}: {exc}")
 
     # Forward/backward residual: optional; the reverse-direction inference already happened (or
     # was skipped, with a log message already emitted above) in _perform_cell_inference.
@@ -1207,20 +1473,24 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
             residual_mask = [[True] * analysis_width for _ in range(analysis_height)]
             residual = metrics_module.forward_backward_residual_px(predicted_flow, reverse_flow, residual_mask)
             if not _is_finite_number(residual):
-                ctx.log(f"forward_backward_residual_px nonfinite ({residual!r}); dropped to not_applicable for {cell.as_dict()}")
+                log_messages.append(
+                    f"forward_backward_residual_px nonfinite ({residual!r}); dropped to not_applicable for {cell.as_dict()}"
+                )
             else:
                 result_metrics["forward_backward_residual_px"] = residual
                 not_applicable.discard("forward_backward_residual_px")
         except MetricFailure as exc:
-            ctx.log(f"forward_backward_residual_px skipped for {cell.as_dict()}: {exc}")
+            log_messages.append(f"forward_backward_residual_px skipped for {cell.as_dict()}: {exc}")
 
     result_metrics["not_applicable"] = sorted(not_applicable)
 
     # Fix C: blinded per-candidate previews of THIS candidate's own predicted output -- a
     # target-warped-by-predicted-flow image plus a flow visualization -- across every offset in
     # ctx.chain_offsets that was actually inferrable (Fix G: inference already happened in
-    # _perform_cell_inference; this only renders/writes the already-returned flow/image data).
-    if not shot_ctx.has_analytic_truth and ctx.review_dir is not None:
+    # _perform_cell_inference; this only renders immutable payloads from the already-returned
+    # flow/image data).
+    preview_payloads: list[PreviewPayload] = []
+    if not shot_ctx.has_analytic_truth and ctx.review_enabled:
         preview_jobs: list[tuple[int, Any, Any, int, int]] = [
             (1, image2, predicted_flow, analysis_width, analysis_height),
         ]
@@ -1230,21 +1500,17 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
                 offset_data["width"], offset_data["height"],
             ))
         for offset, preview_image, preview_flow, preview_width, preview_height in preview_jobs:
-            # Previews are non-load-bearing review evidence. A transient OSError (disk full,
-            # permission) or a MetricFailure while rendering one offset must degrade to a logged
-            # skipped-preview -- never take down a cell that was actually MEASURED. The cell still
-            # passes and its metrics/report are unaffected; review.csv simply has no PFM for that
-            # offset, with the reason in runner.log.
+            # Preview rendering is non-load-bearing review evidence. Filesystem staging occurs
+            # later as part of the one transactional CellBundle, so a store failure cannot leave
+            # a partial public preview behind.
             try:
-                _write_offset_preview(
-                    ctx.review_dir, cell, offset, preview_image, preview_flow, preview_width, preview_height,
+                preview_payloads.extend(
+                    _preview_payloads(
+                        offset, preview_image, preview_flow, preview_width, preview_height,
+                    )
                 )
-            except (OSError, MetricFailure, ValueError) as exc:
-                # OSError (disk full/permission), a MetricFailure from the warp step, or a
-                # ValueError from the PFM writer -- any preview failure degrades to a logged skip
-                # (with no partial file left behind, see _write_offset_preview); the measured cell
-                # is unaffected.
-                ctx.log(f"review preview offset {offset} skipped for {cell.as_dict()}: {exc}")
+            except (MetricFailure, ValueError) as exc:
+                log_messages.append(f"review preview offset {offset} skipped for {cell.as_dict()}: {exc}")
 
     category = (shot_ctx.shot.get("categories") or [None])[0]
     passing: dict[str, Any] = {
@@ -1258,7 +1524,12 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> dict[str, Any]:
     }
     if category is not None:
         passing["category"] = category
-    return passing
+    return CellBundle(
+        result={**_base_result_fields(cell), "status": "pass", **passing},
+        nvml_rows=tuple(tuple(row) for row in nvml_rows),
+        previews=tuple(preview_payloads),
+        log_messages=tuple(log_messages),
+    )
 
 
 _RESULT_FAILURE_TYPES = {
@@ -1283,14 +1554,13 @@ def build_executor(
     poll_interval_s: float,
     chain_offsets: Sequence[int],
     exr_decoder: Callable[..., dict[str, Any]],
-    output_dir: Path,
-    review_dir: Path | None,
-    log: Callable[[str], None],
+    review_enabled: bool,
     host_load_checkpoint: HostLoadCheckpoint,
     cuda_measurement_runner: CudaMeasurementRunner,
-) -> tuple[Callable[[CellKey], dict[str, Any]], _RunnerContext]:
+) -> tuple[Callable[[CellKey], CellBundle], _RunnerContext]:
     """Build the executor callback plus the mutable context RunCoordinator will drive."""
 
+    canonical_offsets = _canonical_chain_offsets(chain_offsets)
     synthetic_cases = synthetic_module.case_map()
     shot_contexts: dict[str, _ShotContext] = {}
     for shot_id, (partition_kind, shot) in _shot_index(corpus).items():
@@ -1306,28 +1576,34 @@ def build_executor(
         nvml_backend_factory=nvml_backend_factory,
         device_index=device_index,
         poll_interval_s=poll_interval_s,
-        chain_offsets=tuple(chain_offsets),
+        chain_offsets=canonical_offsets,
         exr_decoder=exr_decoder,
-        output_dir=output_dir,
-        review_dir=review_dir,
-        log=log,
+        review_enabled=review_enabled,
         host_load_checkpoint=host_load_checkpoint,
         cuda_measurement_runner=cuda_measurement_runner,
     )
 
-    def executor(cell: CellKey) -> dict[str, Any]:
+    def executor(cell: CellKey) -> CellBundle:
         base = _base_result_fields(cell)
-        log(f"cell start {json.dumps(cell.as_dict(), sort_keys=True)}")
+        start_message = f"cell start {json.dumps(cell.as_dict(), sort_keys=True)}"
         try:
-            passing = _run_cell(cell, ctx)
+            bundle = _run_cell(cell, ctx)
         except _CellFail as failure:
-            log(f"cell fail {json.dumps(cell.as_dict(), sort_keys=True)} reason={failure.failure['type']}")
-            return {**base, "status": "fail", "failure": failure.failure}
+            return CellBundle(
+                result={**base, "status": "fail", "failure": failure.failure},
+                log_messages=(start_message,),
+            )
         except _CellSkip as skip:
-            log(f"cell skip {json.dumps(cell.as_dict(), sort_keys=True)} reason={skip.failure['type']}")
-            return {**base, "status": "skip", "failure": skip.failure}
-        log(f"cell pass {json.dumps(cell.as_dict(), sort_keys=True)}")
-        return {**base, "status": "pass", **passing}
+            return CellBundle(
+                result={**base, "status": "skip", "failure": skip.failure},
+                log_messages=(start_message,),
+            )
+        return CellBundle(
+            result=bundle.public_result(),
+            nvml_rows=bundle.nvml_rows,
+            previews=bundle.previews,
+            log_messages=(start_message, *bundle.log_messages),
+        )
 
     return executor, ctx
 
@@ -1378,13 +1654,122 @@ def _validate_selected_artifacts(
     return resolved
 
 
+def _normalise_hex(value: Any, path: str, length: int) -> str:
+    """Validate a hex identity field and normalize acceptable upper-case hex to lower-case."""
+
+    if not isinstance(value, str) or not value:
+        _fail("report_metadata_value", f"{path} must be a non-empty {length}-hex string")
+    if re.fullmatch(rf"[0-9a-fA-F]{{{length}}}", value) is None:
+        _fail("report_metadata_value", f"{path} must be a {length}-hex string")
+    return value.lower()
+
+
+def _require_nonempty_string(value: Any, path: str) -> str:
+    if not isinstance(value, str) or not value:
+        _fail("report_metadata_value", f"{path} must be a non-empty string")
+    return value
+
+
 def _require_runner_fields(runner_section: Mapping[str, Any]) -> None:
-    for required in ("evaluator_sha256", "runtime", "runtime_sha256"):
-        if not runner_section.get(required):
-            _fail("report_metadata_missing", f"report_metadata.runner.{required} is required")
+    """Validate the report-v2 runner fields after normalization."""
+
+    for required in _RUNNER_REQUIRED_KEYS:
+        _require_nonempty_string(runner_section.get(required), f"report_metadata.runner.{required}")
+    _normalise_hex(runner_section["source_commit"], "report_metadata.runner.source_commit", 40)
+    _normalise_hex(runner_section["evaluator_sha256"], "report_metadata.runner.evaluator_sha256", 64)
+    _normalise_hex(runner_section["runtime_sha256"], "report_metadata.runner.runtime_sha256", 64)
 
 
-def _compute_identity(
+def _normalise_runner_metadata(raw_runner: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the complete stable runner surface with deterministic defaults.
+
+    ``command`` is generated publication metadata, not a runner semantic.  It is deliberately
+    removed before identity formation; ``_build_report_metadata`` adds the invocation command
+    back to the published report after the stable defaults have been fixed.
+    """
+
+    if not isinstance(raw_runner, Mapping):
+        _fail("report_metadata_shape", "report_metadata.runner must be an object")
+    unknown = [key for key in raw_runner if key not in _RUNNER_REPORT_KEYS]
+    if unknown:
+        unknown.sort(key=repr)
+        _fail("report_metadata_unknown", f"report_metadata.runner has unknown key {unknown[0]!r}")
+
+    runner: dict[str, Any] = {}
+    for key, default in (
+        ("name", DEFAULT_RUNNER_NAME),
+        ("version", DEFAULT_RUNNER_VERSION),
+        ("source_commit", _default_source_commit() or "0" * 40),
+    ):
+        if key in raw_runner:
+            runner[key] = _require_nonempty_string(raw_runner[key], f"report_metadata.runner.{key}")
+        else:
+            runner[key] = default
+    runner["evaluator_sha256"] = _normalise_hex(
+        raw_runner.get("evaluator_sha256"), "report_metadata.runner.evaluator_sha256", 64,
+    )
+    runner["runtime"] = _require_nonempty_string(
+        raw_runner.get("runtime"), "report_metadata.runner.runtime",
+    )
+    runner["runtime_sha256"] = _normalise_hex(
+        raw_runner.get("runtime_sha256"), "report_metadata.runner.runtime_sha256", 64,
+    )
+    runner["source_commit"] = _normalise_hex(
+        runner["source_commit"], "report_metadata.runner.source_commit", 40,
+    )
+    _require_runner_fields(runner)
+    return runner
+
+
+def _normalise_hardware(raw_hardware: Mapping[str, Any]) -> dict[str, Any]:
+    """Return report-schema hardware with deterministic defaults and no absent optionals."""
+
+    if not isinstance(raw_hardware, Mapping):
+        _fail("report_metadata_shape", "report_metadata.hardware must be an object")
+    unknown = [key for key in raw_hardware if key not in _HARDWARE_REPORT_KEYS]
+    if unknown:
+        unknown.sort(key=repr)
+        _fail("report_metadata_unknown", f"report_metadata.hardware has unknown key {unknown[0]!r}")
+
+    hardware = _default_hardware()
+    for key in _HARDWARE_REQUIRED_KEYS:
+        _require_nonempty_string(hardware.get(key), f"default report_metadata.hardware.{key}")
+    for key, value in raw_hardware.items():
+        if value is not None:
+            if key in _OPTIONAL_HARDWARE_KEYS and value == "":
+                # Empty optional hardware is the same absence as ``None``.  Dropping it here
+                # keeps stable identity and report publication byte-for-byte aligned.
+                continue
+            hardware[key] = _require_nonempty_string(value, f"report_metadata.hardware.{key}")
+    for key, value in tuple(hardware.items()):
+        if key in _OPTIONAL_HARDWARE_KEYS and (value is None or value == ""):
+            hardware.pop(key, None)
+        elif key not in _HARDWARE_REPORT_KEYS:
+            hardware.pop(key, None)
+    for key in _HARDWARE_REQUIRED_KEYS:
+        _require_nonempty_string(hardware.get(key), f"report_metadata.hardware.{key}")
+    return hardware
+
+
+def _stable_report_inputs(raw_metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """Extract report-affecting operator inputs from publication metadata.
+
+    Report IDs, timestamps, command lines and paths are generated publication data.  Warnings
+    and operator-supplied summary/score fields are semantic report inputs and must invalidate a
+    completed run when changed.  Preserve presence/absence so an explicitly supplied empty value
+    cannot silently reuse a report that omitted the field.
+    """
+
+    if not isinstance(raw_metadata, Mapping):
+        _fail("report_metadata_shape", "report_metadata must be an object")
+    return {
+        key: raw_metadata[key]
+        for key in ("warnings", "summary")
+        if key in raw_metadata
+    }
+
+
+def _build_run_spec(
     protocol: Mapping[str, Any],
     corpus: Mapping[str, Any],
     plan: MatrixPlan,
@@ -1401,85 +1786,96 @@ def _compute_identity(
     device_index: int,
     poll_interval_s: float,
     nvml_enabled: bool,
-) -> dict[str, Any]:
+    report_inputs: Mapping[str, Any] | None = None,
+    identity_schema_version: int = IDENTITY_SCHEMA_VERSION,
+) -> RunSpec:
     """Bind every input that can change a cell's produced result or reported resource use.
 
-    ``profile`` in particular is NOT part of ``plan.matrix_sha256`` -- the matrix selector
-    (candidate/shot/conditioning/cap/provider/host_load axes) is identical between e.g. smoke
-    and screen for the same selection, so without ``profile`` here two different profiles run
-    against the same ``--state``/``--output-dir`` would collide on one resume identity and the
-    second run would silently resume/reuse the first's (wrong) results. ``evaluator_sha256``
-    similarly is not otherwise bound: a different evaluator build measuring the same matrix is a
-    different run. ``chain_offsets`` changes which auxiliary frames/metrics a cell attempts.
+    The profile and environment are kept separately from the selector because the same matrix
+    axes can be measured under different execution profiles/environments.  The full selector is
+    nevertheless retained under ``matrix`` so provider/host-load/candidate/shot axes cannot be
+    silently omitted.
 
-    ``protocol_sha256`` binds the FULL protocol content, not just ``protocol_id``. The matrix
-    selector carries only the cap/conditioning/provider TOKENS; the definitions those tokens
-    resolve to live in the protocol and are result-affecting. In particular ``_cap_megapixels``
-    reads ``analysis_caps[...].decimal_megapixels`` at run time and that value drives the analysis
-    geometry (analysis_width/height), hence every metric -- so an operator who edits a cap's
-    megapixels (or points ``--protocol`` at a variant) while keeping ``protocol_id`` unchanged and
-    reuses the same ``--state``/``--output-dir`` would, without this, collide on one identity and
-    have the second run silently resume/reuse the first's results measured at the OLD cap. Bound
-    exactly like ``corpus_sha256`` -- the sibling runtime-input file whose bytes are result-
-    affecting -- rather than by a single opaque id.
+    Protocol, corpus, candidate-entry and schema payloads are represented by canonical hashes;
+    mutating any of those source objects therefore changes the compact identity without copying
+    their large contents into resume state.
 
-    Fix I: ``device_index``/``poll_interval_s``/``nvml_enabled`` and the GPU/driver hardware
-    fields are ALSO result-affecting for a CUDA matrix -- without them, a run measured with
-    ``--no-nvml`` (which reports a flat zero ``resource`` for every CUDA cell) and a rerun of
-    the identical selection with NVML enabled would collide on one identity, and the second
-    invocation would silently resume/reuse the first's placeholder (zero) resource evidence
-    instead of measuring anything.
+    Device index, sampler interval, NVML enablement, chain offsets and every normalized hardware
+    field remain explicit because they affect measured resource evidence or execution behavior.
 
-    ``candidate_entries_sha256`` binds the candidate admission/legal surface. report-v2 requires
-    the report to preserve every excluded-but-measurable candidate's legal verdict and
-    redistribution surfaces, which ``assemble_report`` copies verbatim from these entries. The
-    matrix binds only the SELECTED candidate ids and their artifact hashes, not the entries'
-    legal/exclusion content, and an EXCLUDED candidate is not even in ``plan.selector`` -- so
-    without this, editing an excluded candidate's legal-review message and rerunning a completed
-    state would hand back the report with the OLD legal evidence. ``report_schema_sha256``/
-    ``corpus_schema_sha256`` bind the two validation contracts: a changed schema gates what a
-    report may serialize as, and the report-reuse branch returns a published report WITHOUT
-    re-validating it, so a schema edit that would now reject (or reshape acceptance of) that
-    report must force a fresh run rather than silently reusing the stale artifact.
+    The complete validated artifact hash map binds the bytes actually used for inference, while
+    the candidate-entry hash binds legal/admission content copied into the report. Schema hashes
+    bind the validation contracts without persisting their full JSON bodies.
+
+    Warnings and operator summary/score inputs are stable report semantics. Generated report ids,
+    timestamps, commands and output paths are deliberately not supplied to ``RunSpec``.
     """
 
-    return {
-        "protocol_id": protocol["protocol_id"],
-        "protocol_sha256": canonical_sha256(protocol),
-        "matrix_sha256": plan.matrix_sha256,
-        "corpus_sha256": canonical_sha256(corpus),
-        "candidate_entries_sha256": canonical_sha256(candidate_entries),
-        "report_schema_sha256": canonical_sha256(report_schema),
-        "corpus_schema_sha256": canonical_sha256(corpus_schema),
-        "environment": environment,
-        "profile": profile,
-        "providers": plan.selector["providers"],
-        "candidates": {
-            candidate_id: {
-                "manifest_sha256": artifacts[candidate_id].manifest_sha256,
-                "artifact_sha256": artifacts[candidate_id].artifact_sha256,
-                "platform": artifacts[candidate_id].platform,
-            }
-            for candidate_id in plan.selector["candidate_ids"]
-        },
-        "evaluator_sha256": runner_metadata.get("evaluator_sha256", ""),
-        "runtime": {
-            "runtime": runner_metadata.get("runtime", ""),
-            "runtime_sha256": runner_metadata.get("runtime_sha256", ""),
-        },
-        "hardware": {
-            "platform": hardware.get("platform", ""),
-            "architecture": hardware.get("architecture", ""),
-            "gpu": hardware.get("gpu", ""),
-            "driver": hardware.get("driver", ""),
-        },
-        "chain_offsets": sorted(int(offset) for offset in chain_offsets),
-        "measurement": {
-            "device_index": device_index,
-            "poll_interval_s": poll_interval_s,
-            "nvml_enabled": nvml_enabled,
-        },
+    stable_runner = _normalise_runner_metadata(runner_metadata)
+    stable_hardware = _normalise_hardware(hardware)
+    canonical_offsets = _canonical_chain_offsets(chain_offsets)
+    selected_artifacts = {
+        candidate_id: {
+            "manifest_sha256": artifacts[candidate_id].manifest_sha256,
+            "artifact_sha256": artifacts[candidate_id].artifact_sha256,
+            "platform": artifacts[candidate_id].platform,
+        }
+        for candidate_id in plan.selector["candidate_ids"]
     }
+    try:
+        return RunSpec.from_inputs(
+            protocol={
+                "protocol_id": protocol["protocol_id"],
+                "sha256": canonical_sha256(protocol),
+            },
+            corpus={
+                "corpus_id": corpus.get("corpus_id", ""),
+                "sha256": canonical_sha256(corpus),
+            },
+            candidate_entries={"sha256": canonical_sha256(candidate_entries)},
+            selection={"profile": profile, "environment": environment},
+            matrix=plan.selector,
+            artifacts=selected_artifacts,
+            report_schema={"sha256": canonical_sha256(report_schema)},
+            corpus_schema={"sha256": canonical_sha256(corpus_schema)},
+            environment=environment,
+            profile=profile,
+            runner=stable_runner,
+            hardware=stable_hardware,
+            chain_offsets=list(canonical_offsets),
+            measurement={
+                "device_index": device_index,
+                "poll_interval_s": poll_interval_s,
+                "nvml_enabled": nvml_enabled,
+            },
+            report_inputs=dict(report_inputs or {}),
+            identity_schema_version=identity_schema_version,
+            # Retain this compact compatibility field for diagnostics and old report-side
+            # checks; the full selector above remains the authoritative matrix surface.
+            extra_stable={"matrix_sha256": plan.matrix_sha256},
+        )
+    except (KeyError, TypeError, ValueError, RunSpecError) as exc:
+        _fail("identity_invalid", f"cannot construct run identity: {exc}")
+
+
+def _assert_run_spec_identity(run_spec: RunSpec) -> None:
+    """Enforce the RunSpec hash invariant before handing identity to persistence subsystems."""
+
+    try:
+        run_spec.assert_identity()
+    except RunSpecError as exc:
+        _fail("identity_invalid", f"RunSpec identity does not match stable inputs: {exc}")
+
+
+def _compute_identity(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Compatibility adapter returning the persisted mapping from ``RunSpec``.
+
+    New driver code calls ``_build_run_spec`` directly.  Keeping this narrow adapter lets older
+    test fixtures and air-gapped operators inspect the same identity mapping during migration;
+    no second hashing or field-selection implementation remains here.
+    """
+
+    return _build_run_spec(*args, **kwargs).stable_inputs
 
 
 def _report_matches_current_run(report: Mapping[str, Any], identity: Mapping[str, Any]) -> bool:
@@ -1495,34 +1891,57 @@ def _report_matches_current_run(report: Mapping[str, Any], identity: Mapping[str
     """
 
     try:
-        if report.get("protocol_id") != identity["protocol_id"]:
+        protocol_identity = identity["protocol"]
+        if not isinstance(protocol_identity, Mapping):
             return False
-        if report.get("corpus_sha256") != identity["corpus_sha256"]:
+        if report.get("protocol_id") != protocol_identity["protocol_id"]:
+            return False
+        corpus_identity = identity["corpus"]
+        if not isinstance(corpus_identity, Mapping):
+            return False
+        if report.get("corpus_sha256") != corpus_identity["sha256"]:
             return False
         if report.get("profile") != identity["profile"]:
             return False
         if report.get("environment") != identity["environment"]:
             return False
         matrix = report.get("matrix")
-        if not isinstance(matrix, Mapping) or matrix.get("matrix_sha256") != identity["matrix_sha256"]:
-            return False
-        providers = matrix.get("providers")
-        if providers != identity["providers"]:
+        matrix_identity = identity["matrix"]
+        if not isinstance(matrix, Mapping) or matrix != matrix_identity:
             return False
         runner = report.get("runner")
         if not isinstance(runner, Mapping):
             return False
-        if runner.get("evaluator_sha256") != identity["evaluator_sha256"]:
+        stable_runner = identity["runner"]
+        if not isinstance(stable_runner, Mapping):
             return False
-        if runner.get("runtime_sha256") != identity["runtime"]["runtime_sha256"]:
-            return False
+        for key, value in stable_runner.items():
+            if runner.get(key) != value:
+                return False
         report_hardware = report.get("hardware")
         if not isinstance(report_hardware, Mapping):
             return False
-        if report_hardware.get("gpu", "") != identity["hardware"]["gpu"]:
+        stable_hardware = identity["hardware"]
+        if not isinstance(stable_hardware, Mapping):
             return False
-        if report_hardware.get("driver", "") != identity["hardware"]["driver"]:
+        for key, value in stable_hardware.items():
+            if report_hardware.get(key, "") != value:
+                return False
+        report_inputs = identity.get("report_inputs", {})
+        if not isinstance(report_inputs, Mapping):
             return False
+        if "warnings" in report_inputs and report.get("warnings") != report_inputs["warnings"]:
+            return False
+        if "summary" in report_inputs:
+            stable_summary = report_inputs["summary"]
+            if not isinstance(stable_summary, Mapping):
+                return False
+            report_summary = report.get("summary")
+            if not isinstance(report_summary, Mapping):
+                return False
+            for key, value in stable_summary.items():
+                if report_summary.get(key) != value:
+                    return False
         # device_index/poll_interval_s/nvml_enabled (Fix I) are not part of the report-v2
         # schema at all, so they cannot be cross-checked from report.json's own content here;
         # resume.load_state's identity_sha256 check (the common case) is what enforces them.
@@ -1542,12 +1961,87 @@ def _report_matches_current_run(report: Mapping[str, Any], identity: Mapping[str
             for entry in report.get("candidates", [])
             if isinstance(entry, Mapping)
         }
-        for candidate_id in identity["candidates"]:
+        for candidate_id in identity["artifacts"]:
             if not isinstance(candidates_by_id.get(candidate_id), Mapping):
                 return False
         return True
     except (KeyError, TypeError):
         return False
+
+
+_REPORT_REUSE_VOLATILE_TOP_LEVEL = frozenset({"report_id", "started_utc", "completed_utc"})
+
+
+def _report_semantic_projection(report: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the canonical report-semantic surface used for reuse authorization.
+
+    Report reuse is deliberately stricter than the identity-shaped preflight above.  The report
+    itself is the complete public measurement record, so every field remains binding except the
+    publication metadata that is generated afresh on a later invocation.  Only the three
+    volatile top-level fields and ``runner.command`` are omitted; all ordered arrays, nested
+    metrics, legal evidence, warnings, summary values, runner identity, and hardware identity
+    remain in the projection.
+
+    The caller validates the report against the current protocol and schemas before asking for a
+    projection.  An unknown property or malformed nested value therefore cannot be smuggled
+    through by simply being copied into both sides of a comparison.
+    """
+
+    projected = {
+        key: value
+        for key, value in report.items()
+        if key not in _REPORT_REUSE_VOLATILE_TOP_LEVEL
+    }
+    runner = projected.get("runner")
+    if isinstance(runner, Mapping):
+        stable_runner = dict(runner)
+        stable_runner.pop("command", None)
+        projected["runner"] = stable_runner
+    return projected
+
+
+def _validate_existing_report(
+    report: Any,
+    *,
+    json_path: Path,
+    protocol: Mapping[str, Any],
+    report_schema: Mapping[str, Any],
+    corpus: Mapping[str, Any],
+    corpus_schema: Mapping[str, Any],
+) -> None:
+    """Validate an existing report before any expected-report assembly or derivative repair."""
+
+    try:
+        validate_report_consistency(report, protocol, report_schema, corpus, corpus_schema)
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        _fail(
+            "report_identity_mismatch",
+            f"{json_path} failed current report validation; refusing derivative repair: {exc}",
+        )
+
+
+def _compare_reusable_report_semantics(
+    report: Mapping[str, Any],
+    expected_report: Mapping[str, Any],
+    *,
+    json_path: Path,
+) -> None:
+    """Compare the complete report semantics after both sides have passed validation."""
+
+    try:
+        actual_semantics = canonical_sha256(_report_semantic_projection(report))
+        expected_semantics = canonical_sha256(_report_semantic_projection(expected_report))
+    except (TypeError, ValueError, UnicodeError) as exc:
+        _fail(
+            "report_identity_mismatch",
+            f"{json_path} has no canonical semantic projection; refusing derivative repair: {exc}",
+        )
+    if actual_semantics != expected_semantics:
+        _fail(
+            "report_identity_mismatch",
+            f"{json_path} differs from the current run's complete report semantics; "
+            "refusing derivative repair",
+        )
 
 
 # --------------------------------------------------------------------------------------------
@@ -1557,6 +2051,26 @@ def _report_matches_current_run(report: Mapping[str, Any], identity: Mapping[str
 
 def _ensure_output_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
+
+
+def _artifact_store_parent(output_dir: Path) -> Path:
+    """Return the lexical artifact-store parent, allowing only macOS's trusted ``/var`` alias."""
+
+    path = Path(output_dir)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    # TemporaryDirectory on macOS commonly returns ``/var/...`` while the real namespace is
+    # ``/private/var/...``.  Canonicalize only that known system alias; preserve every caller
+    # supplied component (including ``..`` and non-system symlinks) for ArtifactStore's guard.
+    if (
+        len(path.parts) >= 2
+        and path.parts[1] == "var"
+        and ".." not in path.parts
+        and Path("/var").is_symlink()
+        and Path("/var").resolve() == Path("/private/var")
+    ):
+        path = Path("/private/var", *path.parts[2:])
+    return path
 
 
 def _atomic_publish(path: Path, payload: bytes, *, replace_existing: bool) -> None:
@@ -1618,10 +2132,10 @@ def _write_run_identity(output_dir: Path, identity: Mapping[str, Any]) -> None:
     report.json is schema-constrained (report-v2 forbids unknown properties) and several
     identity fields -- device_index, poll_interval_s, nvml_enabled -- have no home in that
     schema at all, so they can never be cross-checked from the report's own content. This
-    sidecar is the authoritative record of exactly which identity is (or is about to be)
+    identity record is the authoritative record of exactly which identity is (or is about to be)
     producing the report/nvml.csv/review.csv in this output_dir, checked by hash (never by
     merely existing) before any of them is ever reused. Not one of the five operator return
-    files; internal bookkeeping only, like ``.sidecars/``. Always overwritten (this file's only
+    files; internal bookkeeping only, alongside ``.artifacts/``. Always overwritten (this file's only
     job is to describe whatever is currently -- or about to be -- on disk, so there is nothing to
     preserve from an older identity).
 
@@ -1680,13 +2194,38 @@ def _has_matching_complete_state(state_path: Path, current_identity_sha256: str)
     identity_sha256 = data.get("identity_sha256")
     if not isinstance(identity_sha256, str) or identity_sha256 != current_identity_sha256:
         return False
+    # Recovery adoption must not treat the pre-artifact v1 result-only state as evidence.  The
+    # normal loader refuses that schema, but this deliberately read-only fast path runs earlier
+    # when the identity sidecar is missing and must apply the same migration boundary.
+    if data.get("schema_version") != 2:
+        return False
     stored_identity = data.get("identity")
     if not isinstance(stored_identity, Mapping) or canonical_sha256(stored_identity) != identity_sha256:
         return False
     entries = data.get("entries")
     if not isinstance(entries, list) or not entries:
         return False
-    return all(isinstance(entry, Mapping) and entry.get("state") == "complete" for entry in entries)
+    return all(
+        isinstance(entry, Mapping)
+        and entry.get("state") == "complete"
+        and "result" in entry
+        and "artifact_ref" in entry
+        for entry in entries
+    )
+
+
+def _path_is_present(path: Path) -> bool:
+    """Return whether a path exists, including a broken symlink or unreadable entry."""
+
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        # Treat an inspection failure as present so the caller fails closed instead of creating
+        # a new identity/state beside an entry it could not safely inspect.
+        return True
+    return True
 
 
 def _establish_run_identity_up_front(
@@ -1695,19 +2234,20 @@ def _establish_run_identity_up_front(
     """Validate/establish ``.run-identity.json`` before a single cell executes (Fix L), and
     guarantee the identity record can never trail a published report.json (Fix M).
 
-    Called immediately once ``identity`` is computed -- before resume state is loaded or
-    created, before the executor is built, and before ``RunCoordinator.run()`` can touch a
-    single per-cell sidecar or review preview. This matters because those are keyed only by
-    CellKey, not by run identity: without this up-front check, a rejected run (caught by the old
-    end-of-run-only Fix J guard) had already overwritten the ORIGINAL run's sidecars/previews by
-    the time it was caught, corrupting evidence that a resumed original run would then silently
-    fold into a report claiming it came from the original measurement.
+    Called once ``identity`` is computed -- before a non-replace resume state is loaded or
+    created, and before the executor is built or ``RunCoordinator.run()`` can commit a per-cell
+    artifact bundle.  A replace invocation validates its existing state immediately before this
+    function so an incompatible state cannot be discovered after the sidecar has been overwritten.
+    This matters because bundles are keyed by CellKey beneath the run's artifact store: without
+    this up-front check, a rejected run (caught by the old end-of-run-only Fix J guard) could
+    publish evidence before it was caught, corrupting evidence that a resumed original run would
+    then silently fold into a report claiming it came from the original measurement.
 
     Four cases, in order:
 
-    * ``--replace``: an explicit fresh start. Overwrite the identity record unconditionally --
-      whatever (if anything) previously produced this output_dir is being replaced regardless,
-      and Fix N's per-file no-clobber-unless-replace logic will do the same for the other outputs.
+    * ``--replace``: an explicit fresh start. The caller validates an existing state path against
+      this identity before entering this branch; only then is the identity record overwritten,
+      and Fix N's per-file no-clobber-unless-replace logic does the same for other outputs.
     * report.json exists and its persisted identity hash already matches this invocation's: nothing
       to do -- a legitimate no-op re-run or repair pass.
     * report.json exists but the persisted identity is ABSENT: this is the Fix M recovery case --
@@ -1729,7 +2269,7 @@ def _establish_run_identity_up_front(
       profile, matrix selection, candidate artifacts, or measurement configuration such as
       --device-index/--poll-interval-s/--no-nvml) reusing this --output-dir. Refused immediately,
       with zero side effects -- no resume state created or loaded, no executor built, no cell
-      executed, no sidecar or review preview touched.
+      executed, and no artifact bundle committed.
     * report.json does not exist yet (a fresh run, or an interrupted run whose report was never
       published): if no identity is persisted yet, establish one now -- covering both a genuinely
       fresh output_dir and the first invocation of a run this fix hasn't seen complete yet. If one
@@ -1766,7 +2306,10 @@ def _establish_run_identity_up_front(
                 # actually gates adoption; this additionally catches a report.json edited or
                 # replaced beneath a state file that otherwise matches.
                 if _report_matches_current_run(published_report, identity):
-                    _write_run_identity(output_dir, identity)
+                    # Do not adopt/write the sidecar from this shallow preflight.  The state
+                    # shape is only permission to continue; exact artifact refs and result
+                    # bytes are validated by RunCoordinator after ArtifactStore opens.  The
+                    # sidecar is written only after that store-backed validation succeeds.
                     return
             raise DriverFailure(
                 "report_identity_mismatch",
@@ -1814,15 +2357,29 @@ class RunnerLog:
 
     def __init__(self, path: Path):
         self.path = path
-        self._stream = _open_append_0644(path)
+        # Opening lazily matters for identity preflight: a rejected invocation must not even
+        # create or append to the prior run's runner.log.  Accepted runs still open in append
+        # mode on their first diagnostic write, preserving resume history.
+        self._stream: Any | None = None
+
+    def _ensure_stream(self) -> Any:
+        if self._stream is None:
+            self._stream = _open_append_0644(self.path)
+        return self._stream
 
     def write(self, message: str) -> None:
         timestamp = datetime.now(timezone.utc).isoformat()
-        self._stream.write(f"{timestamp} {message}\n")
-        self._stream.flush()
+        stream = self._ensure_stream()
+        stream.write(f"{timestamp} {message}\n")
+        stream.flush()
+        try:
+            os.fsync(stream.fileno())
+        except OSError as exc:
+            raise DriverFailure("log_write", f"cannot durably write runner.log: {exc}") from exc
 
     def close(self) -> None:
-        self._stream.close()
+        if self._stream is not None:
+            self._stream.close()
 
 
 def _render_csv_bytes(header: Sequence[str], rows: Sequence[Sequence[str]]) -> bytes:
@@ -1865,12 +2422,12 @@ def _remove_stale_optional_output(path: Path) -> None:
     directory once the unlink lands, and a symlink refusal matching the rest of this module's
     output-path handling.
 
-    Only ever called from ``_write_csv_file`` when ``replace`` or ``verify_and_repair`` is set --
-    i.e. only when the driver is actively (re)publishing this output_dir's canonical state for
-    the CURRENT identity, never during a plain no-clobber fresh publish. Leaving a PRIOR run's
-    file in place here would misattribute its rows to the current identity: e.g. a production
-    CUDA run's nvml.csv/review.csv surviving underneath a ``--replace`` synthetic CPU-only report
-    that has no such rows at all.
+    Only ever called from ``_write_csv_file`` when ``replace``, ``verify_and_repair`` or the
+    post-identity ``remove_empty`` publication flag is set -- i.e. only when the driver is
+    actively (re)publishing this output_dir's canonical state for the CURRENT identity, never
+    during a plain no-clobber fresh publish. Leaving a PRIOR run's file in place here would
+    misattribute its rows to the current identity: e.g. a production CUDA run's nvml.csv/review.csv
+    surviving underneath a fresh synthetic CPU-only report that has no such rows at all.
     """
 
     try:
@@ -1898,12 +2455,13 @@ def _write_csv_file(
     *,
     replace: bool,
     verify_and_repair: bool = False,
+    remove_empty: bool = False,
     merge_existing_rows: Callable[[Sequence[Sequence[str]], Sequence[Sequence[str]]], list[list[str]]] | None = None,
 ) -> None:
     """Publish one driver-owned CSV (nvml.csv/review.csv) fresh, exactly once, atomically.
 
     Fix E: both files are a deterministic function of durable completed state (nvml.csv from
-    each cell's sidecar, review.csv from the completed results plus corpus metadata), assembled
+    each cell's exact committed evidence, review.csv from the completed results plus corpus metadata), assembled
     only after every plan cell is complete -- never incrementally appended to during execution,
     which could otherwise duplicate a cell's rows if it were retried after a resume. Writes
     nothing (and creates no file) when ``rows`` is empty, matching the existing contract that
@@ -1913,12 +2471,13 @@ def _write_csv_file(
     at the final path.
 
     Fix Q: an empty ``rows`` under ``replace`` or ``verify_and_repair`` additionally REMOVES any
-    file already at ``path`` (see ``_remove_stale_optional_output``) -- both modes mean the
-    driver is actively republishing this output_dir's canonical state for the current identity,
-    so a PRIOR run's file (e.g. a production CUDA run's nvml.csv/review.csv surviving underneath
-    a ``--replace`` synthetic CPU-only report with no such rows at all) must not be left behind
-    to be misread as belonging to the current report. A plain fresh, non-replace, non-repair
-    publish with empty rows still does nothing at all, same as before this fix.
+    file already at ``path`` (see ``_remove_stale_optional_output``).  The evidence regeneration
+    path also sets ``remove_empty`` after identity ownership is established, including on a fresh
+    non-replace publish.  Those modes mean the driver is actively republishing this output_dir's
+    canonical state for the current identity, so a PRIOR run's file (e.g. a production CUDA
+    run's nvml.csv/review.csv surviving underneath a synthetic CPU-only report with no rows at
+    all) must not be left behind to be misread as belonging to the current report.  A direct plain
+    fresh, non-replace, non-repair publish with empty rows still does nothing at all.
 
     ``verify_and_repair`` (Fix K, replacing the earlier ``only_if_missing``): used when
     repairing a resumed run's output directory (report.json already published under the current
@@ -1938,8 +2497,12 @@ def _write_csv_file(
     back to the unconditional canonical replacement below, same as before this parameter existed.
     """
 
+    if path.is_symlink():
+        # Check before reading the existing bytes: a symlink to an already-canonical target must
+        # still be rejected rather than treated as a harmless no-op during verify/repair.
+        _fail("output_path", f"{path} must not be a symlink")
     if not rows:
-        if replace or verify_and_repair:
+        if replace or verify_and_repair or remove_empty:
             _remove_stale_optional_output(path)
         return
     payload = _render_csv_bytes(header, rows)
@@ -2014,52 +2577,115 @@ def _merge_review_rows(
     return merged
 
 
-def _regenerate_sidecar_outputs(
+def _regenerate_public_evidence_outputs(
+    store: ArtifactStore,
     output_dir: Path,
-    review_dir: Path | None,
     corpus: Mapping[str, Any],
     plan: MatrixPlan,
     completed: Sequence[Mapping[str, Any]],
     *,
     replace: bool,
+    nvml_enabled: bool,
+    review_enabled: bool = True,
     verify_and_repair: bool = False,
+    require_nvml_stages: bool = False,
 ) -> None:
-    """Assemble nvml.csv and review.csv once, from durable completed state (Fix E).
+    """Assemble public evidence CSVs from the exact committed refs in complete state.
 
-    Called only after ``coordinator.completed_records()`` has confirmed every plan cell is
-    complete. Iterates ``plan.cells`` in its fixed order (matching ``completed``'s order, per
-    ``RunCoordinator``), so re-running this after a resume always produces the identical file:
-    exactly one row-set per cell, regardless of how many partial attempts that cell needed.
-
-    Fix F/K: also called (with ``verify_and_repair=True``) when report.json already existed
-    under the current identity and every cell was already complete -- a crash or a manual
-    deletion/truncation that left report.json present but nvml.csv/review.csv missing or
-    corrupted must still be repaired on the next resumed invocation, since the per-cell sidecars
-    this reads from remain durable on disk regardless of whether report.json itself needed
-    regenerating. ``verify_and_repair`` never trusts mere existence -- see ``_write_csv_file``.
+    Each record's exact immutable generation is revalidated and read; the current pointer is
+    never followed on behalf of a persisted older ref.  Cell order is the MatrixPlan order, and
+    every row in each exact committed evidence file is preserved verbatim; abandoned retry
+    generations are absent because they are not in complete state.  Review paths point directly
+    at the immutable artifact
+    generation's preview directory; no mutable preview tree is copied or overwritten.
     """
+
+    if len(completed) != len(plan.cells):
+        raise ArtifactStoreFailure(
+            "completed_count",
+            f"completed records contain {len(completed)} cells but the plan contains {len(plan.cells)}",
+        )
+    for index, (cell, record) in enumerate(zip(plan.cells, completed)):
+        if not isinstance(record, Mapping):
+            raise ArtifactStoreFailure("completed_shape", f"completed record {index} must be a mapping")
+        result = record.get("result")
+        if not isinstance(result, Mapping):
+            raise ArtifactStoreFailure("result_shape", f"completed record {index} has no result mapping")
+        expected_identity = _base_result_fields(cell)
+        for field, expected in expected_identity.items():
+            if result.get(field) != expected:
+                raise ArtifactStoreFailure(
+                    "cell_mismatch",
+                    f"completed record {index} result.{field} does not match {cell!r}",
+                )
 
     shots = _shot_index(corpus)
     nvml_rows: list[list[str]] = []
     review_rows: list[list[str]] = []
     for cell, record in zip(plan.cells, completed):
-        nvml_rows.extend(_read_nvml_sidecar(output_dir, cell))
         result = record["result"]
-        if result.get("status") != "pass" or review_dir is None:
+        artifact_ref = record.get("artifact_ref")
+        if not isinstance(artifact_ref, Mapping):
+            raise ArtifactStoreFailure("artifact_ref_shape", f"completed record for {cell!r} has no exact artifact_ref")
+        _validate_committed_ref(store, cell, result, artifact_ref)
+        manifest = store.load_ref(artifact_ref)
+        named_paths = {entry["path"] for entry in manifest["artifacts"]}
+        evidence_path = "evidence/nvml_rows.json"
+        if evidence_path in named_paths:
+            if not (nvml_enabled and result.get("status") == "pass" and result.get("provider") == "cuda"):
+                raise ArtifactStoreFailure(
+                    "nvml_unexpected",
+                    f"completed cell {cell!r} carries NVML evidence while NVML is not required",
+                )
+            decoded_rows = _decode_nvml_rows(
+                store.read_artifact(artifact_ref, evidence_path),
+                expected_identity=_base_result_fields(cell),
+                required_stages=(
+                    _REQUIRED_FINAL_NVML_STAGES
+                    if require_nvml_stages and result.get("status") == "pass" and result.get("provider") == "cuda"
+                    else None
+                ),
+            )
+            if not decoded_rows:
+                raise ArtifactStoreFailure(
+                    "nvml_missing", f"passing CUDA cell {cell!r} has empty committed NVML evidence",
+                )
+            nvml_rows.extend(decoded_rows)
+        elif nvml_enabled and result.get("status") == "pass" and result.get("provider") == "cuda":
+            raise ArtifactStoreFailure(
+                "nvml_missing",
+                f"passing CUDA cell {cell!r} has no committed {evidence_path}",
+            )
+
+        result = record["result"]
+        if result.get("status") != "pass" or not review_enabled:
             continue
         shot_entry = shots.get(cell.shot)
         if shot_entry is None or _shot_has_analytic_truth(shot_entry[1]):
             continue
         category = (shot_entry[1].get("categories") or [""])[0]
+        preview_path = ""
+        warped_path = "previews/offset_1_warped.pfm"
+        flow_path = "previews/offset_1_flow.pfm"
+        if warped_path in named_paths and flow_path in named_paths:
+            # read_artifact revalidates the exact bytes before exposing the immutable directory
+            # path, so a tampered or swapped generation fails publication rather than creating a
+            # review row that points at unverified evidence.
+            store.read_artifact(artifact_ref, warped_path)
+            store.read_artifact(artifact_ref, flow_path)
+            preview_path = str(store.artifact_path(artifact_ref, warped_path).parent)
         review_rows.append([
             _review_label(cell.shot, cell.candidate), cell.shot, category,
             cell.conditioning, cell.cap, cell.provider, cell.host_load,
-            str(_review_preview_dir(review_dir, cell)), "", "", "", "", "", "",
+            preview_path, "", "", "", "", "", "",
         ])
-    _write_csv_file(output_dir / "nvml.csv", NVML_CSV_HEADER, nvml_rows, replace=replace, verify_and_repair=verify_and_repair)
+    _write_csv_file(
+        output_dir / "nvml.csv", NVML_CSV_HEADER, nvml_rows,
+        replace=replace, verify_and_repair=verify_and_repair, remove_empty=True,
+    )
     _write_csv_file(
         output_dir / "review.csv", REVIEW_CSV_HEADER, review_rows, replace=replace,
-        verify_and_repair=verify_and_repair, merge_existing_rows=_merge_review_rows,
+        verify_and_repair=verify_and_repair, remove_empty=True, merge_existing_rows=_merge_review_rows,
     )
 
 
@@ -2152,6 +2778,14 @@ def _render_summary_bytes(report: Mapping[str, Any], plan: MatrixPlan) -> bytes:
 
 @dataclass
 class RunConfig:
+    """Validated driver inputs plus explicit dependency seams used only by tests.
+
+    The runtime/array/NVML/EXR and callback fields below are test-only injection seams.  The
+    production CLI does not expose arbitrary module or callable paths; ``main`` always wires
+    the checked-in production implementations.  They are intentionally absent from RunSpec
+    identity because they are execution harness dependencies, not user-selectable run inputs.
+    """
+
     protocol: Mapping[str, Any]
     corpus: Mapping[str, Any]
     candidate_entries: Any
@@ -2167,12 +2801,23 @@ class RunConfig:
     report_metadata: Mapping[str, Any]
     protocol_path: Path
     replace: bool
-    runtime_module: Any
-    array_module: Any
-    nvml_backend_factory: Callable[[], NvmlBackend] | None
-    exr_decoder: Callable[..., dict[str, Any]]
-    host_load_checkpoint: HostLoadCheckpoint = interactive_host_load_checkpoint
-    cuda_measurement_runner: CudaMeasurementRunner = run_cuda_measurement_in_subprocess
+    # Test-only injection seams; production CLI always supplies trusted implementations.
+    runtime_module: Any = field(metadata={"test_only_injection": True})
+    array_module: Any = field(metadata={"test_only_injection": True})
+    nvml_backend_factory: Callable[[], NvmlBackend] | None = field(metadata={"test_only_injection": True})
+    exr_decoder: Callable[..., dict[str, Any]] = field(metadata={"test_only_injection": True})
+    host_load_checkpoint: HostLoadCheckpoint = field(
+        default=interactive_host_load_checkpoint, metadata={"test_only_injection": True},
+    )
+    cuda_measurement_runner: CudaMeasurementRunner = field(
+        default=run_cuda_measurement_in_subprocess, metadata={"test_only_injection": True},
+    )
+
+    def __post_init__(self) -> None:
+        # Normalize the execution-facing config before matrix work, identity formation, or any
+        # executor can observe it.  _build_run_spec repeats this at its narrower boundary for
+        # direct callers and compatibility tests.
+        self.chain_offsets = _canonical_chain_offsets(self.chain_offsets)
 
 
 @dataclass
@@ -2200,130 +2845,80 @@ def _selection_axes(selection: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
-    runner_log.write("run invoked")
-    protocol = config.protocol
-    corpus = config.corpus
-    selection = config.selection
-    profile = selection["profile"]
-    environment = selection["environment"]
-
-    try:
-        plan = build_matrix(
-            protocol, corpus, config.candidate_entries, _selection_axes(selection), profile, environment,
-        )
-    except MatrixFailure as exc:
-        runner_log.write(f"matrix planning failed: {exc}")
-        raise
-
-    runner_log.write(f"matrix planned: {len(plan.cells)} cells, matrix_sha256={plan.matrix_sha256}")
-
-    artifacts = _validate_selected_artifacts(
-        plan, config.artifact_map, config.protocol_path,
-    )
-    runner_log.write(f"validated artifacts for candidates: {sorted(artifacts)}")
-
-    hardware = _default_hardware()
-    hardware.update({k: v for k, v in config.report_metadata.get("hardware", {}).items() if v})
-    runner_section = dict(config.report_metadata.get("runner", {}))
-    _require_runner_fields(runner_section)
-
-    identity = _compute_identity(
-        protocol, corpus, plan, environment, profile, artifacts, runner_section, hardware, config.chain_offsets,
-        candidate_entries=config.candidate_entries,
-        report_schema=config.report_schema, corpus_schema=config.corpus_schema,
-        device_index=config.device_index, poll_interval_s=config.poll_interval_s,
-        nvml_enabled=config.nvml_backend_factory is not None,
-    )
-
-    # Fix L/M: validate/establish .run-identity.json now -- before resume state is loaded or
-    # created, before the executor is built, and before a single cell can execute and overwrite
-    # a CellKey-keyed sidecar or review preview that might belong to a different, already-
-    # published run reusing this --output-dir. See `_establish_run_identity_up_front`.
-    _establish_run_identity_up_front(config.output_dir, config.state_path, identity, replace=config.replace)
-
-    if config.state_path.exists():
-        state = load_state(config.state_path, identity, plan)
-        runner_log.write("resumed existing state")
-    else:
-        state = create_state(config.state_path, identity, plan)
-        runner_log.write("created new state")
-
-    review_dir = config.output_dir / "review-previews"
-    executor, exec_ctx = build_executor(
-        protocol=protocol,
-        corpus=corpus,
-        profile=profile,
-        artifacts=artifacts,
-        runtime_module=config.runtime_module,
-        array_module=config.array_module,
-        nvml_backend_factory=config.nvml_backend_factory,
-        device_index=config.device_index,
-        poll_interval_s=config.poll_interval_s,
-        chain_offsets=config.chain_offsets,
-        exr_decoder=config.exr_decoder,
-        output_dir=config.output_dir,
-        review_dir=review_dir,
-        log=runner_log.write,
-        host_load_checkpoint=config.host_load_checkpoint,
-        cuda_measurement_runner=config.cuda_measurement_runner,
-    )
-
-    coordinator = RunCoordinator(config.state_path, identity, plan, executor)
-    coordinator.run()
-
-    try:
-        completed = coordinator.completed_records()
-    except IncompleteFailure as exc:
-        runner_log.write(f"run interrupted, not all cells complete: {exc}")
-        return RunResult(report=None, output_paths={}, incomplete=True)
+def _publish_run_outputs(
+    *,
+    artifact_store: ArtifactStore,
+    config: RunConfig,
+    identity: Mapping[str, Any],
+    protocol: Mapping[str, Any],
+    corpus: Mapping[str, Any],
+    plan: MatrixPlan,
+    profile: str,
+    environment: str,
+    hardware: Mapping[str, str],
+    runner_section: Mapping[str, Any],
+    runner_log: RunnerLog,
+    completed: Sequence[Mapping[str, Any]],
+    completed_with_refs: Sequence[Mapping[str, Any]],
+) -> RunResult:
+    """Publish reports and public evidence while the exact-ref store remains open."""
 
     json_path = config.output_dir / "report.json"
     csv_path = config.output_dir / "report.csv"
     summary_path = config.output_dir / "summary.txt"
 
     if json_path.exists() and not config.replace:
-        # Every cell was already complete, and an earlier invocation already published the
-        # report. Re-running assemble_report here would mint a fresh completed_utc/report_id
-        # and then collide with the no-clobber write below; instead this resumed invocation is
-        # a true no-op that returns exactly what was already published -- but ONLY if it was
-        # published under this SAME run identity (Fix A). resume.load_state above already
-        # refuses a state-file identity mismatch for the same --state path.
-        #
-        # Fix L/M: the AUTHORITATIVE identity check -- the persisted full-identity hash in
-        # .run-identity.json, catching a stale report.json left in a reused --output-dir under a
-        # fresh/different --state path, which load_state's check does not see -- already ran in
-        # `_establish_run_identity_up_front`, before a single cell executed. Reaching this point
-        # guarantees report.json (if present) is attributed to this exact run identity. The
-        # report-derived _report_matches_current_run check below is kept only as a second,
-        # non-authoritative safety net (e.g. report.json edited by hand beneath an untouched
-        # identity sidecar); it should be unreachable in ordinary operation.
         report = load_json(json_path)
-        if not _report_matches_current_run(report, identity):
-            raise DriverFailure(
-                "report_identity_mismatch",
-                f"{json_path} already exists but was produced under a different run identity "
-                "(different profile, evaluator, matrix selection, or candidate artifacts); "
-                "rerun with --replace to overwrite, or use a different --output-dir",
+        # A report.json reuse is authorized only by the report itself: first validate its full
+        # schema/protocol/corpus semantics, then build the report the current normalized inputs
+        # and exact completed records would produce, and compare the explicit canonical semantic
+        # projection.  The narrower identity-shaped check remains an up-front missing-sidecar
+        # gate, but it must never authorize derivative repair.
+        _validate_existing_report(
+            report,
+            json_path=json_path,
+            protocol=protocol,
+            report_schema=config.report_schema,
+            corpus=corpus,
+            corpus_schema=config.corpus_schema,
+        )
+        expected_metadata = _build_report_metadata(
+            config.report_metadata, corpus, environment, profile, hardware, runner_section,
+        )
+        try:
+            expected_report = assemble_report(
+                protocol, corpus, config.report_schema, config.corpus_schema,
+                expected_metadata, config.candidate_entries, plan, completed,
             )
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            _fail(
+                "report_identity_mismatch",
+                f"could not assemble the current report semantics for {json_path}; "
+                f"refusing derivative repair: {exc}",
+            )
+        _compare_reusable_report_semantics(
+            report,
+            expected_report,
+            json_path=json_path,
+        )
         runner_log.write("report.json already published by an earlier invocation under the same identity; not regenerating")
-        # summary.txt and report.csv are driver-owned, no-human-column outputs derived purely
-        # from the published report, so both are byte-verified and repaired here -- not merely
-        # written when missing. A crash mid-summary-write (the old direct write_bytes was not
-        # crash-atomic), a truncated report.csv, or a stale copy left by an interrupted earlier
-        # attempt is regenerated to canonical bytes; an already-correct file is left untouched.
         _publish_canonical_bytes(summary_path, _render_summary_bytes(report, plan))
         _publish_canonical_bytes(csv_path, render_csv(report))
-        # Fix F/K: repair nvml.csv/review.csv if a crash or manual deletion/truncation left them
-        # missing or incorrect -- the per-cell sidecars this reads from are durable regardless
-        # of whether report.json itself needed regenerating. Byte-verified, not existence-only
-        # (nvml.csv); review.csv additionally preserves human-edited columns across a repair
-        # (Fix N -- see `_merge_review_rows`).
-        _regenerate_sidecar_outputs(
-            config.output_dir, review_dir, corpus, plan, completed, replace=config.replace, verify_and_repair=True,
+        _regenerate_public_evidence_outputs(
+            artifact_store,
+            config.output_dir,
+            corpus,
+            plan,
+            completed_with_refs,
+            replace=config.replace,
+            nvml_enabled=config.nvml_backend_factory is not None,
+            verify_and_repair=True,
+            require_nvml_stages=profile == "final",
         )
     else:
-        report_metadata = _build_report_metadata(config.report_metadata, corpus, environment, profile, hardware, runner_section)
+        report_metadata = _build_report_metadata(
+            config.report_metadata, corpus, environment, profile, hardware, runner_section,
+        )
         report = assemble_report(
             protocol, corpus, config.report_schema, config.corpus_schema,
             report_metadata, config.candidate_entries, plan, completed,
@@ -2333,10 +2928,16 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
             replace=config.replace,
         )
         _publish_canonical_bytes(summary_path, _render_summary_bytes(report, plan))
-        _regenerate_sidecar_outputs(config.output_dir, review_dir, corpus, plan, completed, replace=config.replace)
-        # Fix M: .run-identity.json was already established up front, before this report was
-        # published (see `_establish_run_identity_up_front`) -- it is not written here again, so
-        # it can never trail report.json.
+        _regenerate_public_evidence_outputs(
+            artifact_store,
+            config.output_dir,
+            corpus,
+            plan,
+            completed_with_refs,
+            replace=config.replace,
+            nvml_enabled=config.nvml_backend_factory is not None,
+            require_nvml_stages=profile == "final",
+        )
         runner_log.write("run complete; report.json/summary.txt/nvml.csv/review.csv published")
 
     output_paths = {
@@ -2345,10 +2946,6 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
         "summary.txt": summary_path,
         "runner.log": runner_log.path,
     }
-    # Fix Q: nvml.csv/review.csv are optional -- advertise them only when they actually exist
-    # after publication (a CPU-only run has no nvml.csv; a run with no review-eligible passing
-    # cells has no review.csv), so a caller can never be pointed at a nonexistent or stale file
-    # a prior identity in this same --output-dir left behind.
     nvml_path = config.output_dir / "nvml.csv"
     if nvml_path.exists():
         output_paths["nvml.csv"] = nvml_path
@@ -2357,6 +2954,216 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
         output_paths["review.csv"] = review_path
     return RunResult(report=report, output_paths=output_paths, incomplete=False)
 
+
+def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
+    protocol = config.protocol
+    corpus = config.corpus
+    selection = config.selection
+    profile = selection["profile"]
+    environment = selection["environment"]
+
+    # Metadata and config preflight is deliberately before matrix execution, artifact loading,
+    # state creation, and executor construction.  A malformed/ambiguous report input must never
+    # get as far as a cell, and the normalized values below are reused for both identity and
+    # publication.
+    if not isinstance(config.report_metadata, Mapping):
+        _fail("report_metadata_shape", "report_metadata must be an object")
+    chain_offsets = _canonical_chain_offsets(config.chain_offsets)
+    config.chain_offsets = chain_offsets
+    hardware = _normalise_hardware(config.report_metadata.get("hardware", {}))
+    runner_section = _normalise_runner_metadata(config.report_metadata.get("runner", {}))
+    report_inputs = _stable_report_inputs(config.report_metadata)
+
+    try:
+        plan = build_matrix(
+            protocol, corpus, config.candidate_entries, _selection_axes(selection), profile, environment,
+        )
+    except MatrixFailure:
+        # No identity has been established yet, so do not create/append runner.log for this
+        # rejected invocation.  Accepted runs log the planned matrix immediately after identity
+        # preflight below.
+        raise
+
+    if profile == "final" and config.nvml_backend_factory is None and any(
+        cell.provider == "cuda" for cell in plan.cells
+    ):
+        _fail(
+            "nvml_required",
+            "the final profile includes CUDA cells and requires NVML sampling; remove --no-nvml",
+        )
+
+    artifacts = _validate_selected_artifacts(
+        plan, config.artifact_map, config.protocol_path,
+    )
+    run_spec = _build_run_spec(
+        protocol, corpus, plan, environment, profile, artifacts, runner_section, hardware, chain_offsets,
+        candidate_entries=config.candidate_entries,
+        report_schema=config.report_schema, corpus_schema=config.corpus_schema,
+        device_index=config.device_index, poll_interval_s=config.poll_interval_s,
+        nvml_enabled=config.nvml_backend_factory is not None,
+        report_inputs=report_inputs,
+    )
+    _assert_run_spec_identity(run_spec)
+    identity = run_spec.stable_inputs
+
+    # Fix L/M: validate/establish .run-identity.json now -- before resume state is loaded or
+    # created, before the executor is built, and before a single cell can commit a CellKey-keyed
+    # artifact bundle that might belong to a different, already-published run reusing this
+    # --output-dir. See `_establish_run_identity_up_front`.
+    # ``--replace`` is the one exception to that general ordering: an existing state path must be
+    # validated against the new identity first. Otherwise the unconditional replace branch could
+    # overwrite the sidecar, then discover an incompatible state and leave the output directory
+    # internally claiming the rejected run identity.
+    prevalidated_state: dict[str, Any] | None = None
+    if config.replace and _path_is_present(config.state_path):
+        try:
+            prevalidated_state = load_state(config.state_path, identity, plan)
+        except ResumeFailure as exc:
+            if exc.kind == "schema_version":
+                raise DriverFailure(
+                    "legacy_resume_state",
+                    f"{config.state_path} is a legacy/incompatible resume state and cannot be migrated; "
+                    "use a fresh --state path or replace the old state before using --replace",
+                ) from exc
+            raise
+
+    _establish_run_identity_up_front(config.output_dir, config.state_path, identity, replace=config.replace)
+
+    # The logger is intentionally first used only after identity preflight succeeds.  Its lazy
+    # open means an identity-rejected invocation cannot append even the initial `run invoked` line
+    # to the prior run's log.
+    runner_log.write("run invoked")
+    runner_log.write(f"matrix planned: {len(plan.cells)} cells, matrix_sha256={plan.matrix_sha256}")
+    runner_log.write(f"validated artifacts for candidates: {sorted(artifacts)}")
+
+    if prevalidated_state is not None:
+        state = prevalidated_state
+        runner_log.write("resumed existing state")
+    elif config.state_path.exists():
+        try:
+            state = load_state(config.state_path, identity, plan)
+        except ResumeFailure as exc:
+            if exc.kind == "schema_version":
+                raise DriverFailure(
+                    "legacy_resume_state",
+                    f"{config.state_path} is a legacy/incompatible resume state and cannot be migrated; "
+                    "use a fresh --state path or rerun with --replace after replacing the old state",
+                ) from exc
+            raise
+        runner_log.write("resumed existing state")
+    else:
+        state = create_state(config.state_path, identity, plan)
+        runner_log.write("created new state")
+
+    # Result artifacts and optional previews are one immutable bundle per exact cell generation.
+    # Keep the store open through report/CSV publication so every public evidence read is backed
+    # by the same validated exact refs and the writer lock spans the complete publication window.
+    artifact_parent = _artifact_store_parent(config.output_dir)
+    with ArtifactStore(artifact_parent / ".artifacts", run_spec.stable_inputs) as artifact_store:
+        if artifact_store.identity_sha256 != run_spec.identity_sha256:
+            _fail(
+                "identity_invalid",
+                "ArtifactStore identity_sha256 does not match the RunSpec identity_sha256",
+            )
+        executor, _exec_ctx = build_executor(
+            protocol=protocol,
+            corpus=corpus,
+            profile=profile,
+            artifacts=artifacts,
+            runtime_module=config.runtime_module,
+            array_module=config.array_module,
+            nvml_backend_factory=config.nvml_backend_factory,
+            device_index=config.device_index,
+            poll_interval_s=config.poll_interval_s,
+            chain_offsets=chain_offsets,
+            exr_decoder=config.exr_decoder,
+            review_enabled=True,
+            host_load_checkpoint=config.host_load_checkpoint,
+            cuda_measurement_runner=config.cuda_measurement_runner,
+        )
+
+        def committed_executor(cell: CellKey) -> CommittedExecution:
+            bundle = executor(cell)
+            for message in bundle.log_messages:
+                runner_log.write(message)
+            try:
+                execution = _commit_cell_bundle(
+                    artifact_store,
+                    cell,
+                    bundle,
+                    nvml_enabled=config.nvml_backend_factory is not None,
+                    require_nvml_stages=profile == "final",
+                )
+            except Exception as exc:
+                kind = getattr(exc, "kind", type(exc).__name__)
+                runner_log.write(
+                    f"cell persistence failed {json.dumps(cell.as_dict(), sort_keys=True)} kind={kind}"
+                )
+                raise
+            status = bundle.result.get("status")
+            if status == "pass":
+                runner_log.write(
+                    f"cell artifact committed status=pass {json.dumps(cell.as_dict(), sort_keys=True)}"
+                )
+            elif status == "fail":
+                failure = bundle.result.get("failure")
+                reason = failure.get("type", "unknown") if isinstance(failure, Mapping) else "unknown"
+                runner_log.write(
+                    f"cell artifact committed status=fail {json.dumps(cell.as_dict(), sort_keys=True)} reason={reason}"
+                )
+            elif status == "skip":
+                failure = bundle.result.get("failure")
+                reason = failure.get("type", "unknown") if isinstance(failure, Mapping) else "unknown"
+                runner_log.write(
+                    f"cell artifact committed status=skip {json.dumps(cell.as_dict(), sort_keys=True)} reason={reason}"
+                )
+            return execution
+
+        coordinator = RunCoordinator(
+            config.state_path,
+            identity,
+            plan,
+            committed_executor,
+            lambda cell, result, artifact_ref: _validate_committed_ref(
+                artifact_store, cell, result, artifact_ref,
+            ),
+        )
+        coordinator.run()
+
+        try:
+            completed_with_refs = coordinator.completed_records_with_refs()
+        except IncompleteFailure as exc:
+            runner_log.write(f"run interrupted, not all cells complete: {exc}")
+            return RunResult(report=None, output_paths={}, incomplete=True)
+
+        completed = [
+            {key: value for key, value in record.items() if key != "artifact_ref"}
+            for record in completed_with_refs
+        ]
+
+        published = _publish_run_outputs(
+            artifact_store=artifact_store,
+            config=config,
+            identity=identity,
+            protocol=protocol,
+            corpus=corpus,
+            plan=plan,
+            profile=profile,
+            environment=environment,
+            hardware=hardware,
+            runner_section=runner_section,
+            runner_log=runner_log,
+            completed=completed,
+            completed_with_refs=completed_with_refs,
+        )
+
+        # A report whose identity sidecar was missing is recoverable only after the complete
+        # report semantic reuse check and public exact-ref evidence publication above both
+        # succeed.  A tampered report therefore fails before this write and cannot be blessed by
+        # a shallow state-shape check; the derivative files likewise remain untouched.
+        if _read_run_identity_sha256(config.output_dir) != canonical_sha256(identity):
+            _write_run_identity(config.output_dir, identity)
+        return published
 
 def _default_hardware() -> dict[str, str]:
     return {
@@ -2388,15 +3195,21 @@ def _build_report_metadata(
     hardware: Mapping[str, Any],
     runner_section: Mapping[str, Any],
 ) -> dict[str, Any]:
-    # _require_runner_fields already validated evaluator_sha256/runtime/runtime_sha256 are
-    # present, earlier, as part of computing the resume identity -- not re-checked here.
-    runner = dict(runner_section)
-    runner.setdefault("name", "ww-bakeoff")
-    runner.setdefault("version", "0.1.0")
-    runner.setdefault("source_commit", _default_source_commit() or "0" * 40)
-    runner.setdefault("command", " ".join(sys.argv))
+    # These maps were normalized during preflight.  Filter again at the publication boundary so
+    # a direct/internal caller cannot accidentally emit a property outside report-v2, and always
+    # regenerate the volatile command rather than preserving a caller-supplied value.
+    runner = {
+        key: runner_section[key]
+        for key in _RUNNER_REPORT_KEYS
+        if key != "command" and key in runner_section
+    }
+    runner["command"] = " ".join(sys.argv)
 
-    hardware_out = {key: value for key, value in hardware.items() if key != "environment" and value}
+    hardware_out = {
+        key: hardware[key]
+        for key in _HARDWARE_REPORT_KEYS
+        if key in hardware and hardware[key] not in (None, "")
+    }
 
     report_id = raw_metadata.get("report_id")
     if not isinstance(report_id, str) or not report_id:
@@ -2525,7 +3338,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     try:
         result = run_bakeoff(config)
-    except (DriverFailure, MatrixFailure, ResumeFailure, CoordinatorFailure, ReportFailure) as exc:
+    except (DriverFailure, MatrixFailure, ResumeFailure, CoordinatorFailure, ArtifactStoreFailure, ReportFailure) as exc:
         print(f"run: {exc}", file=sys.stderr)
         return 2
 
@@ -2539,8 +3352,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 __all__ = [
     "CudaMeasurementResult",
     "CudaMeasurementRunner",
+    "CellBundle",
     "DriverFailure",
     "HostLoadCheckpoint",
+    "PreviewPayload",
     "REVIEW_CSV_HEADER",
     "RunConfig",
     "RunResult",

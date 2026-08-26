@@ -179,6 +179,8 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.measurement_tests)
   add_test(NAME bakeoff::pfm
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.pfm_tests)
+  add_test(NAME bakeoff::synthetic
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.synthetic_tests)
   add_test(NAME bakeoff::exr
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.exr_tests)
   add_test(NAME bakeoff::evaluator
@@ -189,6 +191,10 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.nvml_tests)
   add_test(NAME bakeoff::run
     COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.run_tests)
+  add_test(NAME bakeoff::run_spec
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.run_spec_tests)
+  add_test(NAME bakeoff::artifact_store
+    COMMAND "${Python3_EXECUTABLE}" -m tools.bakeoff.artifact_store_tests)
   add_test(NAME p25_5::admission
     COMMAND "${Python3_EXECUTABLE}" -m tools.p25_5.admission_tests)
   add_test(NAME p25_5::legal_review
@@ -217,6 +223,8 @@ if(Python3_Interpreter_FOUND)
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::pfm
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::synthetic
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::exr
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::evaluator
@@ -226,6 +234,10 @@ if(Python3_Interpreter_FOUND)
   set_tests_properties(bakeoff::nvml
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::run
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::run_spec
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(bakeoff::artifact_store
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(p25_5::admission
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

@@ -65,6 +65,17 @@ def _new_state(path: Path) -> dict:
     return create_state(path, IDENTITY, PLAN)
 
 
+def _ref(cell, suffix: str = "a") -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "identity_sha256": "1" * 64,
+        "cell_id": cell.candidate + "/" + cell.shot,
+        "cell_sha256": "2" * 64,
+        "attempt_id": "attempt-" + suffix,
+        "manifest_sha256": "3" * 64,
+    }
+
+
 def test_create_determinism_and_shape() -> None:
     with tempfile.TemporaryDirectory(prefix="whitewater-resume-") as temporary:
         path = Path(temporary) / "state.json"
@@ -77,7 +88,9 @@ def test_create_determinism_and_shape() -> None:
         assert first_bytes == path.read_bytes()
         assert stat.S_IMODE(path.stat().st_mode) == 0o644
         assert sorted(path.parent.iterdir()) == sorted([path, second_path])
+        assert first["schema_version"] == 2
         assert [entry["state"] for entry in first["entries"]] == ["pending", "pending"]
+        assert all(set(entry) == {"cell", "state"} for entry in first["entries"])
 
 
 def test_create_collision_at_publication_does_not_clobber() -> None:
@@ -113,8 +126,7 @@ def test_identity_and_cell_strictness() -> None:
 
         _new_state(path)
         tampered = _raw_state(path)
-        tampered["schema_version"] = 2
-        tampered["identity"]["profile"] = "tampered"
+        tampered["schema_version"] = 1
         _write_raw(path, tampered)
         _failure("schema_version", lambda: load_state(path, IDENTITY, PLAN))
 
@@ -159,11 +171,11 @@ def test_json_and_result_strictness() -> None:
     with tempfile.TemporaryDirectory(prefix="whitewater-resume-") as temporary:
         path = Path(temporary) / "state.json"
         _new_state(path)
-        duplicate = '{"schema_version":1,"identity":{},"identity":{},"identity_sha256":"%s","entries":[]}' % ("0" * 64)
+        duplicate = '{"schema_version":2,"identity":{},"identity":{},"identity_sha256":"%s","entries":[]}' % ("0" * 64)
         _write_raw(path, duplicate)
         _failure("invalid_json", lambda: load_state(path, IDENTITY, PLAN))
 
-        nan_json = '{"schema_version":1,"identity":{"bad":NaN},"identity_sha256":"%s","entries":[]}' % ("0" * 64)
+        nan_json = '{"schema_version":2,"identity":{"bad":NaN},"identity_sha256":"%s","entries":[]}' % ("0" * 64)
         _write_raw(path, nan_json)
         _failure("invalid_json", lambda: load_state(path, IDENTITY, PLAN))
 
@@ -195,10 +207,47 @@ def test_json_and_result_strictness() -> None:
         cyclic_result = {}
         cyclic_result["cycle"] = cyclic_result
         mark_in_progress(path, IDENTITY, PLAN, CELLS[0])
-        _failure("identity_shape", lambda: mark_complete(path, IDENTITY, PLAN, CELLS[0], cyclic_result))
+        _failure("identity_shape", lambda: mark_complete(path, IDENTITY, PLAN, CELLS[0], cyclic_result, _ref(CELLS[0])))
 
         mapping_proxy = MappingProxyType({"nested": MappingProxyType({"value": 1})})
         _failure("json_value", lambda: create_state(path.with_name("mapping-proxy.json"), mapping_proxy, PLAN))
+
+
+def test_v1_state_is_refused_instead_of_silently_migrated() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-resume-") as temporary:
+        path = Path(temporary) / "state.json"
+        _new_state(path)
+        legacy = _raw_state(path)
+        legacy["schema_version"] = 1
+        legacy["entries"][0]["state"] = "complete"
+        legacy["entries"][0]["result"] = {"legacy": True}
+        _write_raw(path, legacy)
+        try:
+            load_state(path, IDENTITY, PLAN)
+        except ResumeFailure as failure:
+            assert failure.kind == "schema_version"
+            assert "schema_version 1" in str(failure)
+            assert "refused" in str(failure)
+        else:
+            raise AssertionError("legacy v1 state must not be migrated")
+
+
+def test_complete_entries_require_a_well_shaped_exact_ref() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-resume-") as temporary:
+        path = Path(temporary) / "state.json"
+        _new_state(path)
+        tampered = _raw_state(path)
+        tampered["entries"][0]["state"] = "complete"
+        tampered["entries"][0]["result"] = {"ok": True}
+        _write_raw(path, tampered)
+        _failure("artifact_ref_shape", lambda: load_state(path, IDENTITY, PLAN))
+
+        _new_state(path)
+        mark_in_progress(path, IDENTITY, PLAN, CELLS[0])
+        _failure(
+            "artifact_ref_shape",
+            lambda: mark_complete(path, IDENTITY, PLAN, CELLS[0], {"ok": True}, {"bad": True}),
+        )
 
 
 def test_interrupted_recovery() -> None:
@@ -217,15 +266,15 @@ def test_transitions_and_known_cells() -> None:
     with tempfile.TemporaryDirectory(prefix="whitewater-resume-") as temporary:
         path = Path(temporary) / "state.json"
         _new_state(path)
-        _failure("illegal_transition", lambda: mark_complete(path, IDENTITY, PLAN, CELLS[0], {"ok": True}))
+        _failure("illegal_transition", lambda: mark_complete(path, IDENTITY, PLAN, CELLS[0], {"ok": True}, _ref(CELLS[0])))
         _failure("unknown_cell", lambda: mark_in_progress(path, IDENTITY, PLAN, CellKey("no", "no", "no", "no", "no", "no")))
         mark_in_progress(path, IDENTITY, PLAN, CELLS[0])
-        complete = mark_complete(path, IDENTITY, PLAN, CELLS[0], {"ok": True, "samples": [1, 2]})
+        complete = mark_complete(path, IDENTITY, PLAN, CELLS[0], {"ok": True, "samples": [1, 2]}, _ref(CELLS[0]))
         assert complete["entries"][0]["state"] == "complete"
         assert complete["entries"][0]["result"] == {"ok": True, "samples": [1, 2]}
         _failure("illegal_transition", lambda: mark_in_progress(path, IDENTITY, PLAN, CELLS[0]))
         mark_in_progress(path, IDENTITY, PLAN, CELLS[1])
-        _failure("result_shape", lambda: mark_complete(path, IDENTITY, PLAN, CELLS[1], []))
+        _failure("result_shape", lambda: mark_complete(path, IDENTITY, PLAN, CELLS[1], [], _ref(CELLS[1])))
         _failure("illegal_transition", lambda: mark_in_progress(path, IDENTITY, PLAN, CELLS[1]))
 
 
@@ -255,6 +304,8 @@ def main() -> int:
     test_create_collision_at_publication_does_not_clobber()
     test_identity_and_cell_strictness()
     test_json_and_result_strictness()
+    test_v1_state_is_refused_instead_of_silently_migrated()
+    test_complete_entries_require_a_well_shaped_exact_ref()
     test_interrupted_recovery()
     test_transitions_and_known_cells()
     test_destination_security()
