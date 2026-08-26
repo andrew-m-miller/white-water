@@ -36,6 +36,14 @@ _STATE_KEYS = {"schema_version", "identity", "identity_sha256", "entries"}
 _ENTRY_KEYS = {"cell", "state"}
 _CELL_KEYS = {"candidate", "shot", "conditioning", "cap", "provider", "host_load"}
 _STATES = {"pending", "in_progress", "complete"}
+_ARTIFACT_REF_KEYS = {
+    "schema_version",
+    "identity_sha256",
+    "cell_id",
+    "cell_sha256",
+    "attempt_id",
+    "manifest_sha256",
+}
 
 
 def _fail(kind: str, message: str) -> None:
@@ -45,7 +53,11 @@ def _fail(kind: str, message: str) -> None:
 def _reject_nonfinite(value: Any, path: str = "$", seen: set[int] | None = None) -> None:
     """Reject non-JSON values, nonfinite numbers, non-string keys, and cycles."""
 
-    if value is None or isinstance(value, (str, bool, int)):
+    if value is None or isinstance(value, (bool, int)):
+        return
+    if isinstance(value, str):
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+            _fail("text_encoding", f"{path} contains an unpaired UTF-16 surrogate")
         return
     if isinstance(value, float):
         if not math.isfinite(value):
@@ -88,6 +100,8 @@ def _mapping(value: Any, path: str) -> Mapping[str, Any]:
 def _string(value: Any, path: str) -> str:
     if not isinstance(value, str) or not value:
         _fail("shape", f"{path} must be a non-empty string")
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+        _fail("text_encoding", f"{path} must be valid UTF-8 text")
     return value
 
 
@@ -125,8 +139,17 @@ def _validate_identity(identity: Any) -> dict[str, Any]:
 def _validate_state_header(mapping: Mapping[str, Any]) -> dict[str, Any]:
     """Validate the state fields needed before expanding a caller's plan."""
 
-    if not isinstance(mapping["schema_version"], int) or isinstance(mapping["schema_version"], bool) or mapping["schema_version"] != 1:
-        _fail("schema_version", "state schema_version must be integer 1")
+    if not isinstance(mapping["schema_version"], int) or isinstance(mapping["schema_version"], bool):
+        _fail("schema_version", "state schema_version must be integer 2")
+    if mapping["schema_version"] != 2:
+        # Do not silently reinterpret the v1 result-only format.  In particular, a v1 state may
+        # look structurally valid to older callers while lacking the exact generation that makes
+        # artifact-backed resume safe.
+        _fail(
+            "schema_version",
+            f"unsupported resume state schema_version {mapping['schema_version']!r}; "
+            "schema_version 1 states are refused and schema_version 2 is required",
+        )
     identity = _validate_identity(mapping["identity"])
     identity_sha256 = mapping["identity_sha256"]
     if not isinstance(identity_sha256, str) or len(identity_sha256) != 64 or identity_sha256 != identity_sha256.lower():
@@ -148,6 +171,40 @@ def _validate_result(value: Any, path: str) -> dict[str, Any]:
     return dict(mapping)
 
 
+def _validate_artifact_ref(value: Any, path: str = "artifact_ref") -> dict[str, Any]:
+    """Validate the persisted exact-generation reference without touching the artifact store.
+
+    Semantic validation (identity, manifest bytes, and artifact hashes) belongs to the injected
+    store validator in :mod:`coordinator`.  Resume still validates this narrow shape so a state
+    file cannot carry an arbitrary object where an exact reference is required.
+    """
+
+    mapping = _mapping(value, path)
+    if set(mapping) != _ARTIFACT_REF_KEYS:
+        _fail(
+            "artifact_ref_shape",
+            f"{path} must contain exactly schema_version, identity_sha256, cell_id, cell_sha256, "
+            "attempt_id, and manifest_sha256",
+        )
+    if type(mapping["schema_version"]) is not int or mapping["schema_version"] != 1:
+        _fail("artifact_ref_shape", f"{path}.schema_version must be integer 1")
+    for field in ("identity_sha256", "cell_sha256", "manifest_sha256"):
+        value_field = mapping[field]
+        if type(value_field) is not str or len(value_field) != 64 or value_field != value_field.lower():
+            _fail("artifact_ref_shape", f"{path}.{field} must be a lowercase SHA256")
+        try:
+            int(value_field, 16)
+        except ValueError as exc:
+            raise ResumeFailure("artifact_ref_shape", f"{path}.{field} must be hexadecimal") from exc
+    for field in ("cell_id", "attempt_id"):
+        value_field = mapping[field]
+        if type(value_field) is not str or not value_field:
+            _fail("artifact_ref_shape", f"{path}.{field} must be a non-empty string")
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in value_field):
+            _fail("artifact_ref_shape", f"{path}.{field} must be valid UTF-8 text")
+    return dict(mapping)
+
+
 def _validate_state_shape(state: Any, plan: MatrixPlan) -> tuple[dict[str, Any], tuple[CellKey, ...]]:
     mapping = _mapping(state, "state")
     if set(mapping) != _STATE_KEYS:
@@ -161,8 +218,8 @@ def _validate_state_shape(state: Any, plan: MatrixPlan) -> tuple[dict[str, Any],
     actual: list[CellKey] = []
     for index, entry in enumerate(entries):
         entry_mapping = _mapping(entry, f"entries[{index}]")
-        if not set(entry_mapping).issubset(_ENTRY_KEYS | {"result"}) or not _ENTRY_KEYS.issubset(entry_mapping):
-            _fail("entry_shape", f"entries[{index}] must contain exactly cell and state, plus optional result")
+        if not set(entry_mapping).issubset(_ENTRY_KEYS | {"result", "artifact_ref"}) or not _ENTRY_KEYS.issubset(entry_mapping):
+            _fail("entry_shape", f"entries[{index}] must contain exactly cell and state, plus complete-only result and artifact_ref")
         cell = _cell_from_json(entry_mapping["cell"], f"entries[{index}].cell")
         if cell in seen:
             _fail("duplicate_cell", f"entries[{index}] duplicates CellKey {cell!r}")
@@ -172,13 +229,24 @@ def _validate_state_shape(state: Any, plan: MatrixPlan) -> tuple[dict[str, Any],
         if status not in _STATES:
             _fail("status", f"entries[{index}].state is not a permitted state")
         if status == "complete":
-            if set(entry_mapping) != _ENTRY_KEYS | {"result"}:
-                _fail("result_shape", f"complete entries[{index}] must carry only a result object")
+            allowed_complete = _ENTRY_KEYS | {"result", "artifact_ref"}
+            if not set(entry_mapping).issubset(allowed_complete):
+                _fail("entry_shape", f"complete entries[{index}] must carry result and artifact_ref only")
             if "result" not in entry_mapping:
                 _fail("result_shape", f"complete entries[{index}] require a result object")
+            if "artifact_ref" not in entry_mapping:
+                _fail("artifact_ref_shape", f"complete entries[{index}] require an exact artifact_ref")
+            if set(entry_mapping) != allowed_complete:
+                _fail("entry_shape", f"complete entries[{index}] must carry result and artifact_ref only")
             _validate_result(entry_mapping["result"], f"entries[{index}].result")
+            _validate_artifact_ref(entry_mapping["artifact_ref"], f"entries[{index}].artifact_ref")
         elif set(entry_mapping) != _ENTRY_KEYS:
-            _fail("result_shape", f"only complete entries may carry a result")
+            # Preserve the older result_shape classification for a result accidentally attached
+            # to an unfinished entry; artifact_ref_shape remains the more actionable diagnosis
+            # when the new exact-reference field is the offending addition.
+            if "result" in entry_mapping:
+                _fail("result_shape", f"pending and in_progress entries may not carry result or artifact_ref")
+            _fail("artifact_ref_shape", f"pending and in_progress entries may not carry result or artifact_ref")
     if tuple(actual) != expected:
         _fail("cell_order", "state entries must match MatrixPlan CellKeys exactly in plan order")
     return dict(mapping), tuple(actual)
@@ -291,7 +359,7 @@ def create_state(path: Path | str, identity: Mapping[str, Any], plan: MatrixPlan
         _fail("state_exists", f"resume state already exists: {path}")
     normalized_identity = _validate_identity(identity)
     state = {
-        "schema_version": 1,
+        "schema_version": 2,
         "identity": normalized_identity,
         "identity_sha256": canonical_sha256(normalized_identity),
         "entries": [{"cell": cell.as_dict(), "state": "pending"} for cell in _expected_cells(plan)],
@@ -336,6 +404,7 @@ def _transition(
     current: str,
     target: str,
     result: Mapping[str, Any] | None = None,
+    artifact_ref: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(cell, CellKey):
         _fail("cell", "transition cell must be a CellKey")
@@ -353,7 +422,10 @@ def _transition(
     if target == "complete":
         if result is None:
             _fail("result_shape", "complete transition requires a result object")
+        if artifact_ref is None:
+            _fail("artifact_ref_shape", "complete transition requires an exact artifact_ref")
         replacement["result"] = _validate_result(result, "result")
+        replacement["artifact_ref"] = _validate_artifact_ref(artifact_ref)
     state["entries"][index] = replacement
     return _save_validated(state_path, state, plan)
 
@@ -370,10 +442,11 @@ def mark_complete(
     plan: MatrixPlan,
     cell: CellKey,
     result: Mapping[str, Any],
+    artifact_ref: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Atomically transition one in-progress cell to complete with an object result."""
+    """Atomically transition one in-progress cell to complete with result and exact artifact ref."""
 
-    return _transition(path, expected_identity, plan, cell, "in_progress", "complete", result)
+    return _transition(path, expected_identity, plan, cell, "in_progress", "complete", result, artifact_ref)
 
 
 __all__ = ["ResumeFailure", "create_state", "load_state", "mark_complete", "mark_in_progress"]

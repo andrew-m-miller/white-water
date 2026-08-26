@@ -18,7 +18,9 @@ from array import array
 from dataclasses import dataclass
 import json
 import math
+import os
 from pathlib import Path
+import tempfile
 from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 if __package__ in (None, ""):
@@ -729,25 +731,71 @@ def synthetic_partition() -> dict[str, Any]:
     }
 
 
-def write_pfm(path: Path, rows: Iterable[Sequence[Sequence[float]]], width: int, height: int) -> None:
-    """Write an RGB little-endian PFM without retaining the whole frame."""
+def encode_pfm(
+    rows: Iterable[Sequence[Sequence[float]]], width: int, height: int,
+) -> bytes:
+    """Return the exact RGB little-endian PFM bytes emitted for ``rows``.
 
+    The row validation and native ``array('f')`` packing intentionally mirror the former
+    streaming writer.  The supported bake-off targets are little-endian; retaining this packing
+    primitive keeps the pure encoder byte-for-byte compatible with existing generated fixtures.
+    No filesystem or global state is touched, so callers can hash or stage the result before
+    publication.
+    """
+
+    output = bytearray(f"PF\n{width} {height}\n-1.0\n".encode("ascii"))
+    row_count = 0
+    for row in rows:
+        if len(row) != width:
+            raise ValueError("synthetic row has the wrong width")
+        encoded = array("f")
+        for pixel in row:
+            if len(pixel) != 3:
+                raise ValueError("synthetic PFM output is RGB")
+            encoded.extend(float(channel) for channel in pixel)
+        output.extend(encoded.tobytes())
+        row_count += 1
+    if row_count != height:
+        raise ValueError("synthetic frame has the wrong height")
+    return bytes(output)
+
+
+def write_pfm(path: Path, rows: Iterable[Sequence[Sequence[float]]], width: int, height: int) -> None:
+    """Atomically publish an RGB PFM with 0644 mode and durable same-directory replacement."""
+
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as stream:
-        stream.write(f"PF\n{width} {height}\n-1.0\n".encode("ascii"))
-        row_count = 0
-        for row in rows:
-            if len(row) != width:
-                raise ValueError("synthetic row has the wrong width")
-            encoded = array("f")
-            for pixel in row:
-                if len(pixel) != 3:
-                    raise ValueError("synthetic PFM output is RGB")
-                encoded.extend(float(channel) for channel in pixel)
-            stream.write(encoded.tobytes())
-            row_count += 1
-        if row_count != height:
-            raise ValueError("synthetic frame has the wrong height")
+    payload = encode_pfm(rows, width, height)
+    descriptor = -1
+    temporary: Path | None = None
+    directory_descriptor = -1
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent),
+        )
+        temporary = Path(temporary_name)
+        os.fchmod(descriptor, 0o644)
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        directory_descriptor = os.open(
+            str(path.parent), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        os.fsync(directory_descriptor)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if directory_descriptor >= 0:
+            os.close(directory_descriptor)
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def write_case_frames(case_or_id: SyntheticCase | str, output_dir: Path, *, include_large: bool = False) -> None:
@@ -790,6 +838,7 @@ __all__ = [
     "foreground_displacement",
     "frame_rows",
     "generate_frame",
+    "encode_pfm",
     "truth_document",
     "synthetic_shot",
     "synthetic_partition",

@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
-from .coordinator import Executor, RunCoordinator
+from .coordinator import ArtifactRefValidator, Executor, RunCoordinator
 from .matrix import MatrixPlan, build_matrix
 from .reporting import assemble_report, write_report_pair
 from .resume import create_state, load_state
@@ -123,10 +123,14 @@ def run_session(
     csv_path: Path | str,
     executor: Executor,
     *,
+    artifact_ref_validator: ArtifactRefValidator,
     replace: bool = False,
 ) -> dict[str, Any]:
     """Run, assemble, and publish one complete validated bake-off report.
 
+    ``executor`` must return :class:`coordinator.CommittedExecution`; a result-only mapping is
+    rejected before it can complete a cell.  ``artifact_ref_validator`` is the store-backed
+    exact-generation check used both for fresh executions and for every reused complete entry.
     ``replace`` is exposed only as an explicit opt-in; the default preserves report publication's
     no-clobber contract.  Executor exceptions propagate unchanged and prevent report assembly.
     """
@@ -158,6 +162,7 @@ def run_session(
         identity,
         plan,
         executor,
+        artifact_ref_validator,
     ).run()
     report = assemble_report(
         protocol,

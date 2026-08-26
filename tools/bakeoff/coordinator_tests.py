@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 import tempfile
 from types import MappingProxyType
@@ -11,7 +12,7 @@ from unittest.mock import patch
 import unittest
 
 from . import coordinator as coordinator_module
-from .coordinator import CoordinatorFailure, IncompleteFailure, RunCoordinator
+from .coordinator import CommittedExecution, CoordinatorFailure, IncompleteFailure, RunCoordinator
 from .matrix import CellKey, MatrixPlan
 from .resume import create_state, load_state, mark_complete, mark_in_progress
 
@@ -48,6 +49,41 @@ def _result(cell: CellKey, *, status: str = "pass", failure=None, **extra):
     return result
 
 
+def _ref(cell: CellKey, suffix: str = "a") -> dict[str, str | int]:
+    return {
+        "schema_version": 1,
+        "identity_sha256": "1" * 64,
+        "cell_id": json.dumps(cell.as_dict(), sort_keys=True, separators=(",", ":")),
+        "cell_sha256": "2" * 64,
+        "attempt_id": f"attempt-{suffix}",
+        "manifest_sha256": "3" * 64,
+    }
+
+
+def _execution(cell: CellKey, *, suffix: str = "a", result=None) -> CommittedExecution:
+    return CommittedExecution(_result(cell) if result is None else result, _ref(cell, suffix))
+
+
+def _validate_ref(_cell, _result, _ref_value):
+    return None
+
+
+def _association_ref(cell: CellKey, result: dict) -> dict:
+    ref = _ref(cell)
+    canonical = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    ref["manifest_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return ref
+
+
+def _association_validator(cell: CellKey, result: dict, ref: dict) -> None:
+    expected_cell_id = json.dumps(cell.as_dict(), sort_keys=True, separators=(",", ":"))
+    if ref.get("cell_id") != expected_cell_id:
+        raise ValueError("artifact ref belongs to a different cell")
+    canonical = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if ref.get("manifest_sha256") != hashlib.sha256(canonical.encode("utf-8")).hexdigest():
+        raise ValueError("artifact ref does not prove this result")
+
+
 def _new_state(directory: str) -> Path:
     path = Path(directory) / "state.json"
     create_state(path, IDENTITY, PLAN)
@@ -75,9 +111,11 @@ class CoordinatorTests(unittest.TestCase):
                 index = CELLS.index(cell)
                 self.assertEqual(raw["entries"][index]["state"], "in_progress")
                 seen.append(cell)
-                return _result(cell, marker=len(seen))
+                return CommittedExecution(
+                    _result(cell, marker=len(seen)), _ref(cell, str(len(seen)))
+                )
 
-            records = RunCoordinator(path, IDENTITY, PLAN, execute).run()
+            records = RunCoordinator(path, IDENTITY, PLAN, execute, _validate_ref).run()
             self.assertEqual(seen, list(CELLS))
             self.assertEqual([record["cell"] for record in records], [cell.as_dict() for cell in CELLS])
             self.assertEqual([record["result"]["marker"] for record in records], [1, 2, 3])
@@ -87,17 +125,17 @@ class CoordinatorTests(unittest.TestCase):
             path = _new_state(directory)
             calls, count = self._count_validations()
             with patch.object(coordinator_module, "_validate_result", side_effect=count):
-                RunCoordinator(path, IDENTITY, PLAN, lambda cell: _result(cell)).run()
+                RunCoordinator(path, IDENTITY, PLAN, lambda cell: _execution(cell), _validate_ref).run()
             self.assertEqual(calls, list(CELLS))
 
     def test_resumed_run_validates_existing_and_fresh_results_once_each(self):
         with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
             path = _new_state(directory)
             mark_in_progress(path, IDENTITY, PLAN, CELLS[0])
-            mark_complete(path, IDENTITY, PLAN, CELLS[0], _result(CELLS[0]))
+            mark_complete(path, IDENTITY, PLAN, CELLS[0], _result(CELLS[0]), _ref(CELLS[0]))
             calls, count = self._count_validations()
             with patch.object(coordinator_module, "_validate_result", side_effect=count):
-                records = RunCoordinator(path, IDENTITY, PLAN, lambda cell: _result(cell)).run()
+                records = RunCoordinator(path, IDENTITY, PLAN, lambda cell: _execution(cell), _validate_ref).run()
             self.assertEqual(calls, list(CELLS))
             self.assertEqual([record["cell"] for record in records], [cell.as_dict() for cell in CELLS])
 
@@ -106,11 +144,11 @@ class CoordinatorTests(unittest.TestCase):
             path = _new_state(directory)
             for cell in CELLS:
                 mark_in_progress(path, IDENTITY, PLAN, cell)
-                mark_complete(path, IDENTITY, PLAN, cell, _result(cell))
+                mark_complete(path, IDENTITY, PLAN, cell, _result(cell), _ref(cell))
 
             for read_records in (
-                lambda: RunCoordinator(path, IDENTITY, PLAN, lambda cell: _result(cell)).completed_records(),
-                lambda: coordinator_module.completed_records(path, IDENTITY, PLAN),
+                lambda: RunCoordinator(path, IDENTITY, PLAN, lambda cell: _execution(cell), _validate_ref).completed_records(),
+                lambda: coordinator_module.completed_records(path, IDENTITY, PLAN, _validate_ref),
             ):
                 with self.subTest(path=read_records):
                     calls, count = self._count_validations()
@@ -128,10 +166,12 @@ class CoordinatorTests(unittest.TestCase):
                 first_seen.append(cell)
                 if cell == CELLS[1]:
                     raise RuntimeError("interrupted")
-                return _result(cell)
+                return CommittedExecution(_result(cell), _ref(cell))
 
             with self.assertRaises(RuntimeError):
-                RunCoordinator(path, IDENTITY, PLAN, interrupt).run()
+                RunCoordinator(path, IDENTITY, PLAN, lambda cell: (
+                    interrupt(cell) if cell != CELLS[1] else interrupt(cell)
+                ), _validate_ref).run()
             raw = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(raw["entries"][1]["state"], "in_progress")
             interrupted = load_state(path, IDENTITY, PLAN)
@@ -141,7 +181,9 @@ class CoordinatorTests(unittest.TestCase):
 
             resumed_seen = []
             records = RunCoordinator(
-                path, IDENTITY, PLAN, lambda cell: (resumed_seen.append(cell), _result(cell))[1]
+                path, IDENTITY, PLAN, lambda cell: CommittedExecution(
+                    (resumed_seen.append(cell), _result(cell))[1], _ref(cell)
+                ), _validate_ref
             ).run()
             self.assertEqual(resumed_seen, [CELLS[1], CELLS[2]])
             self.assertEqual(len(records), len(CELLS))
@@ -150,10 +192,12 @@ class CoordinatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
             path = _new_state(directory)
             mark_in_progress(path, IDENTITY, PLAN, CELLS[0])
-            mark_complete(path, IDENTITY, PLAN, CELLS[0], _result(CELLS[0]))
+            mark_complete(path, IDENTITY, PLAN, CELLS[0], _result(CELLS[0]), _ref(CELLS[0]))
             seen = []
             RunCoordinator(
-                path, IDENTITY, PLAN, lambda cell: (seen.append(cell), _result(cell))[1]
+                path, IDENTITY, PLAN, lambda cell: CommittedExecution(
+                    (seen.append(cell), _result(cell))[1], _ref(cell)
+                ), _validate_ref
             ).run()
             self.assertEqual(seen, [CELLS[1], CELLS[2]])
 
@@ -175,7 +219,11 @@ class CoordinatorTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
                     path = _new_state(directory)
                     with self.assertRaises(CoordinatorFailure) as context:
-                        RunCoordinator(path, IDENTITY, PLAN, lambda _cell, value=malformed: value).run()
+                        RunCoordinator(
+                            path, IDENTITY, PLAN,
+                            lambda cell, value=malformed: CommittedExecution(value, _ref(cell)),
+                            _validate_ref,
+                        ).run()
                     self.assertEqual(context.exception.kind, kind)
                     self.assertEqual(context.exception.failure_type, "coordinator_failure")
                     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -184,6 +232,78 @@ class CoordinatorTests(unittest.TestCase):
                     # both proves the transition was durable and exercises recovery semantics.
                     recovered = load_state(path, IDENTITY, PLAN)
                     self.assertEqual(recovered["entries"][0]["state"], "pending")
+
+    def test_legacy_result_only_executor_is_rejected_and_cannot_complete(self):
+        with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
+            path = _new_state(directory)
+            with self.assertRaises(CoordinatorFailure) as context:
+                RunCoordinator(
+                    path, IDENTITY, PLAN, lambda cell: _result(cell), _validate_ref,
+                ).run()
+            self.assertEqual(context.exception.kind, "executor_contract")
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(raw["entries"][0]["state"], "in_progress")
+
+    def test_existing_refs_are_validated_and_public_records_omit_them(self):
+        with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
+            path = _new_state(directory)
+            for cell in CELLS:
+                mark_in_progress(path, IDENTITY, PLAN, cell)
+                mark_complete(path, IDENTITY, PLAN, cell, _result(cell), _ref(cell))
+            seen_refs = []
+
+            def validator(_cell, _result, ref):
+                seen_refs.append(ref)
+
+            coordinator = RunCoordinator(path, IDENTITY, PLAN, lambda cell: _execution(cell), validator)
+            records = coordinator.run()
+            self.assertEqual(len(seen_refs), len(CELLS))
+            self.assertTrue(all("artifact_ref" not in record for record in records))
+            internal = coordinator.completed_records_with_refs()
+            self.assertTrue(all("artifact_ref" in record for record in internal))
+
+    def test_ref_validator_failure_refuses_tampered_or_missing_generation(self):
+        with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
+            path = _new_state(directory)
+            mark_in_progress(path, IDENTITY, PLAN, CELLS[0])
+            mark_complete(path, IDENTITY, PLAN, CELLS[0], _result(CELLS[0]), _ref(CELLS[0]))
+
+            def reject(_ref_value):
+                raise RuntimeError("exact result artifact is missing")
+
+            with self.assertRaises(CoordinatorFailure) as context:
+                RunCoordinator(path, IDENTITY, PLAN, lambda cell: _execution(cell), reject).run()
+            self.assertEqual(context.exception.kind, "artifact_ref")
+
+    def test_valid_refs_swapped_between_completed_cells_are_refused(self):
+        with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
+            path = _new_state(directory)
+            for cell in CELLS[:2]:
+                result = _result(cell)
+                mark_in_progress(path, IDENTITY, PLAN, cell)
+                mark_complete(path, IDENTITY, PLAN, cell, result, _association_ref(cell, result))
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw["entries"][0]["artifact_ref"], raw["entries"][1]["artifact_ref"] = (
+                raw["entries"][1]["artifact_ref"], raw["entries"][0]["artifact_ref"]
+            )
+            path.write_text(json.dumps(raw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            with self.assertRaises(CoordinatorFailure) as context:
+                RunCoordinator(path, IDENTITY, PLAN, lambda cell: _execution(cell), _association_validator).run()
+            self.assertEqual(context.exception.kind, "artifact_ref")
+
+    def test_semantically_valid_result_edit_is_refused_by_exact_ref_validator(self):
+        with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
+            path = _new_state(directory)
+            cell = CELLS[0]
+            original = _result(cell, marker=1)
+            mark_in_progress(path, IDENTITY, PLAN, cell)
+            mark_complete(path, IDENTITY, PLAN, cell, original, _association_ref(cell, original))
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw["entries"][0]["result"]["marker"] = 2
+            path.write_text(json.dumps(raw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            with self.assertRaises(CoordinatorFailure) as context:
+                RunCoordinator(path, IDENTITY, PLAN, lambda current: _execution(current), _association_validator).run()
+            self.assertEqual(context.exception.kind, "artifact_ref")
 
     def test_non_pass_results_require_and_preserve_typed_failure(self):
         with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
@@ -197,14 +317,18 @@ class CoordinatorTests(unittest.TestCase):
             def execute(cell):
                 return _result(cell, status="fail", failure=failure)
 
-            records = RunCoordinator(path, IDENTITY, PLAN, execute).run()
+            records = RunCoordinator(
+                path, IDENTITY, PLAN,
+                lambda cell: CommittedExecution(execute(cell), _ref(cell)),
+                _validate_ref,
+            ).run()
             self.assertTrue(all(record["result"]["status"] == "fail" for record in records))
             self.assertTrue(all(record["result"]["failure"] == failure for record in records))
 
     def test_completed_records_require_all_cells_complete(self):
         with tempfile.TemporaryDirectory(prefix="whitewater-coordinator-") as directory:
             path = _new_state(directory)
-            coordinator = RunCoordinator(path, IDENTITY, PLAN, lambda cell: _result(cell))
+            coordinator = RunCoordinator(path, IDENTITY, PLAN, lambda cell: _execution(cell), _validate_ref)
             with self.assertRaises(IncompleteFailure) as context:
                 coordinator.completed_records()
             self.assertEqual(context.exception.kind, "incomplete")
