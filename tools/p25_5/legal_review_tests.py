@@ -176,10 +176,13 @@ class LegalReviewTests(unittest.TestCase):
 
     def test_workflow_consumes_attestation_instead_of_hardcoded_surface_flags(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        # The per-run legal attestations remain dispatch inputs (the operator supplies them each
+        # run).  The candidate-licence declaration is a fixed repo constant sourced inside the job
+        # (P25_5_CANDIDATE_LICENSE_INPUT), not a dispatch input, so only the env-var token is
+        # asserted for it -- see the 25-input dispatch cap enforced by ci_dispatch_inputs_tests.
         for token in (
             "p25_5_legal_review_file",
             "p25_5_legal_review_sha256",
-            "p25_5_candidate_license_input",
             "p25_5_runtime_legal_review_file",
             "p25_5_runtime_legal_review_sha256",
             "P25_5_LEGAL_REVIEW_FILE",

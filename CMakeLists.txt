@@ -211,6 +211,8 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -m tools.p25_5.p25_6_inputs_tests)
   add_test(NAME ci::module_paths
     COMMAND "${Python3_EXECUTABLE}" -m tools.p25_5.ci_module_paths_tests)
+  add_test(NAME ci::dispatch_inputs
+    COMMAND "${Python3_EXECUTABLE}" -m tools.p25_5.ci_dispatch_inputs_tests)
   set_tests_properties(bakeoff::corpus_conditioning
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(bakeoff::metrics
@@ -260,6 +262,8 @@ if(Python3_Interpreter_FOUND)
   set_tests_properties(p25_6::inputs
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   set_tests_properties(ci::module_paths
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_tests_properties(ci::dispatch_inputs
     PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 else()
   message(STATUS "SEA-RAFT manifest gate skipped (Python 3 not found)")
