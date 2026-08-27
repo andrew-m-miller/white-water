@@ -1305,7 +1305,13 @@ jobs:
       P25_6_RUNTIME_LEGAL_REVIEW_FILE: ${{ inputs.p25_6_runtime_legal_review_file }}
       P25_6_RUNTIME_LEGAL_REVIEW_SHA256: ${{ inputs.p25_6_runtime_legal_review_sha256 }}
       P25_6_CANDIDATE_LICENSE_INPUT: bakeoff/p25-5/candidate-license-input.json
-      P25_6_RUNTIME_LICENSE_SUPPLEMENT: bakeoff/p25-5/runtime-license-supplement.json
+      # p25-6 gets its OWN supplement, not p25-5's: p25-5's pins exact package builds (e.g.
+      # libstdcxx-16.1.0) that the p25-6 solve does not install (it resolves libstdcxx-15.2.0),
+      # so reusing it would trip licenses.py's unused-supplement guard with a misleading error.
+      # This file starts empty: licenses.py fails closed and names any package that lacks embedded
+      # info/licenses evidence, so the next EL8 dispatch reports the exact p25-6 packages+URLs to
+      # add here (bound to their CI-solved builds) rather than guessing them now.
+      P25_6_RUNTIME_LICENSE_SUPPLEMENT: bakeoff/p25-6/runtime-license-supplement.json
       P25_6_CONDA_INSTALLER_URL: https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh
       P25_6_CONDA_INSTALLER_SHA256: 848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c
       P25_6_CONDA_LOCK_FILE: bakeoff/p25-6/conda-el8-x86_64.lock
@@ -1885,6 +1891,23 @@ jobs:
       - name: Generate hash-bound runtime license and notice inventory
         run: |
           set -euo pipefail
+          # The p25-6 conda lock (bakeoff/p25-6/conda-el8-x86_64.lock) is a REQUESTED conda
+          # match-spec, not an @EXPLICIT lock -- CI solves it on EL8. licenses.py
+          # (parse_explicit_lock) requires an @EXPLICIT lock whose package URLs match the installed
+          # prefix, so the requested spec cannot drive the runtime licence path. The pack step
+          # already emitted the CI-SOLVED explicit lock via `conda list --explicit`
+          # (whitewater-p25-6-runtime.inventory); that is the runtime IDENTITY the licence inventory
+          # and Andrew's eventual sign-off bind to. Materialize its SHA256 here (never hardcode a
+          # solved SHA) and hand both to generate-runtime-input and runtime. The requested spec
+          # stays the reproducible solve INPUT and its binding in runtime-inputs.json is unchanged.
+          explicit_lock="$P25_6_OUTPUT_DIR/whitewater-p25-6-runtime.inventory"
+          test -f "$explicit_lock" || {
+            echo "CI-solved explicit lock is missing: $explicit_lock" >&2; exit 1; }
+          grep -qx '@EXPLICIT' "$explicit_lock" || {
+            echo "conda list --explicit did not emit an @EXPLICIT lock: $explicit_lock" >&2; exit 1; }
+          explicit_lock_sha=$(sha256sum -- "$explicit_lock" | awk '{print $1}')
+          [[ "$explicit_lock_sha" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "could not compute explicit lock SHA256" >&2; exit 1; }
           generated_runtime_input="$RUNNER_TEMP/p25-6-runtime-license-input.json"
           supplement_args=()
           if [ -n "${P25_6_RUNTIME_LICENSE_SUPPLEMENT:-}" ]; then
@@ -1895,9 +1918,9 @@ jobs:
           # the reviewed payload identity now includes conda-pack's activation/unpack files.
           python3.11 tools/p25_5/licenses.py generate-runtime-input \
             --prefix "$RUNNER_TEMP/p25-6-runtime-extracted" \
-            --lock "$RUNNER_TEMP/p25-6-inputs/environment.lock" \
+            --lock "$explicit_lock" \
             --package-cache "$RUNNER_TEMP/miniforge/pkgs" \
-            --lock-sha256 "$P25_6_CONDA_LOCK_SHA256" \
+            --lock-sha256 "$explicit_lock_sha" \
             --components-manifest "$GITHUB_WORKSPACE/$P25_6_RUNTIME_INPUTS_FILE" \
             "${supplement_args[@]}" \
             --output "$generated_runtime_input"
@@ -1905,9 +1928,9 @@ jobs:
           mkdir -p "$P25_6_RUNTIME_LEGAL_DIR"
           python3.11 tools/p25_5/licenses.py runtime \
             --prefix "$RUNNER_TEMP/p25-6-runtime-extracted" \
-            --lock "$RUNNER_TEMP/p25-6-inputs/environment.lock" \
+            --lock "$explicit_lock" \
             --input "$generated_runtime_input" \
-            --lock-sha256 "$P25_6_CONDA_LOCK_SHA256" \
+            --lock-sha256 "$explicit_lock_sha" \
             --output-dir "$P25_6_RUNTIME_LEGAL_DIR" \
             --license-name RUNTIME-LICENSES.txt \
             --notice-name RUNTIME-NOTICES.txt
