@@ -313,6 +313,13 @@
     },
     {
       "role": "evaluator-support",
+      "destination": "inputs/selection-final.json",
+      "source": "inputs/selection-final.json",
+      "candidate_id": null,
+      "mode": "0644"
+    },
+    {
+      "role": "evaluator-support",
       "destination": "inputs/report-metadata.json",
       "source": "inputs/report-metadata.json",
       "candidate_id": null,

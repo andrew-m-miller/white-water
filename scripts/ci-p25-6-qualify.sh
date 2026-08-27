@@ -415,6 +415,26 @@ print(f"  OpenImageIO: {OpenImageIO.__file__}")
 print(f"  pynvml: {pynvml.__file__}")
 PY
 
+# Materialize the carried candidate/artifact-map identity from the freshly exported linux manifest,
+# in place, immediately before packaging (Finding A). The checked-in inputs are platform-neutral
+# PLACEHOLDER templates; filling them here binds the linux-x86_64 artifact_sha256/manifest_sha256/
+# export_environment_sha256/artifact_size_bytes and artifact-map platform from the generated
+# models/sea-raft-m.json -- never a hardcoded, reproducible-forever constant -- exactly as the
+# admission document is generated after export. The linux export manifest is already in the
+# workspace at this point (the p25-6 lane restores it before this seam runs). Without this, the
+# packaged inputs would carry the checked-in macOS binding and the driver's
+# validate_manifest_artifact would raise artifact_hash_mismatch against the packaged linux ONNX
+# before any profile runs. A non-linux manifest here fails closed inside the materializer.
+inputs_dir="${package_spec%/*}/inputs"
+generated_candidate_manifest="$root/models/sea-raft-m.json"
+require_regular "$generated_candidate_manifest" "P25-6 generated candidate manifest"
+require_regular "$inputs_dir/candidate-entries.json" "P25-6 carried candidate-entries template"
+require_regular "$inputs_dir/artifact-map.json" "P25-6 carried artifact-map template"
+python3 "$root/tools/p25_5/p25_6_materialize_inputs.py" \
+  --manifest "$generated_candidate_manifest" \
+  --candidate-entries "$inputs_dir/candidate-entries.json" \
+  --artifact-map "$inputs_dir/artifact-map.json"
+
 # Materialize a fresh spec after qualification, immediately before invoking package.py. This
 # patches only the tightly defined admission and runtime placeholders; candidate files are never
 # inferred from a directory listing.

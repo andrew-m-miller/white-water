@@ -29,8 +29,9 @@ What the package carries
 * the active protocol `bakeoff/protocol-v2.json` and the report/corpus/artifact schemas;
 * the candidate manifest and ONNX artifact under `models/sea-raft-m/`;
 * ready-to-run, schema-valid driver-input templates under `inputs/` (candidate-entries,
-  artifact-map, selection-smoke, selection-screen, a NeuFlow shared-lattice screen that requires
-  neuflow-v2 to be admitted first, report-metadata, and corpus.template) -- see step 4;
+  artifact-map, selection-smoke, selection-screen, selection-final, a NeuFlow shared-lattice
+  screen that requires neuflow-v2 to be admitted first, report-metadata, and corpus.template)
+  -- see step 4;
 * candidate and runtime license/notice aggregates, their hash inventories, the checked-in
   technical runtime-input manifest, and the approved runtime legal review; and
 * the pinned conda-pack runtime `runtime/whitewater-p25-6-runtime.tar.gz`.
@@ -88,7 +89,7 @@ CLI help (this touches no production data):
 ----------------------------------------------
 
 The driver reads five small JSON inputs plus the production corpus.  Rather than authoring these
-from prose, this package CARRIES schema-valid, ready-to-run templates under `inputs/`.  Three of
+from prose, this package CARRIES schema-valid, ready-to-run templates under `inputs/`.  Four of
 them are complete and are used IN PLACE (never edited); two carry clearly-marked
 `REPLACE_WITH_...` placeholders for the only values that are host/CI-specific, so you copy those
 two OUT of the package, fill the placeholders, and point the driver at your copies.  Do not edit
@@ -100,25 +101,33 @@ Used in place (already complete for the carried sea-raft-m candidate):
                     The sea-raft-m candidate entry.  Per docs/phase2.5-protocol-v2.md a v2
                     candidate carries BOTH `status` and `measurement_status` (here
                     `excluded`/`measurable`: P25-6 measures but does not select a shipping
-                    default -- that is P25-7).  Its identity hashes and license verdicts are the
-                    reviewed values from models/sea-raft-m.json.  The older `candidate_id` +
+                    default -- that is P25-7).  Its license verdicts are the reviewed values from
+                    models/sea-raft-m.json; its platform-specific identity hashes
+                    (`artifact_sha256`, `manifest_sha256`, `export_environment_sha256`,
+                    `artifact_size_bytes`) were materialized by CI from the freshly exported
+                    linux-x86_64 manifest before this package was built, so they already bind the
+                    exact linux ONNX carried here.  The older `candidate_id` +
                     `measurement_providers`-only shape is rejected by the carried validator, so do
                     not hand-write a candidate entry from that shorter description.
   --artifact-map    inputs/artifact-map.json
                     Maps `sea-raft-m` -> the carried `models/sea-raft-m/manifest.json` and
-                    `models/sea-raft-m/sea-raft-m-opset17.onnx`.  Run the driver from the
+                    `models/sea-raft-m/sea-raft-m-opset17.onnx`, with `platform: linux-x86_64`
+                    materialized by CI to select the linux export row.  Run the driver from the
                     extracted package root so these package-relative paths resolve.
   --selection       inputs/selection-smoke.json   (profile `smoke`, cpu, cap mp0_5)
                     inputs/selection-screen.json  (profile `screen`, cpu, shared-lattice cap
                                                     mp0_331776, synthetic FHD+UHD 16:9 targets)
-                    `profile` is one of `smoke`, `screen`, `final`.  A NeuFlow shared-lattice
-                    screen (inputs/selection-screen-neuflow-shared-lattice.json) is also carried,
-                    spelled exactly as docs/phase2.5-protocol-v2.md prescribes, but it names
-                    `neuflow-v2`; it REQUIRES that candidate to be admitted, carried, and added to
-                    your candidate-entries before use, and is rejected until then.  A `final`
-                    profile still needs the CUDA `mp2` FHD/UHD coverage described in step 6; author
-                    its selection from selection-screen.json by switching to cuda + mp2 and adding
-                    your production FHD/UHD shots.
+                    inputs/selection-final.json   (profile `final`, cuda idle+live_flame, cap
+                                                    mp2, synthetic FHD+UHD PAR1 targets)
+                    `profile` is one of `smoke`, `screen`, `final`.  The `final` selection is
+                    carried complete and ready to run -- use inputs/selection-final.json IN PLACE
+                    (its CUDA `mp2` FHD/UHD PAR1 coverage is exactly what the matrix planner's
+                    final-coverage rule requires); do not derive a final by hand-editing the smoke
+                    or screen selection.  A NeuFlow shared-lattice screen
+                    (inputs/selection-screen-neuflow-shared-lattice.json) is also carried, spelled
+                    exactly as docs/phase2.5-protocol-v2.md prescribes, but it names `neuflow-v2`;
+                    it REQUIRES that candidate to be admitted, carried, and added to your
+                    candidate-entries before use, and is rejected until then.
 
 Copied out and filled (host/CI-specific placeholders only):
 
@@ -205,10 +214,11 @@ step 5 must already be exported and the preflight must have passed:
       --report-metadata /path/to/your/report-metadata.json \
       --output-dir      /path/to/out/smoke
 
-For the `screen` profile, swap `--selection inputs/selection-screen.json`.  The carried smoke and
-screen selections use the cpu correctness provider; switch a selection's provider to `cuda` (and,
-for `final`, add `mp2` plus your production FHD/UHD shots) only after the step 5 CUDA preflight
-passes.
+For the `screen` profile, swap `--selection inputs/selection-screen.json`; for the `final`
+profile, swap `--selection inputs/selection-final.json`.  The carried smoke and screen selections
+use the cpu correctness provider, so they need no CUDA setup.  The carried final selection is a
+CUDA `mp2` idle+live_flame run over the synthetic FHD/UHD PAR1 targets and MUST NOT be started
+until the step 5 CUDA preflight passes.
 
 * smoke  (`profile=smoke` in the selection): verifies archive/artifact hashes, runtime/provider
   selection and directions against a small production sample.
@@ -274,3 +284,11 @@ materialized by `scripts/ci-p25-6-qualify.sh`:
 
 Every evaluator, support, protocol, schema, manifest, artifact and instruction source is an
 explicit local path.  The template invents no runtime evidence and no legal approval.
+
+The carried `inputs/candidate-entries.json` and `inputs/artifact-map.json` are shipped as
+platform-neutral placeholder templates: their platform-specific identity fields carry a
+`materialize-from-linux-manifest` sentinel that `scripts/ci-p25-6-qualify.sh` fills, via
+`tools/p25_5/p25_6_materialize_inputs.py`, from the freshly exported linux-x86_64
+`models/sea-raft-m.json` immediately before packaging.  This binds the linux artifact SHA256 from
+the generated manifest rather than hardcoding a macOS export, so the packaged inputs match the
+packaged linux ONNX and the driver never raises `artifact_hash_mismatch` on the box.
