@@ -147,6 +147,15 @@ require_regular "$runtime_sha_file" "P25-6 runtime SHA256 file"
 require_regular "$runtime_inventory" "P25-6 runtime package inventory"
 require_regular "$runtime_closure" "P25-6 runtime dependency-closure audit"
 
+# Loader path for every invocation of the relocated runtime's own python below.  Prepend the
+# runtime's lib so the conda libstdc++ (CXXABI_1.3.15, required by OpenImageIO's native .so)
+# resolves ahead of the EL8 system /lib64/libstdc++.so.6, which lacks it; the .cpython RUNPATH
+# does not propagate to transitively-loaded libraries, so RUNPATH alone loses that race.  We
+# scope this per-invocation (not a global export) so it never reaches the system python3.11 or
+# other host tools this script also runs, and we compose with any pre-existing value rather than
+# clobber it, mirroring the ww-bakeoff-airgap wrapper.
+runtime_ld_library_path="$runtime_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
 [[ "$(stat -c '%a' "$legal_review_file")" == 644 ]] ||
   fail "P25-6 legal-review file must have mode 0644: $legal_review_file"
 [[ "$P25_6_LEGAL_REVIEW_SHA256" =~ ^[0-9a-f]{64}$ ]] ||
@@ -377,7 +386,7 @@ while IFS=$'\t' read -r candidate_id manifest artifact; do
     fail "P25-6 qualification worklist contains an incomplete row"
   result_file="$qualification_dir/${candidate_id}-${qualification_index}.verify.json"
   echo "  $candidate_id: verify $(basename "$artifact")"
-  "$runtime_root/bin/python" "$qualifier" verify \
+  LD_LIBRARY_PATH="$runtime_ld_library_path" "$runtime_root/bin/python" "$qualifier" verify \
     --manifest "$manifest" \
     --artifact "$artifact" \
     --protocol "$root/bakeoff/protocol-v2.json" \
@@ -393,7 +402,7 @@ done < "$qualification_inputs"
 # dependencies the P25-5 runtime lacked (OpenImageIO, pynvml) must be present. It runs no
 # inference and touches no production data.
 echo "P25-6: driver/OpenImageIO/pynvml import smoke in the relocated runtime"
-PYTHONPATH="$root" "$runtime_root/bin/python" - "$driver" <<'PY'
+PYTHONPATH="$root" LD_LIBRARY_PATH="$runtime_ld_library_path" "$runtime_root/bin/python" - "$driver" <<'PY'
 import importlib
 import sys
 from pathlib import Path
@@ -604,7 +613,7 @@ run_instructions="$output/RUN-P25-6.txt"
 
 echo "P25-6: invoking package builder from explicit spec"
 staging_dir="$output/staging"
-"$runtime_root/bin/python" "$packager" build \
+LD_LIBRARY_PATH="$runtime_ld_library_path" "$runtime_root/bin/python" "$packager" build \
   "$generated_package_spec" \
   --staging-dir "$staging_dir" \
   --archive "$package_tarball" \

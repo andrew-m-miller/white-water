@@ -52,7 +52,7 @@ fi
 printf 'python\n' >> "$WW_TEST_PYTHON_LOG"
 printf 'PYTHON_ARGS=' >> "$WW_TEST_PYTHON_LOG"
 for arg in "$@"; do printf '<%s>' "$arg" >> "$WW_TEST_PYTHON_LOG"; done
-printf '\nPYTHONPATH=%s\nPIP_INDEX_URL=%s\n' "${PYTHONPATH-UNSET}" "${PIP_INDEX_URL-UNSET}" >> "$WW_TEST_PYTHON_LOG"
+printf '\nPYTHONPATH=%s\nPIP_INDEX_URL=%s\nLD_LIBRARY_PATH=%s\n' "${PYTHONPATH-UNSET}" "${PIP_INDEX_URL-UNSET}" "${LD_LIBRARY_PATH-UNSET}" >> "$WW_TEST_PYTHON_LOG"
 FAKE_PYTHON
 chmod 0755 "$PACKAGE/runtime/source/bin/conda-unpack" "$PACKAGE/runtime/source/bin/python"
 mkdir -p "$PACKAGE/runtime"
@@ -75,6 +75,10 @@ PACKAGE_CANONICAL=$(CDPATH= cd -P -- "$PACKAGE" && pwd -P)
 grep -F "PYTHON_ARGS=<$PACKAGE_CANONICAL/tools/bakeoff/evaluator.py><verify><--token><hello world><--flag>" "$PYTHON_LOG" >/dev/null || die "arguments were not forwarded exactly"
 grep -F 'PYTHONPATH=UNSET' "$PYTHON_LOG" >/dev/null || die "PYTHONPATH was not sanitized"
 grep -F 'PIP_INDEX_URL=UNSET' "$PYTHON_LOG" >/dev/null || die "network package index was not sanitized"
+# With no operator LD_LIBRARY_PATH, the runtime's own lib is the entire loader path (so the conda
+# libstdc++ that OpenImageIO needs resolves ahead of the EL8 system one).
+grep -F "LD_LIBRARY_PATH=$RUNTIME_ENV/lib" "$PYTHON_LOG" >/dev/null || die "runtime lib was not prepended to LD_LIBRARY_PATH"
+grep -F "LD_LIBRARY_PATH=$RUNTIME_ENV/lib:" "$PYTHON_LOG" >/dev/null && die "runtime lib gained a spurious trailing path segment with no operator value"
 [[ "$(cat "$RUNTIME_ENV/.ww-bakeoff-unpack.sha256")" == "$(sha256_file "$PACKAGE/runtime/runtime.tar")" ]] || die "unpack marker is not bound to archive SHA"
 [[ "$(stat -c '%a' "$RUNTIME_ENV/.ww-bakeoff-unpack.sha256" 2>/dev/null || stat -f '%Lp' "$RUNTIME_ENV/.ww-bakeoff-unpack.sha256")" == 644 ]] || die "unpack marker mode is not 0644"
 
@@ -168,6 +172,24 @@ if WW_BAKEOFF_RUNTIME_ARCHIVE="$TEMP_ROOT/bad.tar" WW_BAKEOFF_RUNTIME_ENV="$BAD_
   die "archive traversal member was accepted"
 fi
 [[ ! -e "$BAD_ENV/bin/python" ]] || die "unsafe archive was extracted"
+
+# The wrapper must PREPEND the runtime's own lib to an operator-supplied LD_LIBRARY_PATH (the
+# Flame CUDA math-library directory on a real box) rather than clobber it: the conda libstdc++
+# must win for OpenImageIO while the operator's Flame CUDA libraries still resolve for ONNX
+# Runtime.  The two hold disjoint SONAMEs, so composing them is the required behaviour.  Run this
+# before the changed-archive corruption below, which leaves $PACKAGE's archive unusable.
+COMPOSE_ENV="$TEMP_ROOT/compose-runtime-env"
+COMPOSE_PYTHON_LOG="$TEMP_ROOT/compose-python.log"
+COMPOSE_UNPACK_LOG="$TEMP_ROOT/compose-unpack.log"
+OPERATOR_LD='/opt/Autodesk/lib64/2026.2.1-fake:/some/other/dir'
+WW_BAKEOFF_RUNTIME_ARCHIVE="$PACKAGE/runtime/runtime.tar" \
+WW_BAKEOFF_RUNTIME_ENV="$COMPOSE_ENV" \
+WW_TEST_UNPACK_LOG="$COMPOSE_UNPACK_LOG" \
+WW_TEST_PYTHON_LOG="$COMPOSE_PYTHON_LOG" \
+LD_LIBRARY_PATH="$OPERATOR_LD" \
+"$PACKAGE/scripts/ww-bakeoff-airgap" verify --compose
+grep -F "LD_LIBRARY_PATH=$COMPOSE_ENV/lib:$OPERATOR_LD" "$COMPOSE_PYTHON_LOG" >/dev/null \
+  || die "wrapper did not prepend the runtime lib while preserving the operator LD_LIBRARY_PATH"
 
 # A changed archive cannot silently reuse or overwrite an existing runtime-env.
 printf 'changed\n' >> "$PACKAGE/runtime/runtime.tar"

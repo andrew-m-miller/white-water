@@ -146,12 +146,20 @@ sanitize_environment() {
   export PYTHONNOUSERSITE=1
   export PIP_NO_INDEX=1
   export PATH="$RUNTIME_ENV/bin:/usr/bin:/bin"
-  # LD_LIBRARY_PATH is DELIBERATELY not unset here.  This runtime does not bundle the Flame-owned
-  # CUDA math libraries (libcublas/libcublasLt/libcudart/libcurand); on a standalone box a CUDA
-  # profile only resolves them when the operator exports LD_LIBRARY_PATH to the target host's
-  # Flame CUDA lib directory before invoking this wrapper (see RUN-P25-6.txt step 5).  Preserving
-  # it verbatim is what lets that exported value reach ONNX Runtime.  We do not set or synthesize
-  # a value: an empty/absent LD_LIBRARY_PATH is correct for a pure-cpu run.
+  # LD_LIBRARY_PATH: prepend this runtime's own lib so the dynamic loader resolves the
+  # conda-provided libstdc++ (which supplies CXXABI_1.3.15, required by OpenImageIO's native .so)
+  # instead of the EL8 system /lib64/libstdc++.so.6, which lacks it.  The .cpython .so's RUNPATH
+  # does not propagate to its transitively-loaded libraries (libOpenImageIO.so -> libstdc++), so
+  # RUNPATH alone loses the race; LD_LIBRARY_PATH precedes both system paths and RUNPATH and wins
+  # deterministically.  We PREPEND and PRESERVE any existing value rather than clobber it: this
+  # runtime deliberately does NOT bundle the Flame-owned CUDA math libraries
+  # (libcublas/libcublasLt/libcudart/libcurand); on a standalone box a CUDA profile resolves them
+  # only when the operator exports LD_LIBRARY_PATH to the target host's Flame CUDA lib directory
+  # before invoking this wrapper (see RUN-P25-6.txt step 5).  The two sets have disjoint SONAMEs,
+  # so composing them is safe -- the conda libstdc++ wins for OpenImageIO while the operator's
+  # Flame CUDA libraries still resolve for ONNX Runtime.  We never unset LD_LIBRARY_PATH; an
+  # absent operator value is correct for a pure-cpu run and leaves only the runtime lib on the path.
+  export LD_LIBRARY_PATH="$RUNTIME_ENV/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 }
 
 # WW_BAKEOFF_ENTRYPOINT lets the operator launch a different carried bake-off module (e.g. the

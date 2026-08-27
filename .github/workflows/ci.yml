@@ -1838,8 +1838,14 @@ jobs:
             "$RUNNER_TEMP/p25-6-runtime-extracted/bin/conda-unpack"
           test -x "$RUNNER_TEMP/p25-6-runtime-extracted/bin/python"
           # The packed environment is the exact carried runtime; this smoke import catches a
-          # broken relocation before the evaluator is allowed to run.
-          "$RUNNER_TEMP/p25-6-runtime-extracted/bin/python" - <<'PY'
+          # broken relocation before the evaluator is allowed to run.  Prepend the relocated
+          # runtime's own lib to LD_LIBRARY_PATH so the loader resolves the conda libstdc++
+          # (CXXABI_1.3.15, required by OpenImageIO's native .so) instead of the EL8 system
+          # /lib64/libstdc++.so.6; the .cpython RUNPATH does not propagate to transitively-loaded
+          # libraries, so RUNPATH alone loses to the system libstdc++.  Preserve any pre-existing
+          # value (there is none in CI, but keep the compose form the airgap wrapper relies on).
+          LD_LIBRARY_PATH="$RUNNER_TEMP/p25-6-runtime-extracted/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            "$RUNNER_TEMP/p25-6-runtime-extracted/bin/python" - <<'PY'
           import importlib.metadata
           from pathlib import Path
           from tools.bakeoff.native_ort import load_runtime
