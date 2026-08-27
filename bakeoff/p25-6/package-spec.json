@@ -4,7 +4,7 @@
   "package_id": "whitewater-p25-6-sea-raft-m-el8-x86_64-target",
   "evaluator": {
     "entrypoint": "scripts/ww-bakeoff-airgap",
-    "runtime_identity": "python-3.11;microsoft-onnxruntime-linux-x64-gpu_cuda12-1.29.0+whitewater-native-bridge;openimageio+openexr+imath;pynvml;conda-pack;el8-x86_64"
+    "runtime_identity": "python-3.11;microsoft-onnxruntime-linux-x64-gpu_cuda12-1.29.0+whitewater-native-bridge;openexr-python+openexr+imath;pynvml;conda-pack;el8-x86_64"
   },
   "admission": {
     "candidates": "__P25_6_ADMISSION_CANDIDATES__"

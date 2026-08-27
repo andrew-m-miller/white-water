@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Focused unit tests for the dependency-light EXR sequence/pairing module.
 
-Every test below runs without OpenImageIO, NumPy, or a GPU: the sequence/pairing logic is pure,
-and frame decode is exercised through an injected fake decoder. The one exception is
-``test_optional_oiio_round_trip``, which skips cleanly (never fails) when OpenImageIO is not
-importable -- this dev machine is macOS without OIIO, and CI's EL8 container is the only place
-that dependency is expected to be present.
+Every test below runs without the OpenEXR Python bindings, NumPy, or a GPU: the sequence/pairing
+logic is pure, and frame decode is exercised through an injected fake decoder. The one exception is
+``test_optional_openexr_round_trip``, which skips cleanly (never fails) when the ``OpenEXR`` module
+(or numpy) is not importable -- this dev machine is macOS without the binding, and CI's EL8
+container is the only place that dependency is expected to be present.
 """
 
 from __future__ import annotations
@@ -167,7 +167,7 @@ def test_source_format_rejects_integer_and_mixed_storage() -> None:
 
 
 def test_bottom_origin_row_reversal_catches_vertical_inversion() -> None:
-    # Row 0 in OIIO's top-to-bottom order carries a distinctive "top" marker; the last row (the
+    # Row 0 in OpenEXR's top-to-bottom order carries a distinctive "top" marker; the last row (the
     # image's bottom) carries a "bottom" marker. A reader that forgot to reverse would return
     # rows[0] as the top row here, flipping dy sign for every downstream landmark/metric.
     top_to_bottom = (
@@ -313,38 +313,47 @@ def test_validate_frame_matches_shot_metadata_skips_undeclared_fields() -> None:
     ) == "metadata_mismatch"
 
 
-def test_frame_from_exr_reports_typed_dependency_failure_when_oiio_absent() -> None:
-    if importlib.util.find_spec("OpenImageIO") is not None:
-        return  # OIIO is installed in this environment; the dependency-gate path is untestable.
+def test_frame_from_exr_reports_typed_dependency_failure_when_binding_absent() -> None:
+    if (
+        importlib.util.find_spec("OpenEXR") is not None
+        and importlib.util.find_spec("numpy") is not None
+    ):
+        return  # the binding is installed here; the dependency-gate path is untestable.
     kind = _failure_kind(lambda: frame_from_exr("/nonexistent/does-not-matter.exr"))
     assert kind == "runtime_error"
 
 
-def test_optional_oiio_round_trip() -> None:
-    if importlib.util.find_spec("OpenImageIO") is None:
-        print("  (skipping OIIO round-trip test: OpenImageIO is not installed)")
+def test_optional_openexr_round_trip() -> None:
+    if importlib.util.find_spec("OpenEXR") is None or importlib.util.find_spec("numpy") is None:
+        print("  (skipping OpenEXR round-trip test: the OpenEXR bindings/numpy are not installed)")
         return
 
     import tempfile
     from pathlib import Path
 
-    import OpenImageIO as oiio  # type: ignore
+    import numpy as np  # type: ignore
+    import OpenEXR  # type: ignore
 
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "roundtrip.exr"
         width, height = 3, 4
-        spec = oiio.ImageSpec(width, height, 4, oiio.HALF)
-        spec.channelnames = ("R", "G", "B", "A")
-        buf = oiio.ImageBuf(spec)
+        # numpy row 0 is the image's first (top) scanline; row height-1 is its last (bottom)
+        # scanline. R varies by row so the test can assert the returned frame's rows[0] is the
+        # BOTTOM row and rows[-1] is the TOP row -- this repository's bottom-origin convention
+        # (see synthetic.COORDINATE_CONVENTION and pfm.py), which OpenEXR does not follow natively.
+        # Half (float16) storage exercises the HALF -> "half" source_format classification.
+        R = np.zeros((height, width), dtype=np.float16)
+        G = np.zeros((height, width), dtype=np.float16)
+        B = np.full((height, width), 0.5, dtype=np.float16)
+        A = np.ones((height, width), dtype=np.float16)
         for y in range(height):
             for x in range(width):
-                # OIIO's setpixel y=0 is the image's first (top) scanline; y=height-1 is its
-                # last (bottom) scanline. R varies by row so the test can assert the returned
-                # frame's rows[0] is the BOTTOM row and rows[-1] is the TOP row -- this
-                # repository's bottom-origin convention (see synthetic.COORDINATE_CONVENTION and
-                # pfm.py), which OIIO does not follow natively.
-                buf.setpixel(x, y, (float(y) / 10.0, x / 10.0, 0.5, 1.0))
-        assert buf.write(str(path))
+                R[y, x] = float(y) / 10.0
+                G[y, x] = x / 10.0
+        header = {"compression": OpenEXR.ZIP_COMPRESSION, "type": OpenEXR.scanlineimage}
+        channels = {"R": R, "G": G, "B": B, "A": A}
+        with OpenEXR.File(header, channels) as outfile:
+            outfile.write(str(path))
 
         frame = frame_from_exr(path, frame_number=7, pixel_aspect_ratio=1.5)
         assert frame["width"] == width
@@ -387,8 +396,8 @@ def main() -> int:
     test_load_pair_rejects_metadata_mismatch_against_shot()
     test_validate_pair_layout_detects_mismatch()
     test_validate_frame_matches_shot_metadata_skips_undeclared_fields()
-    test_frame_from_exr_reports_typed_dependency_failure_when_oiio_absent()
-    test_optional_oiio_round_trip()
+    test_frame_from_exr_reports_typed_dependency_failure_when_binding_absent()
+    test_optional_openexr_round_trip()
     print("P25-6 EXR reader tests passed")
     return 0
 

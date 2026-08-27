@@ -6,5 +6,5 @@
   "reviewed": false,
   "reviewer": "Andrew Miller",
   "reviewed_at": "<ISO-8601 UTC timestamp with explicit timezone, e.g. 2026-08-26T00:00:00Z>",
-  "statement": "I, Andrew Miller, reviewed the generated P25-6 runtime license and notice inventory with SHA256 <hash>, including its conda packages (python, numpy, OpenImageIO, OpenEXR, Imath and their transitive natives, pynvml, conda-pack), ONNX Runtime 1.29.0 CUDA-12, and the White Water native ORT bridge. I approve this exact runtime inventory for P25-6 airgapped target measurement."
+  "statement": "I, Andrew Miller, reviewed the generated P25-6 runtime license and notice inventory with SHA256 <hash>, including its conda packages (python, numpy, the OpenEXR Python bindings, OpenEXR, Imath and their transitive natives, pynvml, conda-pack), ONNX Runtime 1.29.0 CUDA-12, and the White Water native ORT bridge. I approve this exact runtime inventory for P25-6 airgapped target measurement."
 }

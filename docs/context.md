@@ -747,3 +747,31 @@ The lesson is that an artifact can be present and still be absent from the host'
 view. Model staging must set mode `0644` (or an equivalent ACL for the Flame runtime user),
 and CI must assert that permission on the staged files. A packaging guard turns a silent host
 failure into a build failure.
+
+### 8. OpenImageIO dragged a GPL media/codec/GPU stack in for an EXR-only need
+
+**Symptom:** none in a run — a dependency-and-licence problem, caught while assembling the P25-6
+airgap runtime. The runtime uses its EXR reader for exactly one thing: decode one-file-per-frame
+OpenEXR sequences into `rows`/`width`/`height`. The first cut got that decode from OpenImageIO
+(`py-openimageio`), the obvious "read any image" library.
+
+The cost is in what conda-forge's `openimageio` *transitively* pulls onto EL8: a full
+media/codec/GPU stack that has nothing to do with EXR — `ffmpeg` (a **GPL** build),
+`aom`/`dav1d`/`libvpx`/`libavif`, `intel-media-driver`/`intel-gmmlib`/`level-zero`/`libva`,
+`libraw`, `libass`, `harfbuzz`/`freetype`/`fontconfig`. For a commercial Flame plugin that bloats
+the carried runtime, explodes the runtime legal-review surface (every one of those needs a licence
+verdict), and the GPL `ffmpeg` is a likely shipping blocker on its own.
+
+**Fixed by decoding EXR directly with the official OpenEXR Python bindings** (conda-forge
+`openexr-python`, the `OpenEXR` module, modern `OpenEXR.File` API). It needs only
+`openexr` + `imath` + the python binding — all permissive (BSD-3-Clause) — and carries no codec or
+GPU natives. `tools/bakeoff/exr.py` reads each channel as a numpy array whose dtype *is* the
+on-disk storage class (`float16` → `"half"`, `float32` → `"float"`), so the existing
+channel/format-classification and bottom-origin-row helpers were reused unchanged; the public
+`frame_from_exr` dict shape, the file-bytes `sha256`, and the injected-decoder test design are all
+preserved. The bake-off never needed to read anything but EXR, so "read any image" was always more
+library than the job required.
+
+The lesson: pick the dependency scoped to the need, not the most general one. A general media
+library's transitive closure is a licence-and-size liability you inherit in full even when you call
+one narrow entry point of it.

@@ -7,8 +7,8 @@ OFX choice index, and authorizes no redistribution of any model or runtime.  Do 
 extracted directory into Flame as a product plugin.
 
 It is NOT the P25-5 evaluation package and its RUN-P25-5.txt procedure does not apply.  The P25-5
-runtime lacks OpenImageIO/OpenEXR and pynvml; this package carries a separate runtime that has
-both, plus the full profile-driver module closure.
+runtime lacks the OpenEXR Python bindings and pynvml; this package carries a separate runtime that
+has both, plus the full profile-driver module closure.
 
 No production images leave the machine.  The operator returns only:
 
@@ -77,7 +77,7 @@ is launched by pointing `WW_BAKEOFF_ENTRYPOINT` at the carried `tools/bakeoff/ru
 wrapper runs it as `python -m tools.bakeoff.run` with the package root on `PYTHONPATH` so its
 relative imports resolve.  Pick a fresh runtime directory for a different archive.
 
-Confirm the driver, OpenImageIO and pynvml all import from the relocated runtime and print the
+Confirm the driver, OpenEXR and pynvml all import from the relocated runtime and print the
 CLI help (this touches no production data):
 
     WW_BAKEOFF_ENTRYPOINT=tools/bakeoff/run.py \
@@ -158,12 +158,12 @@ own CUDA library directory (`/opt/Autodesk/lib64/2026.2.1/` on that box -- this 
 version- and host-specific, so locate YOUR box's directory rather than copying that literal).
 
 The wrapper `scripts/ww-bakeoff-airgap` sanitizes Python/conda/proxy variables and PREPENDS the
-runtime's own `lib` to `LD_LIBRARY_PATH` -- so the conda `libstdc++` that OpenImageIO's native
-`.so` needs (`CXXABI_1.3.15`) wins over the EL8 system one -- while PRESERVING any
-`LD_LIBRARY_PATH` you export here (see its `sanitize_environment`).  The runtime `lib` and your
-Flame CUDA directory hold DISJOINT SONAMEs, so the two compose without conflict: OpenImageIO gets
-the conda `libstdc++` and ONNX Runtime still resolves the CUDA math libraries from the directory
-you export below.  You therefore export ONLY the Flame CUDA directory; the runtime's own libraries
+runtime's own `lib` to `LD_LIBRARY_PATH` -- so the conda `libstdc++` that the OpenEXR/Imath native
+`.so` files (loaded by the OpenEXR Python bindings) need (`CXXABI_1.3.15`) wins over the EL8 system
+one -- while PRESERVING any `LD_LIBRARY_PATH` you export here (see its `sanitize_environment`).  The
+runtime `lib` and your Flame CUDA directory hold DISJOINT SONAMEs, so the two compose without
+conflict: the OpenEXR bindings get the conda `libstdc++` and ONNX Runtime still resolves the CUDA
+math libraries from the directory you export below.  You therefore export ONLY the Flame CUDA directory; the runtime's own libraries
 are already on the loader path automatically, so do not add `runtime-env/lib` yourself.
 
 a. Locate your box's Flame CUDA library directory (the one holding all four SONAMEs):
@@ -251,7 +251,7 @@ Legal record
 
 The candidate aggregates are `SEA-RAFT-LICENSE.txt` and `SEA-RAFT-NOTICE.txt`; the runtime
 aggregates are `RUNTIME-LICENSES.txt` and `RUNTIME-NOTICES.txt`, covering the conda runtime
-(python, numpy, OpenImageIO, OpenEXR, Imath and their transitive natives, pynvml, conda-pack),
+(python, numpy, the OpenEXR Python bindings, OpenEXR, Imath and their transitive natives, pynvml, conda-pack),
 the official ONNX Runtime CUDA-12 payload and the White Water native ORT bridge.  A separate
 Andrew Miller runtime legal-review JSON (schema `whitewater-p25-runtime-legal-review-v1`,
 reviewer `Andrew Miller`, `reviewed: true`) approving the exact generated runtime inventory hash

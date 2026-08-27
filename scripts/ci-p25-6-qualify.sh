@@ -2,14 +2,14 @@
 #
 # The fail-closed seam between the EL8 CI job and the P25-6 target-measurement packager.
 #
-# P25-6 carries the resumable profile driver (tools/bakeoff/run.py) and a runtime that adds
-# OpenImageIO/OpenEXR and pynvml on top of the P25-5 evaluator base. This seam reuses the exact
+# P25-6 carries the resumable profile driver (tools/bakeoff/run.py) and a runtime that adds the
+# OpenEXR Python bindings and pynvml on top of the P25-5 evaluator base. This seam reuses the exact
 # P25-5 packager (tools/p25_5/package.py) and legal tooling unchanged; it differs only in the
-# carried module closure, the runtime it qualifies, and an extra driver/OIIO/pynvml import smoke.
+# carried module closure, the runtime it qualifies, and an extra driver/OpenEXR/pynvml import smoke.
 #
 # The candidate CPU-correctness gate is unchanged from P25-5: the carried evaluator.py `verify`
 # is run once per carried candidate artifact against the CPU provider. The driver itself is then
-# import-smoked in the relocated runtime so a broken module closure or a missing OIIO/pynvml
+# import-smoked in the relocated runtime so a broken module closure or a missing OpenEXR/pynvml
 # dependency fails here rather than on the airgapped box.
 #
 # Required environment (mirrors ci-p25-5-qualify.sh with P25_6_ names):
@@ -148,8 +148,9 @@ require_regular "$runtime_inventory" "P25-6 runtime package inventory"
 require_regular "$runtime_closure" "P25-6 runtime dependency-closure audit"
 
 # Loader path for every invocation of the relocated runtime's own python below.  Prepend the
-# runtime's lib so the conda libstdc++ (CXXABI_1.3.15, required by OpenImageIO's native .so)
-# resolves ahead of the EL8 system /lib64/libstdc++.so.6, which lacks it; the .cpython RUNPATH
+# runtime's lib so the conda libstdc++ (CXXABI_1.3.15, required by the OpenEXR/Imath native .so
+# the OpenEXR Python bindings load) resolves ahead of the EL8 system /lib64/libstdc++.so.6, which
+# lacks it; the .cpython RUNPATH
 # does not propagate to transitively-loaded libraries, so RUNPATH alone loses that race.  We
 # scope this per-invocation (not a global export) so it never reaches the system python3.11 or
 # other host tools this script also runs, and we compose with any pre-existing value rather than
@@ -397,11 +398,11 @@ while IFS=$'\t' read -r candidate_id manifest artifact; do
 done < "$qualification_inputs"
 (( qualification_index > 0 )) || fail "P25-6 evaluator produced no qualification results"
 
-# Driver + OIIO + pynvml import smoke in the relocated runtime. This is the P25-6-specific gate:
+# Driver + OpenEXR + pynvml import smoke in the relocated runtime. This is the P25-6-specific gate:
 # the driver's whole first-party module closure must import, and the two production/measurement
-# dependencies the P25-5 runtime lacked (OpenImageIO, pynvml) must be present. It runs no
-# inference and touches no production data.
-echo "P25-6: driver/OpenImageIO/pynvml import smoke in the relocated runtime"
+# dependencies the P25-5 runtime lacked (the OpenEXR Python bindings, pynvml) must be present. It
+# runs no inference and touches no production data.
+echo "P25-6: driver/OpenEXR/pynvml import smoke in the relocated runtime"
 PYTHONPATH="$root" LD_LIBRARY_PATH="$runtime_ld_library_path" "$runtime_root/bin/python" - "$driver" <<'PY'
 import importlib
 import sys
@@ -414,13 +415,13 @@ run = importlib.import_module("tools.bakeoff.run")
 if not hasattr(run, "main") or not hasattr(run, "run_bakeoff"):
     raise SystemExit("carried driver does not expose the expected entry points")
 # The production input and NVML backends must be importable in this runtime.
-import OpenImageIO  # noqa: F401
+import OpenEXR  # noqa: F401
 import pynvml  # noqa: F401
 # The driver's CLI parser must build (argparse construction only; no run).
 run._parser()
-print("P25-6 driver/OpenImageIO/pynvml import smoke: PASS")
+print("P25-6 driver/OpenEXR/pynvml import smoke: PASS")
 print(f"  driver: {driver_path}")
-print(f"  OpenImageIO: {OpenImageIO.__file__}")
+print(f"  OpenEXR: {OpenEXR.__file__}")
 print(f"  pynvml: {pynvml.__file__}")
 PY
 

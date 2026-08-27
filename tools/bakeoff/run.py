@@ -38,7 +38,7 @@ frozen elsewhere):
   since none declares ``truth.kind == "landmarks"``.
 
 Every runtime/array/NVML/EXR-decoder dependency is injected so this module -- and
-``run_tests.py`` -- import and run without numpy, onnxruntime, OpenImageIO, pynvml, or a GPU.
+``run_tests.py`` -- import and run without numpy, onnxruntime, the OpenEXR bindings, pynvml, or a GPU.
 """
 
 from __future__ import annotations

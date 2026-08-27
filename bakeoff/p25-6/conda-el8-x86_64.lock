@@ -10,8 +10,16 @@
 #
 # This spec extends the P25-5 evaluator base (python 3.11 + numpy + conda-pack) with the P25-6
 # production-input and NVML dependencies:
-#   * py-openimageio pulls the OpenImageIO C++ library and, transitively, OpenEXR + Imath (EXR
-#     decode) plus libtiff/libpng/libjpeg-turbo and the rest of OIIO's format natives; and
+#   * openexr-python provides the official `OpenEXR` Python module (modern `OpenEXR.File` API,
+#     numpy-backed channel pixels) and pulls only the OpenEXR + Imath C++ libraries it needs to
+#     decode EXR frames.  This deliberately replaces OpenImageIO: OIIO dragged in a full
+#     media/codec/GPU stack (a GPL ffmpeg build, aom/dav1d/libvpx/libavif, intel-media-driver/
+#     level-zero/libva, libraw, libass, harfbuzz/freetype/fontconfig) for an EXR-only need, which
+#     bloated the EL8 runtime and exploded the legal-review surface; the direct OpenEXR bindings
+#     carry a minimal, permissive (BSD-3-Clause) license surface and no codec/GPU natives.  See
+#     docs/context.md, correction 8.
+#   * openexr + imath are listed explicitly so the two C++ libraries are first-class in the carried
+#     runtime license inventory rather than only implied dependencies; and
 #   * pynvml provides the device-memory sampling backend used beside a live Flame Batch workload.
 # The bake-off's ONNX Runtime CUDA-12 provider and the White Water native bridge are NOT conda
 # packages: they are added to the prefix from the pinned upstream archive + a CI compile, exactly
@@ -22,11 +30,7 @@
 python 3.11.*
 numpy
 conda-pack
-py-openimageio
-openimageio
+openexr-python
 openexr
 imath
-libtiff
-libpng
-libjpeg-turbo
 pynvml

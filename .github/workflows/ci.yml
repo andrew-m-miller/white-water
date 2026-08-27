@@ -1315,7 +1315,7 @@ jobs:
       P25_6_CONDA_INSTALLER_URL: https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh
       P25_6_CONDA_INSTALLER_SHA256: 848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c
       P25_6_CONDA_LOCK_FILE: bakeoff/p25-6/conda-el8-x86_64.lock
-      P25_6_CONDA_LOCK_SHA256: 61fa6c3cf89b1cd950d7ccef49a6194f66b18f4f72758bea125f286baf15e48b
+      P25_6_CONDA_LOCK_SHA256: 0fb5be3cb8dfd9e73e564e7cf4dad249b814d961cd2a39c3331550196acf8f15
       P25_6_RUNTIME_INPUTS_FILE: bakeoff/p25-6/runtime-inputs.json
       P25_6_QUALIFIER: tools/bakeoff/evaluator.py
       P25_6_DRIVER: tools/bakeoff/run.py
@@ -1846,7 +1846,8 @@ jobs:
           # The packed environment is the exact carried runtime; this smoke import catches a
           # broken relocation before the evaluator is allowed to run.  Prepend the relocated
           # runtime's own lib to LD_LIBRARY_PATH so the loader resolves the conda libstdc++
-          # (CXXABI_1.3.15, required by OpenImageIO's native .so) instead of the EL8 system
+          # (CXXABI_1.3.15, required by the OpenEXR/Imath native .so the OpenEXR bindings load)
+          # instead of the EL8 system
           # /lib64/libstdc++.so.6; the .cpython RUNPATH does not propagate to transitively-loaded
           # libraries, so RUNPATH alone loses to the system libstdc++.  Preserve any pre-existing
           # value (there is none in CI, but keep the compose form the airgap wrapper relies on).
@@ -1874,13 +1875,14 @@ jobs:
           if session.get_providers() != ["CPUExecutionProvider"]:
               raise SystemExit(f"relocated runtime selected unexpected providers: {session.get_providers()!r}")
           # P25-6 additions the P25-5 runtime lacked: the driver's production-input decoder
-          # (OpenImageIO) and its device-memory backend (pynvml) must import from this runtime.
-          import OpenImageIO  # noqa: F401
+          # (the OpenEXR Python bindings) and its device-memory backend (pynvml) must import from
+          # this runtime.
+          import OpenEXR  # noqa: F401
           import pynvml  # noqa: F401
           from tools.bakeoff import run as _driver
           if not hasattr(_driver, "main") or not hasattr(_driver, "run_bakeoff"):
               raise SystemExit("relocated runtime cannot import the P25-6 profile driver")
-          print("relocated native ORT bridge/session + driver/OpenImageIO/pynvml smoke: PASS")
+          print("relocated native ORT bridge/session + driver/OpenEXR/pynvml smoke: PASS")
           PY
           echo "P25_6_RUNTIME_ROOT=$RUNNER_TEMP/p25-6-runtime-extracted" >> "$GITHUB_ENV"
           echo "P25_6_RUNTIME_ARCHIVE=$runtime_archive" >> "$GITHUB_ENV"
