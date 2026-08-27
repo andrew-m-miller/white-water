@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       lane:
-        description: Build lane; p25-5 requires all explicit evaluator/runtime inputs below
+        description: Build lane; p25-5/p25-6 take only per-run legal-review inputs (runtime constants live in the repo)
         required: true
         type: choice
         default: standard
@@ -32,60 +32,12 @@ on:
         description: SHA256 of the exact legal-review attestation JSON (required for p25-5)
         required: false
         type: string
-      p25_5_candidate_license_input:
-        description: Repository-relative checked-in SEA-RAFT candidate license/notice declaration
-        required: false
-        default: bakeoff/p25-5/candidate-license-input.json
-        type: string
-      p25_5_runtime_license_supplement:
-        description: Repository-relative explicit license evidence for locked conda packages whose cache lacks info/licenses
-        required: false
-        default: bakeoff/p25-5/runtime-license-supplement.json
-        type: string
       p25_5_runtime_legal_review_file:
         description: Repository-relative Andrew Miller approval of the generated runtime license/notice inventory (required before packaging; first run may generate inventory for review)
         required: false
         type: string
       p25_5_runtime_legal_review_sha256:
         description: SHA256 of the exact Andrew Miller runtime legal-review JSON (required before packaging)
-        required: false
-        type: string
-      p25_5_conda_installer_url:
-        description: SHA-pinned EL8 x86_64 conda bootstrap URL (must match bakeoff/p25-5/runtime-inputs.json)
-        required: false
-        type: string
-        default: https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh
-      p25_5_conda_installer_sha256:
-        description: SHA256 of the explicit conda bootstrap installer (must match runtime-inputs.json)
-        required: false
-        type: string
-        default: 848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c
-      p25_5_conda_lock_file:
-        description: Repository-relative SHA-pinned conda explicit package spec (must match runtime-inputs.json)
-        required: false
-        type: string
-        default: bakeoff/p25-5/conda-el8-x86_64.lock
-      p25_5_conda_lock_sha256:
-        description: SHA256 of the explicit conda environment lock/spec (must match runtime-inputs.json)
-        required: false
-        type: string
-        default: e317c0d3ad953e024b24f352aaa1ce0eda0cabf1d37e5feda9fd24f21452e4ae
-      p25_5_qualifier:
-        description: Actual Python evaluator entry point implementing verify --manifest --artifact --protocol --provider (required for p25-5)
-        required: false
-        type: string
-        default: tools/bakeoff/evaluator.py
-      p25_5_packager:
-        description: Python evaluation-only packager entry point (required for p25-5)
-        required: false
-        type: string
-        default: tools/p25_5/package.py
-      p25_5_package_spec:
-        description: Local package-spec template; admission and runtime use documented P25-5 placeholders (required for p25-5)
-        required: false
-        type: string
-      p25_5_run_instructions:
-        description: Local evaluation-only run instructions carried in and beside the archive (required for p25-5)
         required: false
         type: string
       p25_6_admission_file:
@@ -100,16 +52,6 @@ on:
         description: SHA256 of the exact candidate legal-review attestation JSON (required for p25-6)
         required: false
         type: string
-      p25_6_candidate_license_input:
-        description: Repository-relative checked-in SEA-RAFT candidate license/notice declaration (reused from p25-5; candidate is identical)
-        required: false
-        default: bakeoff/p25-5/candidate-license-input.json
-        type: string
-      p25_6_runtime_license_supplement:
-        description: Repository-relative explicit license evidence for locked conda packages whose cache lacks info/licenses; CI reveals any OIIO/pynvml gaps to add to a bakeoff/p25-6 supplement
-        required: false
-        default: bakeoff/p25-5/runtime-license-supplement.json
-        type: string
       p25_6_runtime_legal_review_file:
         description: Repository-relative Andrew Miller approval of the generated P25-6 runtime license/notice inventory (required before packaging; first run generates the inventory for review)
         required: false
@@ -117,51 +59,6 @@ on:
       p25_6_runtime_legal_review_sha256:
         description: SHA256 of the exact Andrew Miller P25-6 runtime legal-review JSON (required before packaging)
         required: false
-        type: string
-      p25_6_conda_installer_url:
-        description: SHA-pinned EL8 x86_64 conda bootstrap URL (must match bakeoff/p25-6/runtime-inputs.json)
-        required: false
-        type: string
-        default: https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh
-      p25_6_conda_installer_sha256:
-        description: SHA256 of the explicit conda bootstrap installer (must match runtime-inputs.json)
-        required: false
-        type: string
-        default: 848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c
-      p25_6_conda_lock_file:
-        description: Repository-relative conda REQUESTED spec (CI solves it on EL8; must match bakeoff/p25-6/runtime-inputs.json)
-        required: false
-        type: string
-        default: bakeoff/p25-6/conda-el8-x86_64.lock
-      p25_6_conda_lock_sha256:
-        description: SHA256 of the checked-in conda requested spec (must match runtime-inputs.json; update to the CI-emitted pinned lock SHA256 once re-pinned)
-        required: false
-        type: string
-        default: 61fa6c3cf89b1cd950d7ccef49a6194f66b18f4f72758bea125f286baf15e48b
-      p25_6_qualifier:
-        description: Python evaluator entry point implementing verify --manifest --artifact --protocol --provider (CPU candidate-correctness gate)
-        required: false
-        type: string
-        default: tools/bakeoff/evaluator.py
-      p25_6_driver:
-        description: Carried resumable profile-driver module import-smoked in the relocated runtime
-        required: false
-        type: string
-        default: tools/bakeoff/run.py
-      p25_6_packager:
-        description: Python packager entry point (the unchanged P25-5 package.py)
-        required: false
-        type: string
-        default: tools/p25_5/package.py
-      p25_6_package_spec:
-        description: Local package-spec template; admission and runtime use documented __P25_6_ placeholders
-        required: false
-        default: bakeoff/p25-6/package-spec.json
-        type: string
-      p25_6_run_instructions:
-        description: Local target-measurement run instructions carried in and beside the archive (RUN-P25-6.txt)
-        required: false
-        default: bakeoff/p25-6/RUN-P25-6.txt
         type: string
 
 jobs:
@@ -655,22 +552,27 @@ jobs:
     container:
       image: almalinux:8
     env:
+      # Per-run operator inputs (dispatch-time). Everything else below is a fixed repo
+      # constant, formerly a workflow_dispatch input -- removed to stay under GitHub's hard
+      # 25-input dispatch cap. Each value equals the input's former default (the conda/ORT
+      # SHAs are the source of truth in bakeoff/p25-5/runtime-inputs.json); the qualified
+      # p25-5 run (tarball 53b4e719..., commit adfd4fb) supplied these exact paths.
       P25_5_ADMISSION_PLAN: ${{ inputs.p25_5_admission_file }}
       P25_5_LEGAL_REVIEW_FILE: ${{ inputs.p25_5_legal_review_file }}
       P25_5_LEGAL_REVIEW_SHA256: ${{ inputs.p25_5_legal_review_sha256 }}
-      P25_5_CANDIDATE_LICENSE_INPUT: ${{ inputs.p25_5_candidate_license_input }}
-      P25_5_RUNTIME_LICENSE_SUPPLEMENT: ${{ inputs.p25_5_runtime_license_supplement }}
       P25_5_RUNTIME_LEGAL_REVIEW_FILE: ${{ inputs.p25_5_runtime_legal_review_file }}
       P25_5_RUNTIME_LEGAL_REVIEW_SHA256: ${{ inputs.p25_5_runtime_legal_review_sha256 }}
-      P25_5_CONDA_INSTALLER_URL: ${{ inputs.p25_5_conda_installer_url }}
-      P25_5_CONDA_INSTALLER_SHA256: ${{ inputs.p25_5_conda_installer_sha256 }}
-      P25_5_CONDA_LOCK_FILE: ${{ inputs.p25_5_conda_lock_file }}
-      P25_5_CONDA_LOCK_SHA256: ${{ inputs.p25_5_conda_lock_sha256 }}
+      P25_5_CANDIDATE_LICENSE_INPUT: bakeoff/p25-5/candidate-license-input.json
+      P25_5_RUNTIME_LICENSE_SUPPLEMENT: bakeoff/p25-5/runtime-license-supplement.json
+      P25_5_CONDA_INSTALLER_URL: https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh
+      P25_5_CONDA_INSTALLER_SHA256: 848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c
+      P25_5_CONDA_LOCK_FILE: bakeoff/p25-5/conda-el8-x86_64.lock
+      P25_5_CONDA_LOCK_SHA256: e317c0d3ad953e024b24f352aaa1ce0eda0cabf1d37e5feda9fd24f21452e4ae
       P25_5_RUNTIME_INPUTS_FILE: bakeoff/p25-5/runtime-inputs.json
-      P25_5_QUALIFIER: ${{ inputs.p25_5_qualifier }}
-      P25_5_PACKAGER: ${{ inputs.p25_5_packager }}
-      P25_5_PACKAGE_SPEC: ${{ inputs.p25_5_package_spec }}
-      P25_5_RUN_INSTRUCTIONS: ${{ inputs.p25_5_run_instructions }}
+      P25_5_QUALIFIER: tools/bakeoff/evaluator.py
+      P25_5_PACKAGER: tools/p25_5/package.py
+      P25_5_PACKAGE_SPEC: bakeoff/p25-5/package-spec.json
+      P25_5_RUN_INSTRUCTIONS: bakeoff/p25-5/RUN-P25-5.txt
       P25_5_OUTPUT_DIR: p25-5-output
       P25_5_RUNTIME_LEGAL_DIR: p25-5-output/legal-runtime
     steps:
@@ -1393,23 +1295,27 @@ jobs:
     container:
       image: almalinux:8
     env:
+      # Per-run operator inputs (dispatch-time). Everything else below is a fixed repo
+      # constant, formerly a workflow_dispatch input -- removed to stay under GitHub's hard
+      # 25-input dispatch cap. Each value equals the input's former default (the conda/ORT
+      # SHAs are the source of truth in bakeoff/p25-6/runtime-inputs.json).
       P25_6_ADMISSION_PLAN: ${{ inputs.p25_6_admission_file }}
       P25_6_LEGAL_REVIEW_FILE: ${{ inputs.p25_6_legal_review_file }}
       P25_6_LEGAL_REVIEW_SHA256: ${{ inputs.p25_6_legal_review_sha256 }}
-      P25_6_CANDIDATE_LICENSE_INPUT: ${{ inputs.p25_6_candidate_license_input }}
-      P25_6_RUNTIME_LICENSE_SUPPLEMENT: ${{ inputs.p25_6_runtime_license_supplement }}
       P25_6_RUNTIME_LEGAL_REVIEW_FILE: ${{ inputs.p25_6_runtime_legal_review_file }}
       P25_6_RUNTIME_LEGAL_REVIEW_SHA256: ${{ inputs.p25_6_runtime_legal_review_sha256 }}
-      P25_6_CONDA_INSTALLER_URL: ${{ inputs.p25_6_conda_installer_url }}
-      P25_6_CONDA_INSTALLER_SHA256: ${{ inputs.p25_6_conda_installer_sha256 }}
-      P25_6_CONDA_LOCK_FILE: ${{ inputs.p25_6_conda_lock_file }}
-      P25_6_CONDA_LOCK_SHA256: ${{ inputs.p25_6_conda_lock_sha256 }}
+      P25_6_CANDIDATE_LICENSE_INPUT: bakeoff/p25-5/candidate-license-input.json
+      P25_6_RUNTIME_LICENSE_SUPPLEMENT: bakeoff/p25-5/runtime-license-supplement.json
+      P25_6_CONDA_INSTALLER_URL: https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh
+      P25_6_CONDA_INSTALLER_SHA256: 848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c
+      P25_6_CONDA_LOCK_FILE: bakeoff/p25-6/conda-el8-x86_64.lock
+      P25_6_CONDA_LOCK_SHA256: 61fa6c3cf89b1cd950d7ccef49a6194f66b18f4f72758bea125f286baf15e48b
       P25_6_RUNTIME_INPUTS_FILE: bakeoff/p25-6/runtime-inputs.json
-      P25_6_QUALIFIER: ${{ inputs.p25_6_qualifier }}
-      P25_6_DRIVER: ${{ inputs.p25_6_driver }}
-      P25_6_PACKAGER: ${{ inputs.p25_6_packager }}
-      P25_6_PACKAGE_SPEC: ${{ inputs.p25_6_package_spec }}
-      P25_6_RUN_INSTRUCTIONS: ${{ inputs.p25_6_run_instructions }}
+      P25_6_QUALIFIER: tools/bakeoff/evaluator.py
+      P25_6_DRIVER: tools/bakeoff/run.py
+      P25_6_PACKAGER: tools/p25_5/package.py
+      P25_6_PACKAGE_SPEC: bakeoff/p25-6/package-spec.json
+      P25_6_RUN_INSTRUCTIONS: bakeoff/p25-6/RUN-P25-6.txt
       P25_6_OUTPUT_DIR: p25-6-output
       P25_6_RUNTIME_LEGAL_DIR: p25-6-output/legal-runtime
     steps:
