@@ -157,7 +157,13 @@ def _load_json(path: Path, label: str) -> Any:
         raise LicenseInputError(f"{label} is not valid JSON: {exc}") from exc
 
 
-def _require_regular(path: Path, label: str, mode: int = EXPECTED_MODE) -> None:
+def _require_regular(path: Path, label: str, mode: int = EXPECTED_MODE, *, require_mode: bool = True) -> None:
+    # ``require_mode=False`` keeps the regular-file and symlink-rejection guards but skips the
+    # permission-bits check. It is used ONLY for upstream conda package-cache license evidence
+    # (info/licenses/*), whose file mode conda-forge controls, not us. Integrity for those files
+    # is the content and its recorded SHA256, both still enforced by _read_evidence. Every file we
+    # own or carry (aggregated RUNTIME-LICENSES/NOTICES, supplement/component evidence, the explicit
+    # lock, python-dist metadata, reviews, the inventory) keeps the default 0644 requirement.
     try:
         info = path.lstat()
     except OSError as exc:
@@ -167,7 +173,7 @@ def _require_regular(path: Path, label: str, mode: int = EXPECTED_MODE) -> None:
     if not stat.S_ISREG(info.st_mode):
         raise LicenseInputError(f"{label} must be a regular file: {path}")
     actual = stat.S_IMODE(info.st_mode)
-    if actual != mode:
+    if require_mode and actual != mode:
         raise LicenseInputError(f"{label} has mode {actual:04o}; expected {mode:04o}: {path}")
 
 
@@ -226,8 +232,8 @@ def _resolve_local(base: Path, value: Any, label: str) -> Path:
     return Path(os.path.abspath(candidate))
 
 
-def _read_evidence(path: Path, expected_sha: str, label: str) -> EvidenceFile:
-    _require_regular(path, label)
+def _read_evidence(path: Path, expected_sha: str, label: str, *, require_mode: bool = True) -> EvidenceFile:
+    _require_regular(path, label, require_mode=require_mode)
     digest = hashlib.sha256()
     chunks: list[bytes] = []
     try:
@@ -738,12 +744,16 @@ def _load_runtime_input(
 
 
 def _runtime_evidence(
-    declarations: tuple[tuple[str, str], ...], base: Path, label: str
+    declarations: tuple[tuple[str, str], ...], base: Path, label: str, *, require_mode: bool = True
 ) -> tuple[EvidenceFile, ...]:
+    # ``require_mode=False`` is used only when re-reading upstream conda package-cache license
+    # evidence (info/licenses/*), whose mode conda-forge controls; the regular-file/symlink guards
+    # and the content SHA256 still bind it. Supplement evidence we author is read with the default
+    # (its 0644 mode is enforced at generate time), and component/pip/carried reads stay strict.
     values: list[EvidenceFile] = []
     for index, (raw_path, expected_sha) in enumerate(declarations):
         path = _resolve_local(base, raw_path, f"{label}[{index}].path")
-        values.append(_read_evidence(path, expected_sha, f"{label}[{index}].evidence"))
+        values.append(_read_evidence(path, expected_sha, f"{label}[{index}].evidence", require_mode=require_mode))
     return tuple(values)
 
 
@@ -995,7 +1005,16 @@ def _cached_license_files(package_dir: Path, label: str) -> tuple[dict[str, str]
             continue
         if not stat.S_ISREG(info.st_mode):
             raise LicenseInputError(f"{label} package-cache license tree contains a non-regular file: {path}")
-        evidence = _read_evidence(path, hashlib.sha256(path.read_bytes()).hexdigest(), f"{label} license evidence")
+        # Upstream conda-forge license files (e.g. intel-gmmlib's LICENSE.md at 0755) may not be
+        # 0644; their mode is not our integrity property. Bind them by content + SHA256 and keep
+        # the symlink/regular-file guards, but do not require a specific mode. Only this
+        # package-cache read path is mode-agnostic.
+        evidence = _read_evidence(
+            path,
+            hashlib.sha256(path.read_bytes()).hexdigest(),
+            f"{label} license evidence",
+            require_mode=False,
+        )
         files.append({"path": str(path), "sha256": evidence.sha256})
     if not files:
         raise LicenseInputError(f"{label} package-cache license directory contains no files")
@@ -1367,8 +1386,17 @@ def collect_runtime(
                 license_family=(raw.get("license_family") if isinstance(raw.get("license_family"), str) else None),
                 metadata_path=metadata_path,
                 metadata_sha256=hashlib.sha256(metadata_path.read_bytes()).hexdigest(),
-                license=_runtime_evidence(declared["license"], input_file.parent, f"{raw['name']} licence"),
-                notice=_runtime_evidence(declared["notice"], input_file.parent, f"{raw['name']} notice"),
+                # Conda-package licence/notice evidence is upstream third-party text (a
+                # package-cache info/licenses/* file, or a supplement file we authored). Its mode is
+                # not our integrity property -- the content SHA256 is, and it is re-verified here --
+                # so this read is mode-agnostic. Supplement files still had their 0644 mode enforced
+                # at generate time.
+                license=_runtime_evidence(
+                    declared["license"], input_file.parent, f"{raw['name']} licence", require_mode=False
+                ),
+                notice=_runtime_evidence(
+                    declared["notice"], input_file.parent, f"{raw['name']} notice", require_mode=False
+                ),
             )
         )
     records.sort(key=lambda item: item.canonical_url)
