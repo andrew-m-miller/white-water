@@ -1943,6 +1943,21 @@ jobs:
           echo "Generated final extracted-runtime legal inventory for human review: $inventory"
           echo "Approve this exact inventory SHA256 in an Andrew Miller runtime legal-review JSON before rerunning packaging: $inventory_sha"
 
+      # Safety net: the CI-solved @EXPLICIT lock (conda list --explicit) is the authoritative
+      # target-env package list. It is written by "Pack and relocate the qualified conda runtime"
+      # BEFORE the license step above, so uploading it with if: always() means a failure in the
+      # license/supplement scoping still surfaces the exact solved package set. Use that artifact to
+      # finalize runtime-license-supplement.json precisely if the 6-package scoping is off (a
+      # missing entry, or an unused_supplements guard hit). This does not disturb the legal-inventory
+      # upload below.
+      - name: Upload CI-solved runtime explicit lock (safety net)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: p25-6-runtime-explicit-lock-${{ github.run_id }}
+          path: p25-6-output/whitewater-p25-6-runtime.inventory
+          if-no-files-found: warn
+
       # This artifact is intentionally available even when the following approval gate fails.
       # The first run presents the exact final extracted runtime inventory; the operator reviews
       # it and reruns with P25_6_RUNTIME_LEGAL_REVIEW_FILE/SHA256 bound to that inventory hash.
