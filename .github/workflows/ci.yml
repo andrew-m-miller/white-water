@@ -19,6 +19,7 @@ on:
         options:
           - standard
           - p25-5
+          - p25-6
       p25_5_admission_file:
         description: Optional repository-relative SEA-RAFT-only candidate plan/template; admission is generated after export
         required: false
@@ -86,6 +87,81 @@ on:
       p25_5_run_instructions:
         description: Local evaluation-only run instructions carried in and beside the archive (required for p25-5)
         required: false
+        type: string
+      p25_6_admission_file:
+        description: Optional repository-relative SEA-RAFT-only candidate plan/template; admission is generated after export (p25-6)
+        required: false
+        type: string
+      p25_6_legal_review_file:
+        description: Repository-relative human candidate legal-review attestation JSON (required for p25-6)
+        required: false
+        type: string
+      p25_6_legal_review_sha256:
+        description: SHA256 of the exact candidate legal-review attestation JSON (required for p25-6)
+        required: false
+        type: string
+      p25_6_candidate_license_input:
+        description: Repository-relative checked-in SEA-RAFT candidate license/notice declaration (reused from p25-5; candidate is identical)
+        required: false
+        default: bakeoff/p25-5/candidate-license-input.json
+        type: string
+      p25_6_runtime_license_supplement:
+        description: Repository-relative explicit license evidence for locked conda packages whose cache lacks info/licenses; CI reveals any OIIO/pynvml gaps to add to a bakeoff/p25-6 supplement
+        required: false
+        default: bakeoff/p25-5/runtime-license-supplement.json
+        type: string
+      p25_6_runtime_legal_review_file:
+        description: Repository-relative Andrew Miller approval of the generated P25-6 runtime license/notice inventory (required before packaging; first run generates the inventory for review)
+        required: false
+        type: string
+      p25_6_runtime_legal_review_sha256:
+        description: SHA256 of the exact Andrew Miller P25-6 runtime legal-review JSON (required before packaging)
+        required: false
+        type: string
+      p25_6_conda_installer_url:
+        description: SHA-pinned EL8 x86_64 conda bootstrap URL (must match bakeoff/p25-6/runtime-inputs.json)
+        required: false
+        type: string
+        default: https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh
+      p25_6_conda_installer_sha256:
+        description: SHA256 of the explicit conda bootstrap installer (must match runtime-inputs.json)
+        required: false
+        type: string
+        default: 848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c
+      p25_6_conda_lock_file:
+        description: Repository-relative conda REQUESTED spec (CI solves it on EL8; must match bakeoff/p25-6/runtime-inputs.json)
+        required: false
+        type: string
+        default: bakeoff/p25-6/conda-el8-x86_64.lock
+      p25_6_conda_lock_sha256:
+        description: SHA256 of the checked-in conda requested spec (must match runtime-inputs.json; update to the CI-emitted pinned lock SHA256 once re-pinned)
+        required: false
+        type: string
+        default: 61fa6c3cf89b1cd950d7ccef49a6194f66b18f4f72758bea125f286baf15e48b
+      p25_6_qualifier:
+        description: Python evaluator entry point implementing verify --manifest --artifact --protocol --provider (CPU candidate-correctness gate)
+        required: false
+        type: string
+        default: tools/bakeoff/evaluator.py
+      p25_6_driver:
+        description: Carried resumable profile-driver module import-smoked in the relocated runtime
+        required: false
+        type: string
+        default: tools/bakeoff/run.py
+      p25_6_packager:
+        description: Python packager entry point (the unchanged P25-5 package.py)
+        required: false
+        type: string
+        default: tools/p25_5/package.py
+      p25_6_package_spec:
+        description: Local package-spec template; admission and runtime use documented __P25_6_ placeholders
+        required: false
+        default: bakeoff/p25-6/package-spec.json
+        type: string
+      p25_6_run_instructions:
+        description: Local target-measurement run instructions carried in and beside the archive (RUN-P25-6.txt)
+        required: false
+        default: bakeoff/p25-6/RUN-P25-6.txt
         type: string
 
 jobs:
@@ -1308,4 +1384,751 @@ jobs:
         with:
           name: whitewater-p25-5-el8-${{ github.sha }}
           path: p25-5-output
+          if-no-files-found: error
+
+  p25_6:
+    if: ${{ inputs.lane == 'p25-6' }}
+    name: p25-6 qualification (EL8 / glibc 2.28)
+    runs-on: ubuntu-latest
+    container:
+      image: almalinux:8
+    env:
+      P25_6_ADMISSION_PLAN: ${{ inputs.p25_6_admission_file }}
+      P25_6_LEGAL_REVIEW_FILE: ${{ inputs.p25_6_legal_review_file }}
+      P25_6_LEGAL_REVIEW_SHA256: ${{ inputs.p25_6_legal_review_sha256 }}
+      P25_6_CANDIDATE_LICENSE_INPUT: ${{ inputs.p25_6_candidate_license_input }}
+      P25_6_RUNTIME_LICENSE_SUPPLEMENT: ${{ inputs.p25_6_runtime_license_supplement }}
+      P25_6_RUNTIME_LEGAL_REVIEW_FILE: ${{ inputs.p25_6_runtime_legal_review_file }}
+      P25_6_RUNTIME_LEGAL_REVIEW_SHA256: ${{ inputs.p25_6_runtime_legal_review_sha256 }}
+      P25_6_CONDA_INSTALLER_URL: ${{ inputs.p25_6_conda_installer_url }}
+      P25_6_CONDA_INSTALLER_SHA256: ${{ inputs.p25_6_conda_installer_sha256 }}
+      P25_6_CONDA_LOCK_FILE: ${{ inputs.p25_6_conda_lock_file }}
+      P25_6_CONDA_LOCK_SHA256: ${{ inputs.p25_6_conda_lock_sha256 }}
+      P25_6_RUNTIME_INPUTS_FILE: bakeoff/p25-6/runtime-inputs.json
+      P25_6_QUALIFIER: ${{ inputs.p25_6_qualifier }}
+      P25_6_DRIVER: ${{ inputs.p25_6_driver }}
+      P25_6_PACKAGER: ${{ inputs.p25_6_packager }}
+      P25_6_PACKAGE_SPEC: ${{ inputs.p25_6_package_spec }}
+      P25_6_RUN_INSTRUCTIONS: ${{ inputs.p25_6_run_instructions }}
+      P25_6_OUTPUT_DIR: p25-6-output
+      P25_6_RUNTIME_LEGAL_DIR: p25-6-output/legal-runtime
+    steps:
+      - name: Install EL8 build and runtime prerequisites
+        run: |
+          dnf -y install git make cmake binutils tar gzip curl bzip2 xz file findutils
+          dnf -y install gcc-toolset-12 python3.11 python3.11-pip
+          echo "CC=/opt/rh/gcc-toolset-12/root/usr/bin/gcc" >> "$GITHUB_ENV"
+          echo "CXX=/opt/rh/gcc-toolset-12/root/usr/bin/g++" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Fail closed on missing P25-6 inputs
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64 || {
+            echo "P25-6 runtime must be built on EL8 x86_64 (got $(uname -m))" >&2; exit 1; }
+          for name in \
+            P25_6_CONDA_INSTALLER_URL \
+            P25_6_CONDA_INSTALLER_SHA256 \
+            P25_6_CONDA_LOCK_FILE \
+            P25_6_CONDA_LOCK_SHA256 \
+            P25_6_LEGAL_REVIEW_FILE \
+            P25_6_LEGAL_REVIEW_SHA256 \
+            P25_6_CANDIDATE_LICENSE_INPUT \
+            P25_6_QUALIFIER \
+            P25_6_DRIVER \
+            P25_6_PACKAGER \
+            P25_6_PACKAGE_SPEC \
+            P25_6_RUN_INSTRUCTIONS; do
+            test -n "${!name:-}" || {
+              if [ "$name" = P25_6_QUALIFIER ]; then
+                echo "P25-6 evaluator entry point is not supplied: P25-4 session.py is callback-only and cannot be packaged as a runnable evaluator" >&2
+              else
+                echo "P25-6 requires explicit $name; no evaluator/runtime may be invented" >&2
+              fi
+              exit 1; }
+          done
+          [[ "$P25_6_CONDA_INSTALLER_URL" =~ ^https?:// ]] || {
+            echo "P25-6 conda installer URL must be explicit HTTPS/HTTP" >&2; exit 1; }
+          lock_file="$GITHUB_WORKSPACE/$P25_6_CONDA_LOCK_FILE"
+          case "$P25_6_CONDA_LOCK_FILE" in
+            /*|*..*|*//*|"")
+              echo "P25-6 conda lock file must be a repository-relative path without traversal" >&2
+              exit 1 ;;
+          esac
+          test -f "$lock_file" || {
+            echo "P25-6 explicit conda lock/spec is missing: $P25_6_CONDA_LOCK_FILE" >&2; exit 1; }
+          test ! -L "$lock_file" || {
+            echo "P25-6 conda lock/spec must not be a symlink" >&2; exit 1; }
+          [[ "$P25_6_CONDA_INSTALLER_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "P25-6 conda installer SHA256 must be lowercase 64-hex" >&2; exit 1; }
+          [[ "$P25_6_CONDA_LOCK_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "P25-6 conda lock/spec SHA256 must be lowercase 64-hex" >&2; exit 1; }
+          runtime_inputs="$GITHUB_WORKSPACE/$P25_6_RUNTIME_INPUTS_FILE"
+          test -f "$runtime_inputs" || {
+            echo "P25-6 checked-in runtime input manifest is missing: $P25_6_RUNTIME_INPUTS_FILE" >&2
+            exit 1; }
+          test ! -L "$runtime_inputs" || {
+            echo "P25-6 checked-in runtime input manifest must not be a symlink" >&2; exit 1; }
+          test "$(stat -c '%a' "$runtime_inputs")" = 644 || {
+            echo "P25-6 checked-in runtime input manifest must have mode 0644" >&2; exit 1; }
+          python3.11 - "$runtime_inputs" "$P25_6_CONDA_INSTALLER_URL" \
+            "$P25_6_CONDA_INSTALLER_SHA256" "$P25_6_CONDA_LOCK_FILE" \
+            "$P25_6_CONDA_LOCK_SHA256" "$GITHUB_WORKSPACE" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          manifest_path = Path(sys.argv[1])
+          supplied = tuple(sys.argv[2:6])
+          workspace = Path(sys.argv[6]).resolve()
+          try:
+              document = json.loads(manifest_path.read_text(encoding="utf-8"))
+          except (OSError, UnicodeError, ValueError) as exc:
+              raise SystemExit(f"P25-6 runtime input manifest is invalid JSON: {exc}")
+          try:
+              conda = document["conda"]
+              ort = document["onnxruntime_cuda12"]
+              bridge = document["native_bridge"]
+              expected = (
+                  conda["installer_url"],
+                  conda["installer_sha256"],
+                  conda["explicit_lock"],
+                  conda["explicit_lock_sha256"],
+              )
+          except (KeyError, TypeError) as exc:
+              raise SystemExit(f"P25-6 runtime input manifest lacks required fields: {exc}")
+          if supplied != expected:
+              raise SystemExit(
+                  "P25-6 conda inputs must exactly match checked-in runtime-inputs.json: "
+                  f"supplied={supplied!r} expected={expected!r}"
+              )
+          if ort.get("version") != "1.29.0" or ort.get("cuda_major") != 12:
+              raise SystemExit("P25-6 runtime manifest must pin ONNX Runtime 1.29.0 CUDA 12")
+          for label, value in (
+              ("installer_sha256", conda.get("installer_sha256")),
+              ("explicit_lock_sha256", conda.get("explicit_lock_sha256")),
+              ("archive_sha256", ort.get("archive_sha256")),
+              ("bridge_source_sha256", bridge.get("source_sha256")),
+          ):
+              if not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+                  raise SystemExit(f"P25-6 runtime manifest {label} is not lowercase SHA256")
+          lock = workspace / conda["explicit_lock"]
+          resolved_lock = lock.resolve()
+          if (
+              workspace not in resolved_lock.parents
+              or not lock.is_file()
+              or lock.is_symlink()
+          ):
+              raise SystemExit(f"P25-6 runtime manifest lock is not a local regular file: {lock}")
+          actual_lock = hashlib.sha256(lock.read_bytes()).hexdigest()
+          if actual_lock != conda["explicit_lock_sha256"]:
+              raise SystemExit(
+                  f"P25-6 checked-in conda lock hash mismatch: expected {conda['explicit_lock_sha256']}, got {actual_lock}"
+              )
+          source = workspace / bridge["source"]
+          if not source.is_file() or source.is_symlink():
+              raise SystemExit(f"P25-6 native bridge source is not a local regular file: {source}")
+          actual_source = hashlib.sha256(source.read_bytes()).hexdigest()
+          if actual_source != bridge["source_sha256"]:
+              raise SystemExit(
+                  f"P25-6 native bridge source hash mismatch: expected {bridge['source_sha256']}, got {actual_source}"
+              )
+          print("P25-6 checked-in conda/ONNX Runtime/native-bridge inputs: PASS")
+          print(f"  ONNX Runtime CUDA-12 archive: {ort['archive_url']}")
+          print(f"  ONNX Runtime archive SHA256: {ort['archive_sha256']}")
+          PY
+          [[ "$P25_6_LEGAL_REVIEW_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "P25-6 legal-review SHA256 must be lowercase 64-hex" >&2; exit 1; }
+
+          case "$P25_6_LEGAL_REVIEW_FILE" in
+            /*|*..*|*//*|"")
+              echo "P25-6 legal-review file must be a repository-relative path without traversal" >&2
+              exit 1 ;;
+          esac
+          legal_review_file="$GITHUB_WORKSPACE/$P25_6_LEGAL_REVIEW_FILE"
+          test -f "$legal_review_file" || {
+            echo "P25-6 legal-review file is missing: $P25_6_LEGAL_REVIEW_FILE" >&2; exit 1; }
+          test ! -L "$legal_review_file" || {
+            echo "P25-6 legal-review file must not be a symlink" >&2; exit 1; }
+          test "$(stat -c '%a' "$legal_review_file")" = 644 || {
+            echo "P25-6 legal-review file must have mode 0644: $P25_6_LEGAL_REVIEW_FILE" >&2; exit 1; }
+          actual_legal_review_sha=$(sha256sum -- "$legal_review_file" | awk '{print $1}')
+          test "$actual_legal_review_sha" = "$P25_6_LEGAL_REVIEW_SHA256" || {
+            echo "P25-6 legal-review SHA256 mismatch: expected $P25_6_LEGAL_REVIEW_SHA256, got $actual_legal_review_sha" >&2
+            exit 1; }
+          python3.11 tools/p25_5/legal_review.py \
+            --protocol bakeoff/protocol-v2.json \
+            --manifest sea-raft-m models/sea-raft-m.json \
+            --review "$legal_review_file" \
+            --sha256 "$P25_6_LEGAL_REVIEW_SHA256"
+
+          for input_name in P25_6_CANDIDATE_LICENSE_INPUT; do
+            input_value="${!input_name}"
+            case "$input_value" in
+              /*|*..*|*//*|"")
+                echo "P25-6 $input_name must be a repository-relative path without traversal" >&2
+                exit 1 ;;
+            esac
+            input_file="$GITHUB_WORKSPACE/$input_value"
+            test -f "$input_file" || {
+              echo "P25-6 $input_name file is missing: $input_value" >&2; exit 1; }
+            test ! -L "$input_file" || {
+              echo "P25-6 $input_name file must not be a symlink" >&2; exit 1; }
+            test "$(stat -c '%a' "$input_file")" = 644 || {
+              echo "P25-6 $input_name file must have mode 0644: $input_value" >&2; exit 1; }
+          done
+          if [ -n "${P25_6_RUNTIME_LICENSE_SUPPLEMENT:-}" ]; then
+            case "$P25_6_RUNTIME_LICENSE_SUPPLEMENT" in
+              /*|*..*|*//*|"")
+                echo "P25-6 runtime license supplement must be a repository-relative path without traversal" >&2
+                exit 1 ;;
+            esac
+            supplement_file="$GITHUB_WORKSPACE/$P25_6_RUNTIME_LICENSE_SUPPLEMENT"
+            test -f "$supplement_file" || { echo "P25-6 runtime license supplement is missing: $P25_6_RUNTIME_LICENSE_SUPPLEMENT" >&2; exit 1; }
+            test ! -L "$supplement_file" || { echo "P25-6 runtime license supplement must not be a symlink" >&2; exit 1; }
+            test "$(stat -c '%a' "$supplement_file")" = 644 || { echo "P25-6 runtime license supplement must have mode 0644" >&2; exit 1; }
+          fi
+          if [ -n "${P25_6_ADMISSION_PLAN:-}" ]; then
+            case "$P25_6_ADMISSION_PLAN" in
+              /*|*..*|*//*|"")
+                echo "P25-6 candidate plan must be a repository-relative path without traversal" >&2
+                exit 1 ;;
+            esac
+            plan_file="$GITHUB_WORKSPACE/$P25_6_ADMISSION_PLAN"
+            test -f "$plan_file" || {
+              echo "P25-6 candidate plan is missing: $P25_6_ADMISSION_PLAN" >&2; exit 1; }
+            test ! -L "$plan_file" || {
+              echo "P25-6 candidate plan must not be a symlink" >&2; exit 1; }
+            python3.11 - "$plan_file" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          try:
+              document = json.loads(path.read_text(encoding="utf-8"))
+          except (OSError, UnicodeError, ValueError) as exc:
+              raise SystemExit(f"P25-6 candidate plan is not valid JSON: {exc}")
+          if not isinstance(document, dict):
+              raise SystemExit("P25-6 candidate plan must be a JSON object")
+          raw = document.get("candidate_ids")
+          if raw is None:
+              raw = document.get("candidates")
+              if isinstance(raw, list):
+                  ids = []
+                  for index, item in enumerate(raw):
+                      if not isinstance(item, dict) or not isinstance(item.get("candidate_id"), str):
+                          raise SystemExit(
+                              f"P25-6 candidate plan candidates[{index}] must contain candidate_id"
+                          )
+                      ids.append(item["candidate_id"])
+              else:
+                  ids = None
+          else:
+              ids = raw
+          if not isinstance(ids, list) or not all(isinstance(item, str) and item for item in ids):
+              raise SystemExit(
+                  "P25-6 candidate plan must contain candidate_ids or candidates[].candidate_id"
+              )
+          if len(ids) != len(set(ids)) or sorted(set(ids)) != ["sea-raft-m"]:
+              raise SystemExit(
+                  "P25-6 currently admits only sea-raft-m; RAFT/NeuFlow/WAFT are not silently admitted"
+              )
+          print("P25-6 candidate plan: SEA-RAFT M only")
+          PY
+          fi
+
+      - name: Report EL8 toolchain
+        run: |
+          "$CXX" --version
+          cmake --version
+          ldd --version | head -1
+
+      # The ONNX payload is ignored by git. Reproduce the exact pinned SEA-RAFT M export before
+      # admission; the generated Linux row carries the current artifact/environment hashes and
+      # is the only candidate this lane may package automatically.
+      - name: Export pinned SEA-RAFT M measurement artifact
+        run: |
+          set -euo pipefail
+          checked_in_manifest="$RUNNER_TEMP/p25-6-checked-in-sea-raft-m.json"
+          cp -- models/sea-raft-m.json "$checked_in_manifest"
+          echo "P25_6_CHECKED_IN_MANIFEST=$checked_in_manifest" >> "$GITHUB_ENV"
+          dnf -y install python3.11 python3.11-pip
+          python3.11 -m venv "$RUNNER_TEMP/searaft-export-venv"
+          py="$RUNNER_TEMP/searaft-export-venv/bin/python"
+          "$py" -m pip install --upgrade pip
+          "$py" -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            torch==2.2.0 torchvision==0.17.0
+          grep -vE '^(torch|torchvision)==' models/requirements-searaft-export.txt \
+            > "$RUNNER_TEMP/searaft-export-requirements.txt"
+          "$py" -m pip install -r "$RUNNER_TEMP/searaft-export-requirements.txt"
+
+          upstream="$RUNNER_TEMP/SEA-RAFT"
+          checkpoint="$RUNNER_TEMP/sea-raft-m.safetensors"
+          commit=$("$py" -c \
+            'import json; print(json.load(open("models/sea-raft-m.json"))["upstream"]["commit"])')
+          checkpoint_url=$("$py" -c \
+            'import json; print(json.load(open("models/sea-raft-m.json"))["checkpoint"]["url"])')
+          git init "$upstream"
+          git -C "$upstream" remote add origin https://github.com/princeton-vl/SEA-RAFT.git
+          git -C "$upstream" fetch --depth=1 origin "$commit"
+          git -C "$upstream" checkout --detach FETCH_HEAD
+          curl --fail --location --retry 3 -o "$checkpoint" "$checkpoint_url"
+
+          "$py" models/export_searaft.py \
+            --upstream "$upstream" \
+            --checkpoint "$checkpoint" \
+            --output models/sea-raft-m-opset17.onnx \
+            --platform linux-x86_64 \
+            --update-manifest
+          "$py" models/check_searaft_artifact.py \
+            models/sea-raft-m.json models/sea-raft-m-opset17.onnx
+
+          # The reviewed declaration is checked in against the pre-export manifest.  Exporting
+          # the Linux row changes only the manifest identity, so materialize a CI sidecar that
+          # preserves every reviewed legal field/evidence hash and binds the freshly exported
+          # manifest.  Absolute evidence paths are intentional in this non-carried sidecar.
+          generated_candidate_input="$RUNNER_TEMP/p25-6-candidate-license-input.json"
+          python3.11 - "$GITHUB_WORKSPACE/$P25_6_CANDIDATE_LICENSE_INPUT" \
+            "$generated_candidate_input" "$GITHUB_WORKSPACE/models/sea-raft-m.json" <<'PY'
+          import hashlib
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          from tools.p25_5.licenses import canonical_sha256
+
+          source = Path(sys.argv[1])
+          output = Path(sys.argv[2])
+          manifest_path = Path(sys.argv[3]).resolve()
+          document = json.loads(source.read_text(encoding="utf-8"))
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          if document.get("schema_id") != "whitewater-p25-candidate-license-input-v1":
+              raise SystemExit("checked-in candidate legal declaration has the wrong schema")
+          if document.get("candidate_id") != manifest.get("candidate", {}).get("id"):
+              raise SystemExit("fresh export changed the candidate identity")
+          if document.get("licenses_sha256") != canonical_sha256(manifest.get("licenses")):
+              raise SystemExit("fresh export changed the reviewed candidate licence surfaces")
+          source_manifest = (source.parent / document["manifest"]).resolve()
+          if source_manifest != manifest_path:
+              raise SystemExit("candidate legal declaration points at a different manifest")
+          document["manifest"] = str(manifest_path)
+          document["manifest_sha256"] = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+          for surface in document["surfaces"].values():
+              for field in ("license_file", "notice_file"):
+                  surface[field] = str((source.parent / surface[field]).resolve())
+          output.write_text(
+              json.dumps(document, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          os.chmod(output, 0o644)
+          PY
+          echo "P25_6_CANDIDATE_LICENSE_INPUT=$generated_candidate_input" >> "$GITHUB_ENV"
+
+      - name: Generate SEA-RAFT CPU measurement admission
+        run: |
+          set -euo pipefail
+          mkdir -p "$P25_6_OUTPUT_DIR"
+          python3.11 tools/p25_5/admission.py \
+            --protocol bakeoff/protocol-v2.json \
+            --candidate models/sea-raft-m.json models/sea-raft-m-opset17.onnx linux-x86_64 \
+            --provider cpu \
+            --legal-review-file "$P25_6_LEGAL_REVIEW_FILE" \
+            --legal-review-sha256 "$P25_6_LEGAL_REVIEW_SHA256" \
+            --output "$P25_6_OUTPUT_DIR/sea-raft-admission.json"
+          candidate_ids=$(python3.11 - "$P25_6_OUTPUT_DIR/sea-raft-admission.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          print(" ".join(entry.get("candidate_id", "") for entry in document.get("candidates", [])))
+          PY
+          )
+          if [ "$candidate_ids" != "sea-raft-m" ]; then
+            echo "P25-6 clean-checkout lane may admit only sea-raft-m (got: $candidate_ids)" >&2
+            exit 1
+          fi
+          echo "generated SEA-RAFT admission: $P25_6_OUTPUT_DIR/sea-raft-admission.json"
+          echo "P25_6_ADMISSION_FILE=$P25_6_OUTPUT_DIR/sea-raft-admission.json" >> "$GITHUB_ENV"
+
+          # Ordinary repository gates assert the checked-in P25-3 evidence and must not
+          # accidentally bless the fresh P25-6 export.  Isolate the generated pair while
+          # those gates run, then restore it before runtime qualification and packaging.
+          generated_manifest="$RUNNER_TEMP/p25-6-generated-sea-raft-m.json"
+          generated_artifact="$RUNNER_TEMP/p25-6-generated-sea-raft-m-opset17.onnx"
+          cp -- models/sea-raft-m.json "$generated_manifest"
+          mv -- models/sea-raft-m-opset17.onnx "$generated_artifact"
+          cp -- "$P25_6_CHECKED_IN_MANIFEST" models/sea-raft-m.json
+          test ! -e models/sea-raft-m-opset17.onnx
+          echo "P25_6_GENERATED_MANIFEST=$generated_manifest" >> "$GITHUB_ENV"
+          echo "P25_6_GENERATED_ARTIFACT=$generated_artifact" >> "$GITHUB_ENV"
+
+      # Keep the ordinary repository suite in the P25-6 lane. This is independent of the
+      # evaluator runtime and catches regressions in the host-free flow algebra and OFX bundle.
+      - name: Configure ordinary gates
+        run: >-
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DPython3_EXECUTABLE="$RUNNER_TEMP/searaft-export-venv/bin/python"
+
+      - name: Build ordinary gates
+        run: cmake --build build -j$(nproc)
+
+      - name: Test ordinary gates
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+
+      # These are the candidate/export contract gates, kept visible in the workflow even though
+      # CTest also registers most of them. They validate provenance, schema, hash/mode, tensor,
+      # direction and operator rules without treating any candidate as a shipping choice.
+      - name: Run candidate export and contract gates
+        run: |
+          python3.11 models/check_searaft_manifest.py models/sea-raft-m.json
+          python3.11 models/check_raft_manifest.py models/raft-original.json
+          python3.11 models/check_neuflow_manifest.py models/neuflow-v2.json
+          python3.11 models/check_waft_manifest.py
+          python3.11 models/p25_3_candidate_manifest_tests.py
+          python3.11 models/artifact_tests.py
+          python3.11 models/artifact_import_tests.py
+          python3.11 models/neuflow_export_tests.py
+          python3.11 models/raft_export_tests.py
+          python3.11 models/waft_export_tests.py
+          "$RUNNER_TEMP/searaft-export-venv/bin/python" -m tools.bakeoff.native_ort_tests
+
+          cp -- "$P25_6_GENERATED_MANIFEST" models/sea-raft-m.json
+          mv -- "$P25_6_GENERATED_ARTIFACT" models/sea-raft-m-opset17.onnx
+          "$RUNNER_TEMP/searaft-export-venv/bin/python" models/check_searaft_artifact.py \
+            models/sea-raft-m.json models/sea-raft-m-opset17.onnx
+
+      - name: Fetch explicit conda bootstrap and environment lock
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p25-6-inputs"
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/p25-6-inputs/conda-bootstrap.sh" "$P25_6_CONDA_INSTALLER_URL"
+          printf '%s  %s\n' "$P25_6_CONDA_INSTALLER_SHA256" \
+            "$RUNNER_TEMP/p25-6-inputs/conda-bootstrap.sh" | sha256sum --check --status
+          lock_file="$GITHUB_WORKSPACE/$P25_6_CONDA_LOCK_FILE"
+          cp -- "$lock_file" "$RUNNER_TEMP/p25-6-inputs/environment.lock"
+          printf '%s  %s\n' "$P25_6_CONDA_LOCK_SHA256" \
+            "$RUNNER_TEMP/p25-6-inputs/environment.lock" | sha256sum --check --status
+          bash "$RUNNER_TEMP/p25-6-inputs/conda-bootstrap.sh" -b -p "$RUNNER_TEMP/miniforge"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/miniforge/etc/profile.d/conda.sh"
+          conda config --system --set always_yes true
+          conda --version
+          # This is an explicit conda package spec (the format consumed by `conda create
+          # --file`), not an environment YAML. It is hash-bound before the solver runs.
+          conda create --override-channels -c conda-forge \
+            --prefix "$RUNNER_TEMP/p25-6-conda-env" \
+            --file "$RUNNER_TEMP/p25-6-inputs/environment.lock"
+          test -x "$RUNNER_TEMP/p25-6-conda-env/bin/python"
+          test -x "$RUNNER_TEMP/p25-6-conda-env/bin/conda-pack" || {
+            echo "the locked evaluator environment must carry conda-pack" >&2; exit 1; }
+          "$RUNNER_TEMP/p25-6-conda-env/bin/conda-pack" --version
+          runtime_inputs="$GITHUB_WORKSPACE/$P25_6_RUNTIME_INPUTS_FILE"
+          ort_url=$(python3.11 - "$runtime_inputs" <<'PY'
+          import json
+          import sys
+          print(json.loads(open(sys.argv[1], encoding="utf-8").read())["onnxruntime_cuda12"]["archive_url"])
+          PY
+          )
+          ort_sha=$(python3.11 - "$runtime_inputs" <<'PY'
+          import json
+          import sys
+          print(json.loads(open(sys.argv[1], encoding="utf-8").read())["onnxruntime_cuda12"]["archive_sha256"])
+          PY
+          )
+          ort_inputs="$RUNNER_TEMP/p25-6-inputs/onnxruntime-cuda12"
+          ort_archive="$RUNNER_TEMP/p25-6-inputs/onnxruntime-cuda12.tgz"
+          mkdir -p "$ort_inputs"
+          curl --fail --location --retry 3 \
+            --output "$ort_archive" "$ort_url"
+          printf '%s  %s\n' "$ort_sha" "$ort_archive" | sha256sum --check --status
+          tar --extract --gzip --file "$ort_archive" --directory "$ort_inputs"
+          ort_source="$ort_inputs/onnxruntime-linux-x64-gpu_cuda12-1.29.0"
+          test -d "$ort_source" || { echo "official ORT archive layout changed" >&2; exit 1; }
+          native_root="$RUNNER_TEMP/p25-6-conda-env/lib/whitewater/ort-cuda12"
+          native_ort_root="$native_root/onnxruntime"
+          mkdir -p "$native_ort_root"
+          for name in LICENSE ThirdPartyNotices.txt VERSION_NUMBER GIT_COMMIT_ID Privacy.md; do
+            test -f "$ort_source/$name" || { echo "official ORT archive is missing $name" >&2; exit 1; }
+            cp -- "$ort_source/$name" "$native_ort_root/$name"
+          done
+          for name in \
+            libonnxruntime.so \
+            libonnxruntime.so.1 \
+            libonnxruntime.so.1.29.0 \
+            libonnxruntime_providers_cuda.so \
+            libonnxruntime_providers_shared.so; do
+            test -e "$ort_source/lib/$name" || { echo "official ORT archive is missing $name" >&2; exit 1; }
+            cp -L -- "$ort_source/lib/$name" "$native_ort_root/$name"
+          done
+          "$CXX" -std=c++17 -O2 -fPIC -fvisibility=hidden -shared \
+            -I"$ort_source/include" tools/bakeoff/ort_native_bridge.cpp \
+            -L"$ort_source/lib" -Wl,-rpath,'$ORIGIN/onnxruntime' -Wl,--no-as-needed \
+            -lonnxruntime -o "$native_root/libwhitewater_ort_bridge.so"
+          chmod 0755 "$native_root/libwhitewater_ort_bridge.so"
+          test -f "$native_root/libwhitewater_ort_bridge.so"
+          objdump -p "$native_root/libwhitewater_ort_bridge.so" | \
+            grep -F 'RUNPATH' | grep -F '$ORIGIN/onnxruntime' >/dev/null || {
+              echo "native ORT bridge must use a relative ONNX Runtime RUNPATH" >&2; exit 1; }
+          echo "P25_6_ORT_ARCHIVE_SHA256=$ort_sha" >> "$GITHUB_ENV"
+          echo "P25_6_NATIVE_ORT_ROOT=$native_root" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/p25-6-conda-env/bin/python" - <<'PY'
+          import importlib.metadata
+          from pathlib import Path
+          import sys
+          from tools.bakeoff.native_ort import load_runtime
+
+          if sys.version_info[:2] != (3, 11):
+              raise SystemExit(f"expected pinned Python 3.11, got {sys.version}")
+          for distribution_name in ("onnxruntime", "onnxruntime-gpu"):
+              try:
+                  importlib.metadata.distribution(distribution_name)
+              except importlib.metadata.PackageNotFoundError:
+                  continue
+              raise SystemExit(f"Python {distribution_name} distribution must not shadow the native bridge")
+          runtime = load_runtime()
+          if runtime.__version__ != "1.29.0":
+              raise SystemExit(f"expected native ONNX Runtime 1.29.0, got {runtime.__version__!r}")
+          providers = runtime.get_available_providers()
+          if "CPUExecutionProvider" not in providers or "CUDAExecutionProvider" not in providers:
+              raise SystemExit(f"native ONNX Runtime provider set is incomplete: {providers!r}")
+          session = runtime.InferenceSession(
+            str(Path("models/sea-raft-m-opset17.onnx")), providers=["CPUExecutionProvider"]
+          )
+          if [item.name for item in session.get_inputs()] != ["image1", "image2"]:
+              raise SystemExit("native bridge did not expose SEA-RAFT image inputs")
+          print("runtime Python/native ORT 1.29.0/CPU+CUDA provider identity: PASS")
+          PY
+
+      - name: Pack and relocate the qualified conda runtime
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p25-6-runtime-extracted" "$P25_6_OUTPUT_DIR"
+          runtime_archive="$RUNNER_TEMP/whitewater-p25-6-runtime.tar.gz"
+          "$RUNNER_TEMP/p25-6-conda-env/bin/conda-pack" \
+            --prefix "$RUNNER_TEMP/p25-6-conda-env" \
+            --format tar.gz \
+            --output "$runtime_archive"
+          chmod 0644 "$runtime_archive"
+          runtime_sha=$(sha256sum -- "$runtime_archive" | awk '{print $1}')
+          printf '%s  %s\n' "$runtime_sha" "$(basename "$runtime_archive")" \
+            > "$P25_6_OUTPUT_DIR/whitewater-p25-6-runtime.tar.gz.sha256"
+          chmod 0644 "$P25_6_OUTPUT_DIR/whitewater-p25-6-runtime.tar.gz.sha256"
+          "$RUNNER_TEMP/miniforge/bin/conda" list --prefix "$RUNNER_TEMP/p25-6-conda-env" --explicit \
+            > "$P25_6_OUTPUT_DIR/whitewater-p25-6-runtime.inventory"
+          "$RUNNER_TEMP/miniforge/bin/conda" list --prefix "$RUNNER_TEMP/p25-6-conda-env" --json \
+            > "$P25_6_OUTPUT_DIR/whitewater-p25-6-runtime.inventory.json"
+          tar --extract --gzip --file "$runtime_archive" \
+            --directory "$RUNNER_TEMP/p25-6-runtime-extracted"
+          test -x "$RUNNER_TEMP/p25-6-runtime-extracted/bin/conda-unpack"
+          env PATH="$RUNNER_TEMP/p25-6-runtime-extracted/bin:$PATH" \
+            "$RUNNER_TEMP/p25-6-runtime-extracted/bin/conda-unpack"
+          test -x "$RUNNER_TEMP/p25-6-runtime-extracted/bin/python"
+          # The packed environment is the exact carried runtime; this smoke import catches a
+          # broken relocation before the evaluator is allowed to run.
+          "$RUNNER_TEMP/p25-6-runtime-extracted/bin/python" - <<'PY'
+          import importlib.metadata
+          from pathlib import Path
+          from tools.bakeoff.native_ort import load_runtime
+
+          for distribution_name in ("onnxruntime", "onnxruntime-gpu"):
+              try:
+                  importlib.metadata.distribution(distribution_name)
+              except importlib.metadata.PackageNotFoundError:
+                  continue
+              raise SystemExit(f"relocated runtime contains shadowing Python distribution: {distribution_name}")
+          runtime = load_runtime()
+          if runtime.__version__ != "1.29.0":
+              raise SystemExit("relocated runtime changed its native ORT version")
+          providers = runtime.get_available_providers()
+          if "CPUExecutionProvider" not in providers or "CUDAExecutionProvider" not in providers:
+              raise SystemExit(f"relocated runtime lost CPU/CUDA provider identity: {providers!r}")
+          session = runtime.InferenceSession(
+              str(Path("models/sea-raft-m-opset17.onnx")), providers=["CPUExecutionProvider"]
+          )
+          if session.get_providers() != ["CPUExecutionProvider"]:
+              raise SystemExit(f"relocated runtime selected unexpected providers: {session.get_providers()!r}")
+          # P25-6 additions the P25-5 runtime lacked: the driver's production-input decoder
+          # (OpenImageIO) and its device-memory backend (pynvml) must import from this runtime.
+          import OpenImageIO  # noqa: F401
+          import pynvml  # noqa: F401
+          from tools.bakeoff import run as _driver
+          if not hasattr(_driver, "main") or not hasattr(_driver, "run_bakeoff"):
+              raise SystemExit("relocated runtime cannot import the P25-6 profile driver")
+          print("relocated native ORT bridge/session + driver/OpenImageIO/pynvml smoke: PASS")
+          PY
+          echo "P25_6_RUNTIME_ROOT=$RUNNER_TEMP/p25-6-runtime-extracted" >> "$GITHUB_ENV"
+          echo "P25_6_RUNTIME_ARCHIVE=$runtime_archive" >> "$GITHUB_ENV"
+          echo "P25_6_RUNTIME_SHA256=$runtime_sha" >> "$GITHUB_ENV"
+          echo "P25_6_RUNTIME_SHA256_FILE=$P25_6_OUTPUT_DIR/whitewater-p25-6-runtime.tar.gz.sha256" >> "$GITHUB_ENV"
+          echo "P25_6_RUNTIME_INVENTORY=$P25_6_OUTPUT_DIR/whitewater-p25-6-runtime.inventory" >> "$GITHUB_ENV"
+
+      - name: Generate hash-bound runtime license and notice inventory
+        run: |
+          set -euo pipefail
+          generated_runtime_input="$RUNNER_TEMP/p25-6-runtime-license-input.json"
+          supplement_args=()
+          if [ -n "${P25_6_RUNTIME_LICENSE_SUPPLEMENT:-}" ]; then
+            supplement_args=(--supplement "$GITHUB_WORKSPACE/$P25_6_RUNTIME_LICENSE_SUPPLEMENT")
+          fi
+          # Generate and collect against the final conda-pack extraction after conda-unpack. The
+          # package cache and explicit lock remain available outside the carried prefix, while
+          # the reviewed payload identity now includes conda-pack's activation/unpack files.
+          python3.11 tools/p25_5/licenses.py generate-runtime-input \
+            --prefix "$RUNNER_TEMP/p25-6-runtime-extracted" \
+            --lock "$RUNNER_TEMP/p25-6-inputs/environment.lock" \
+            --package-cache "$RUNNER_TEMP/miniforge/pkgs" \
+            --lock-sha256 "$P25_6_CONDA_LOCK_SHA256" \
+            --components-manifest "$GITHUB_WORKSPACE/$P25_6_RUNTIME_INPUTS_FILE" \
+            "${supplement_args[@]}" \
+            --output "$generated_runtime_input"
+          echo "P25_6_RUNTIME_LICENSE_INPUT=$generated_runtime_input" >> "$GITHUB_ENV"
+          mkdir -p "$P25_6_RUNTIME_LEGAL_DIR"
+          python3.11 tools/p25_5/licenses.py runtime \
+            --prefix "$RUNNER_TEMP/p25-6-runtime-extracted" \
+            --lock "$RUNNER_TEMP/p25-6-inputs/environment.lock" \
+            --input "$generated_runtime_input" \
+            --lock-sha256 "$P25_6_CONDA_LOCK_SHA256" \
+            --output-dir "$P25_6_RUNTIME_LEGAL_DIR" \
+            --license-name RUNTIME-LICENSES.txt \
+            --notice-name RUNTIME-NOTICES.txt
+          inventory="$P25_6_RUNTIME_LEGAL_DIR/runtime-license-inventory.json"
+          inventory_sha=$(sha256sum -- "$inventory" | awk '{print $1}')
+          echo "P25_6_RUNTIME_LEGAL_INVENTORY=$inventory" >> "$GITHUB_ENV"
+          echo "P25_6_RUNTIME_LEGAL_INVENTORY_SHA256=$inventory_sha" >> "$GITHUB_ENV"
+          echo "Generated final extracted-runtime legal inventory for human review: $inventory"
+          echo "Approve this exact inventory SHA256 in an Andrew Miller runtime legal-review JSON before rerunning packaging: $inventory_sha"
+
+      # This artifact is intentionally available even when the following approval gate fails.
+      # The first run presents the exact final extracted runtime inventory; the operator reviews
+      # it and reruns with P25_6_RUNTIME_LEGAL_REVIEW_FILE/SHA256 bound to that inventory hash.
+      - name: Upload generated runtime legal inventory for review
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: whitewater-p25-6-runtime-legal-${{ github.run_id }}
+          path: p25-6-output/legal-runtime
+          if-no-files-found: error
+
+      - name: Require Andrew Miller runtime legal approval
+        run: |
+          set -euo pipefail
+          inventory="$P25_6_RUNTIME_LEGAL_INVENTORY"
+          inventory_sha="$P25_6_RUNTIME_LEGAL_INVENTORY_SHA256"
+          if [ -z "${P25_6_RUNTIME_LEGAL_REVIEW_FILE:-}" ] || [ -z "${P25_6_RUNTIME_LEGAL_REVIEW_SHA256:-}" ]; then
+            echo "P25-6 runtime legal inventory is ready for review: $inventory" >&2
+            echo "P25-6 runtime legal inventory SHA256: $inventory_sha" >&2
+            echo "Supply an Andrew Miller runtime legal-review JSON whose inventory_sha256 equals that digest, plus its file SHA256, then rerun; final packaging is blocked." >&2
+            exit 1
+          fi
+          case "$P25_6_RUNTIME_LEGAL_REVIEW_FILE" in
+            /*|*..*|*//*|"")
+              echo "P25-6 runtime legal-review file must be a repository-relative path without traversal" >&2
+              exit 1 ;;
+          esac
+          review_file="$GITHUB_WORKSPACE/$P25_6_RUNTIME_LEGAL_REVIEW_FILE"
+          test -f "$review_file" || { echo "P25-6 runtime legal-review file is missing: $P25_6_RUNTIME_LEGAL_REVIEW_FILE" >&2; exit 1; }
+          test ! -L "$review_file" || { echo "P25-6 runtime legal-review file must not be a symlink" >&2; exit 1; }
+          test "$(stat -c '%a' "$review_file")" = 644 || { echo "P25-6 runtime legal-review file must have mode 0644" >&2; exit 1; }
+          [[ "$P25_6_RUNTIME_LEGAL_REVIEW_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "P25-6 runtime legal-review SHA256 must be lowercase 64-hex" >&2; exit 1; }
+          actual_review_sha=$(sha256sum -- "$review_file" | awk '{print $1}')
+          test "$actual_review_sha" = "$P25_6_RUNTIME_LEGAL_REVIEW_SHA256" || {
+            echo "P25-6 runtime legal-review SHA256 mismatch: expected $P25_6_RUNTIME_LEGAL_REVIEW_SHA256, got $actual_review_sha" >&2
+            exit 1; }
+          python3.11 tools/p25_5/licenses.py validate-runtime-review \
+            --input "$review_file" \
+            --sha256 "$P25_6_RUNTIME_LEGAL_REVIEW_SHA256" \
+            --inventory-sha256 "$inventory_sha"
+          # Recheck the exact final prefix after the human gate and immediately before any outer
+          # package is assembled. No source prefix is supplied: the approved identity is the
+          # relocated runtime that will actually be carried.
+          python3.11 tools/p25_5/licenses.py verify-runtime-content \
+            --prefix "$P25_6_RUNTIME_ROOT" \
+            --inventory "$inventory" \
+            --inventory-sha256 "$inventory_sha"
+
+      - name: Check glibc 2.28 baseline for runtime and evaluator ELFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_tree() {
+            local tree="$1"
+            [ -e "$tree" ] || return 0
+            if [ -f "$tree" ]; then
+              candidates=("$tree")
+            else
+              mapfile -d '' candidates < <(find "$tree" -type f -print0)
+            fi
+            for candidate in "${candidates[@]}"; do
+              if file -b -- "$candidate" | grep -q 'ELF'; then
+                scripts/check-glibc-baseline.sh "$candidate" 2.28
+              fi
+            done
+          }
+          check_tree "$P25_6_RUNTIME_ROOT"
+          check_tree "$GITHUB_WORKSPACE/$P25_6_QUALIFIER"
+          package_spec="$GITHUB_WORKSPACE/$P25_6_PACKAGE_SPEC"
+          test -f "$package_spec" || {
+            echo "P25-6 package specification is missing: $P25_6_PACKAGE_SPEC" >&2; exit 1; }
+          while IFS= read -r evaluator_source; do
+            [ -n "$evaluator_source" ] && check_tree "$evaluator_source"
+          done < <(python3.11 - "$package_spec" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          spec_path = Path(sys.argv[1]).resolve()
+          document = json.loads(spec_path.read_text(encoding="utf-8"))
+          for item in document.get("files", []):
+              if item.get("role") == "evaluator":
+                  source = Path(item["source"])
+                  if not source.is_absolute():
+                      source = spec_path.parent / source
+                  print(source.resolve())
+          PY
+          )
+
+      - name: Audit full conda environment closure without claiming target CUDA libraries
+        run: |
+          set -euo pipefail
+          native_root="$P25_6_RUNTIME_ROOT/lib/whitewater/ort-cuda12"
+          ort_root="$native_root/onnxruntime"
+          test -f "$native_root/libwhitewater_ort_bridge.so" || {
+            echo "native ORT bridge payload is absent; refusing qualification" >&2; exit 1; }
+          test -f "$ort_root/libonnxruntime_providers_cuda.so" || {
+            echo "official ONNX Runtime CUDA-12 provider payload is absent; refusing qualification" >&2
+            exit 1; }
+          test -f "$ort_root/LICENSE" || { echo "official ONNX Runtime LICENSE is absent" >&2; exit 1; }
+          test -f "$ort_root/ThirdPartyNotices.txt" || {
+            echo "official ONNX Runtime ThirdPartyNotices.txt is absent" >&2; exit 1; }
+          set +e
+          # Audit the whole relocated environment, including the native bridge and official ORT
+          # CUDA-12 provider. Host CUDA/cuDNN/cuBLAS libraries remain target-provided inputs.
+          scripts/report-ort-closure.sh "$P25_6_RUNTIME_ROOT" \
+            > "$P25_6_OUTPUT_DIR/whitewater-p25-6-runtime-closure.txt" 2>&1
+          closure_status=$?
+          set -e
+          cat "$P25_6_OUTPUT_DIR/whitewater-p25-6-runtime-closure.txt"
+          if [ "$closure_status" -ne 0 ]; then
+            echo "CUDA closure has unresolved host libraries; this lane will run CPU correctness only."
+            echo "CUDA provider qualification remains open; no CUDA shipping claim is made."
+          else
+            echo "CUDA provider closure is fully resolved in the EL8 build image."
+          fi
+          echo "P25_6_RUNTIME_CLOSURE=$P25_6_OUTPUT_DIR/whitewater-p25-6-runtime-closure.txt" >> "$GITHUB_ENV"
+
+      - name: Run P25-6 export, qualification and evaluation-only packaging
+        run: scripts/ci-p25-6-qualify.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: whitewater-p25-6-el8-${{ github.sha }}
+          path: p25-6-output
           if-no-files-found: error

@@ -1,0 +1,294 @@
+White Water P25-6 airgapped target measurement package
+=======================================================
+
+This package drives the Phase 2.5 profile driver (tools/bakeoff/run.py) on the airgapped Flame
+box.  It is a measurement package, not an OFX shipping bundle: it selects no model, assigns no
+OFX choice index, and authorizes no redistribution of any model or runtime.  Do not install the
+extracted directory into Flame as a product plugin.
+
+It is NOT the P25-5 evaluation package and its RUN-P25-5.txt procedure does not apply.  The P25-5
+runtime lacks OpenImageIO/OpenEXR and pynvml; this package carries a separate runtime that has
+both, plus the full profile-driver module closure.
+
+No production images leave the machine.  The operator returns only:
+
+    report.json
+    summary.txt
+    runner.log
+    nvml.csv
+    review.csv       # only when local visual review was performed
+
+What the package carries
+------------------------
+
+* the offline bootstrap `scripts/ww-bakeoff-airgap` (the only 0755 regular file);
+* the profile driver `tools/bakeoff/run.py` and its complete first-party module closure
+  (artifact_store, conditioning, coordinator, evaluator, exr, geometry, matrix, measurement,
+  metrics, native_ort, nvml, padding, pfm, reporting, resume, run_spec, synthetic, validator,
+  plus the package __init__);
+* the active protocol `bakeoff/protocol-v2.json` and the report/corpus/artifact schemas;
+* the candidate manifest and ONNX artifact under `models/sea-raft-m/`;
+* ready-to-run, schema-valid driver-input templates under `inputs/` (candidate-entries,
+  artifact-map, selection-smoke, selection-screen, selection-final, a NeuFlow shared-lattice
+  screen that requires neuflow-v2 to be admitted first, report-metadata, and corpus.template)
+  -- see step 4;
+* candidate and runtime license/notice aggregates, their hash inventories, the checked-in
+  technical runtime-input manifest, and the approved runtime legal review; and
+* the pinned conda-pack runtime `runtime/whitewater-p25-6-runtime.tar.gz`.
+
+Every carried file except the wrapper is a 0644 regular file.  There are no symlinks.  The
+package is self-contained apart from (a) a writable directory for the relocated conda-pack
+environment and (b) the operator's own per-run input JSON, which references on-box production
+frame paths and is authored on the box (see step 4).  Do not edit any carried file.
+
+1. Verify the outer archive by SHA256 before extraction
+-------------------------------------------------------
+
+From the directory holding the CI artifact files, verify the qualified outer archive.  Its
+SHA256 is emitted by the qualifying CI dispatch (see "Qualifying dispatch" below) and printed in
+the sidecar; do not proceed on an archive whose digest does not match:
+
+    sha256sum -c whitewater-p25-6-el8.tar.gz.sha256
+
+Keep these files together:
+
+    whitewater-p25-6-el8.tar.gz
+    whitewater-p25-6-el8.tar.gz.sha256
+    whitewater-p25-6-el8.inventory.json
+    legal-review.json                 # CI's hash-bound candidate operator evidence
+    legal-review.json.sha256
+
+2. Extract without installing into Flame
+----------------------------------------
+
+Choose a new, writable directory and extract there:
+
+    mkdir -p /path/to/whitewater-p25-6
+    tar -xzf whitewater-p25-6-el8.tar.gz -C /path/to/whitewater-p25-6
+    cd /path/to/whitewater-p25-6
+
+3. First contact: unpack the runtime and confirm the toolchain
+--------------------------------------------------------------
+
+`scripts/ww-bakeoff-airgap` performs the offline conda-pack extraction, runs `conda-unpack`
+once, binds the writable runtime directory to the exact runtime archive SHA256, and sanitizes
+network and Python search-path variables before exec-ing the requested entrypoint.  The driver
+is launched by pointing `WW_BAKEOFF_ENTRYPOINT` at the carried `tools/bakeoff/run.py`; the
+wrapper runs it as `python -m tools.bakeoff.run` with the package root on `PYTHONPATH` so its
+relative imports resolve.  Pick a fresh runtime directory for a different archive.
+
+Confirm the driver, OpenImageIO and pynvml all import from the relocated runtime and print the
+CLI help (this touches no production data):
+
+    WW_BAKEOFF_ENTRYPOINT=tools/bakeoff/run.py \
+    WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-p25-6-runtime.tar.gz \
+    WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-p25-6-runtime-env \
+    scripts/ww-bakeoff-airgap --help
+
+4. Use the carried, ready-to-run driver inputs
+----------------------------------------------
+
+The driver reads five small JSON inputs plus the production corpus.  Rather than authoring these
+from prose, this package CARRIES schema-valid, ready-to-run templates under `inputs/`.  Four of
+them are complete and are used IN PLACE (never edited); two carry clearly-marked
+`REPLACE_WITH_...` placeholders for the only values that are host/CI-specific, so you copy those
+two OUT of the package, fill the placeholders, and point the driver at your copies.  Do not edit
+any carried file.
+
+Used in place (already complete for the carried sea-raft-m candidate):
+
+  --candidates      inputs/candidate-entries.json
+                    The sea-raft-m candidate entry.  Per docs/phase2.5-protocol-v2.md a v2
+                    candidate carries BOTH `status` and `measurement_status` (here
+                    `excluded`/`measurable`: P25-6 measures but does not select a shipping
+                    default -- that is P25-7).  Its license verdicts are the reviewed values from
+                    models/sea-raft-m.json; its platform-specific identity hashes
+                    (`artifact_sha256`, `manifest_sha256`, `export_environment_sha256`,
+                    `artifact_size_bytes`) were materialized by CI from the freshly exported
+                    linux-x86_64 manifest before this package was built, so they already bind the
+                    exact linux ONNX carried here.  The older `candidate_id` +
+                    `measurement_providers`-only shape is rejected by the carried validator, so do
+                    not hand-write a candidate entry from that shorter description.
+  --artifact-map    inputs/artifact-map.json
+                    Maps `sea-raft-m` -> the carried `models/sea-raft-m/manifest.json` and
+                    `models/sea-raft-m/sea-raft-m-opset17.onnx`, with `platform: linux-x86_64`
+                    materialized by CI to select the linux export row.  Run the driver from the
+                    extracted package root so these package-relative paths resolve.
+  --selection       inputs/selection-smoke.json   (profile `smoke`, cpu, cap mp0_5)
+                    inputs/selection-screen.json  (profile `screen`, cpu, shared-lattice cap
+                                                    mp0_331776, synthetic FHD+UHD 16:9 targets)
+                    inputs/selection-final.json   (profile `final`, cuda idle+live_flame, cap
+                                                    mp2, synthetic FHD+UHD PAR1 targets)
+                    `profile` is one of `smoke`, `screen`, `final`.  The `final` selection is
+                    carried complete and ready to run -- use inputs/selection-final.json IN PLACE
+                    (its CUDA `mp2` FHD/UHD PAR1 coverage is exactly what the matrix planner's
+                    final-coverage rule requires); do not derive a final by hand-editing the smoke
+                    or screen selection.  A NeuFlow shared-lattice screen
+                    (inputs/selection-screen-neuflow-shared-lattice.json) is also carried, spelled
+                    exactly as docs/phase2.5-protocol-v2.md prescribes, but it names `neuflow-v2`;
+                    it REQUIRES that candidate to be admitted, carried, and added to your
+                    candidate-entries before use, and is rejected until then.
+
+Copied out and filled (host/CI-specific placeholders only):
+
+  --corpus          copy inputs/corpus.template.json, set `corpus_id`, and set the production
+                    smoke shot's `path_pattern` to your on-box EXR sequence.  It already declares
+                    the built-in synthetic `syn-fhd-1920x1080-par1`/`syn-uhd-3840x2160-par1`
+                    targets the screen selection uses; the production frames stay on the box and
+                    are read locally.  It validates against the carried `bakeoff/corpus-v1.schema.json`.
+  --report-metadata copy inputs/report-metadata.json and fill the `REPLACE_WITH_...` runner hashes
+                    (the white-water build commit, the carried evaluator SHA256, and the carried
+                    runtime tarball SHA256 -- the last is the CI-emitted digest, not to be
+                    invented) and the target `os_release`/`cpu`/`gpu`/`driver`.
+
+The active protocol (`--protocol`, default `bakeoff/protocol-v2.json`) and the report/corpus
+schemas are carried and used by default.  Run `... run.py --help` for the full flag list.
+
+5. Set up the target CUDA loader path and run the dependency preflight (CUDA runs only)
+--------------------------------------------------------------------------------------
+
+This step is MANDATORY before any CUDA profile (any selection whose provider is `cuda`,
+including the whole `final` profile).  Skip it only for a pure-cpu smoke run.
+
+This runtime deliberately does NOT bundle the CUDA math libraries (`libcublas.so.12`,
+`libcublasLt.so.12`, `libcudart.so.12`, `libcurand.so.10`).  On a generic loader path
+(`/usr/lib:/usr/local/lib`) those four SONAMEs are UNRESOLVED and a CUDA session dies before it
+measures anything; on the measured Flame host they resolved only from the live Flame process's
+own CUDA library directory (`/opt/Autodesk/lib64/2026.2.1/` on that box -- this path is
+version- and host-specific, so locate YOUR box's directory rather than copying that literal).
+
+The wrapper `scripts/ww-bakeoff-airgap` sanitizes Python/conda/proxy variables but DELIBERATELY
+preserves `LD_LIBRARY_PATH` (see its `sanitize_environment`), so an `LD_LIBRARY_PATH` you export
+here reaches ONNX Runtime unchanged.
+
+a. Locate your box's Flame CUDA library directory (the one holding all four SONAMEs):
+
+    flame_cuda_dir=$(dirname "$(ls /opt/Autodesk/lib64/*/libcublas.so.12 2>/dev/null | sort | tail -n1)")
+    for soname in libcublas.so.12 libcublasLt.so.12 libcudart.so.12 libcurand.so.10; do
+      test -e "$flame_cuda_dir/$soname" || { echo "MISSING $soname in $flame_cuda_dir" >&2; exit 1; }
+    done
+    echo "Flame CUDA lib dir: $flame_cuda_dir"
+
+   If your Flame is not under `/opt/Autodesk/lib64/<version>/`, set `flame_cuda_dir` to the exact
+   directory on your box that contains those four `.so` files.
+
+b. Export it for every CUDA invocation in steps 6 (prepend, never replace, an existing value):
+
+    export LD_LIBRARY_PATH="$flame_cuda_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+c. Dependency preflight -- a STOP, not a warning.  With `LD_LIBRARY_PATH` exported and the
+   runtime already unpacked (step 3), confirm the carried ORT CUDA provider resolves every CUDA
+   library.  A single `not found` line means STOP and fix `flame_cuda_dir`; do not start a CUDA
+   profile until this reports clean:
+
+    provider="/path/to/whitewater-p25-6-runtime-env/lib/whitewater/ort-cuda12/onnxruntime/libonnxruntime_providers_cuda.so"
+    unresolved=$(ldd "$provider" | grep -E 'libcublas\.so\.12|libcublasLt\.so\.12|libcudart\.so\.12|libcurand\.so\.10' | grep -c 'not found' || true)
+    test "$unresolved" -eq 0 || { echo "Unresolved CUDA dependencies: $unresolved -- fix LD_LIBRARY_PATH before measuring" >&2; exit 1; }
+    echo "Unresolved dependencies: <none>"
+
+   The expected clean result mirrors the measured host evidence (`Unresolved dependencies:
+   <none>`).  Only after it prints that may you run the CUDA profiles.
+
+6. Run the three resumable profiles
+------------------------------------
+
+Each profile is resumable: the driver commits per-cell results into an artifact store under
+`--output-dir` and republishes the five outputs atomically.  If a run is interrupted, rerun the
+IDENTICAL command to resume; it re-establishes the run identity, skips completed cells, and
+continues.  A different configuration against a populated output directory is refused rather than
+silently mixing runs.
+
+Invoke each profile through the wrapper from the extracted package root (so the carried
+`inputs/` and `models/` paths resolve; keep the runtime-env, output-dir and your filled
+corpus/report-metadata copies OUTSIDE the package).  For a CUDA selection, `LD_LIBRARY_PATH` from
+step 5 must already be exported and the preflight must have passed:
+
+    WW_BAKEOFF_ENTRYPOINT=tools/bakeoff/run.py \
+    WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-p25-6-runtime.tar.gz \
+    WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-p25-6-runtime-env \
+    scripts/ww-bakeoff-airgap \
+      --selection       inputs/selection-smoke.json \
+      --candidates      inputs/candidate-entries.json \
+      --artifact-map    inputs/artifact-map.json \
+      --corpus          /path/to/your/corpus.json \
+      --report-metadata /path/to/your/report-metadata.json \
+      --output-dir      /path/to/out/smoke
+
+For the `screen` profile, swap `--selection inputs/selection-screen.json`; for the `final`
+profile, swap `--selection inputs/selection-final.json`.  The carried smoke and screen selections
+use the cpu correctness provider, so they need no CUDA setup.  The carried final selection is a
+CUDA `mp2` idle+live_flame run over the synthetic FHD/UHD PAR1 targets and MUST NOT be started
+until the step 5 CUDA preflight passes.
+
+* smoke  (`profile=smoke` in the selection): verifies archive/artifact hashes, runtime/provider
+  selection and directions against a small production sample.
+* screen (`profile=screen`): compares all surviving candidates across curves and practical caps.
+* final  (`profile=final`): applies the expensive repeated timing/VRAM protocol to finalists.
+
+CUDA memory is sampled with device-wide NVML plus per-process data where available.  For the
+final profile, measure both idle and beside a live Flame Batch workload: at each CUDA
+`host_load` boundary the driver pauses for an interactive idle/live_flame confirmation (logged to
+runner.log).  For an unattended rerun that must not block, pass `--assume-host-load-ready`; the
+boundary is still logged.  `--no-nvml` skips NVML sampling but is refused for a final profile with
+CUDA cells.  Do not treat time-to-failure as performance: first, warm and steady latency are all
+recorded.
+
+7. Collect exactly the five outputs
+-----------------------------------
+
+From each profile's `--output-dir`, return `report.json`, `summary.txt`, `runner.log`,
+`nvml.csv`, and `review.csv` (the last only when local visual review was performed).  The report
+validator (carried `bakeoff/report-v2.schema.json`) must accept `report.json`.  Do not copy
+production footage, checkpoints, or runtime files into a source repository.
+
+Legal record
+------------
+
+The candidate aggregates are `SEA-RAFT-LICENSE.txt` and `SEA-RAFT-NOTICE.txt`; the runtime
+aggregates are `RUNTIME-LICENSES.txt` and `RUNTIME-NOTICES.txt`, covering the conda runtime
+(python, numpy, OpenImageIO, OpenEXR, Imath and their transitive natives, pynvml, conda-pack),
+the official ONNX Runtime CUDA-12 payload and the White Water native ORT bridge.  A separate
+Andrew Miller runtime legal-review JSON (schema `whitewater-p25-runtime-legal-review-v1`,
+reviewer `Andrew Miller`, `reviewed: true`) approving the exact generated runtime inventory hash
+is required before CI packages anything; the carried `legal/runtime-legal-review.json` is that
+approval.  Neither review substitutes for the carried license or notice text.
+
+Qualifying dispatch
+-------------------
+
+This package is built and qualified by the `p25-6` lane of the `build` workflow
+(.github/workflows/ci.yml), which runs `scripts/ci-p25-6-qualify.sh` inside an `almalinux:8`
+container.  The first dispatch (with the runtime legal-review inputs left empty) generates the
+runtime license inventory and uploads it for Andrew Miller to review; the second dispatch,
+supplied with the Andrew Miller runtime legal-review file and its SHA256, packages the archive
+and emits `whitewater-p25-6-el8.tar.gz`, its `.sha256`, and the inventory.  The archive SHA256
+that names this qualified package is that emitted digest.
+
+Package-spec admission note
+---------------------------
+
+The checked-in template `bakeoff/p25-6/package-spec.json` uses only the placeholders
+materialized by `scripts/ci-p25-6-qualify.sh`:
+
+    __P25_6_ADMISSION_CANDIDATES__
+    __P25_6_CANDIDATE_LICENSE_SOURCE__
+    __P25_6_CANDIDATE_NOTICE_SOURCE__
+    __P25_6_CANDIDATE_INVENTORY_SOURCE__
+    __P25_6_RUNTIME_LICENSE_SOURCE__
+    __P25_6_RUNTIME_NOTICE_SOURCE__
+    __P25_6_RUNTIME_INVENTORY_SOURCE__
+    __P25_6_RUNTIME_REVIEW_SOURCE__
+    __P25_6_RUNTIME_ARCHIVE__
+    __P25_6_RUNTIME_SHA256__
+    __P25_6_RUNTIME_SIZE_BYTES__
+
+Every evaluator, support, protocol, schema, manifest, artifact and instruction source is an
+explicit local path.  The template invents no runtime evidence and no legal approval.
+
+The carried `inputs/candidate-entries.json` and `inputs/artifact-map.json` are shipped as
+platform-neutral placeholder templates: their platform-specific identity fields carry a
+`materialize-from-linux-manifest` sentinel that `scripts/ci-p25-6-qualify.sh` fills, via
+`tools/p25_5/p25_6_materialize_inputs.py`, from the freshly exported linux-x86_64
+`models/sea-raft-m.json` immediately before packaging.  This binds the linux artifact SHA256 from
+the generated manifest rather than hardcoding a macOS export, so the packaged inputs match the
+packaged linux ONNX and the driver never raises `artifact_hash_mismatch` on the box.

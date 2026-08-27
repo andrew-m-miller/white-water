@@ -1,0 +1,32 @@
+# White Water P25-6 EL8 x86_64 conda REQUESTED environment spec.
+#
+# THIS IS A REQUESTED SPEC (match specs), NOT A FULLY-PINNED @EXPLICIT SOLVE.
+# It is the authored input consumed by `conda create --override-channels -c conda-forge
+# --file <this file>` on an EL8 x86_64 host.  CI MUST solve it on EL8 x86_64 and emit the
+# fully-pinned reproducible lock as evidence (`conda list --explicit` -> the carried
+# whitewater-p25-6-runtime.inventory).  Do NOT treat this file as a reproducible lock and do NOT
+# hand-edit build/hash pins into it; a pinned @EXPLICIT lock is produced only by a real solve,
+# which cannot run on the macOS/arm64 development host.
+#
+# This spec extends the P25-5 evaluator base (python 3.11 + numpy + conda-pack) with the P25-6
+# production-input and NVML dependencies:
+#   * py-openimageio pulls the OpenImageIO C++ library and, transitively, OpenEXR + Imath (EXR
+#     decode) plus libtiff/libpng/libjpeg-turbo and the rest of OIIO's format natives; and
+#   * pynvml provides the device-memory sampling backend used beside a live Flame Batch workload.
+# The bake-off's ONNX Runtime CUDA-12 provider and the White Water native bridge are NOT conda
+# packages: they are added to the prefix from the pinned upstream archive + a CI compile, exactly
+# as in P25-5 (see bakeoff/p25-6/runtime-inputs.json).
+#
+# When CI regenerates the pinned lock, update bakeoff/p25-6/runtime-inputs.json
+# conda.explicit_lock_sha256 to the pinned lock's SHA256 and re-run the qualifying dispatch.
+python 3.11.*
+numpy
+conda-pack
+py-openimageio
+openimageio
+openexr
+imath
+libtiff
+libpng
+libjpeg-turbo
+pynvml

@@ -1,0 +1,33 @@
+[
+  {
+    "candidate_id": "sea-raft-m",
+    "status": "excluded",
+    "measurement_status": "measurable",
+    "source_commit": "9137517ba24e628442aec097d3afe71d03503b75",
+    "checkpoint_sha256": "cb8cfbf14c5e0f6734b64add383708b7ff68cc6089a0007c67165d4761346102",
+    "artifact_sha256": "materialize-from-linux-manifest",
+    "export_environment_sha256": "materialize-from-linux-manifest",
+    "manifest_sha256": "materialize-from-linux-manifest",
+    "artifact_size_bytes": "materialize-from-linux-manifest",
+    "measurement_providers": ["cpu", "cuda"],
+    "exclusion_reason": {
+      "type": "other",
+      "message": "P25-6 is a target-measurement run only. Shipping eligibility and the OFX default selection are deferred to P25-7, so this measurable candidate is intentionally declared status=excluded here (measurement_status=measurable). The license surface below is the reviewed 2026-08-23 audit from models/sea-raft-m.json and is carried as evidence, not as a shipping authorization."
+    },
+    "license_verdicts": {
+      "code": "commercial_use_permitted",
+      "checkpoint": "commercial_use_permitted",
+      "backbone": "commercial_use_permitted"
+    },
+    "redistribution_permitted": {
+      "code": "permitted",
+      "checkpoint": "permitted",
+      "backbone": "permitted"
+    },
+    "redistribution_terms_reviewed": {
+      "code": true,
+      "checkpoint": true,
+      "backbone": true
+    }
+  }
+]

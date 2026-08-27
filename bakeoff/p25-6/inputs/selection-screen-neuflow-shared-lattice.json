@@ -1,0 +1,9 @@
+{
+  "profile": "screen",
+  "environment": "el8-x86_64",
+  "candidate_ids": ["neuflow-v2", "sea-raft-m"],
+  "conditioning_tokens": ["native-clamp01-v1"],
+  "cap_tokens": ["mp0_331776"],
+  "providers": [{"token": "cpu", "host_loads": ["not_applicable"]}],
+  "shot_ids": ["syn-fhd-1920x1080-par1", "syn-uhd-3840x2160-par1"]
+}
