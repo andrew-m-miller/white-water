@@ -66,6 +66,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+_OPERATOR_PATH_PLACEHOLDER = "REPLACE_WITH"
+
 if not __package__:
     # Keep direct python tools/bakeoff/run.py invocation on the same package-import path as
     # python -m tools.bakeoff.run. The bake-off siblings intentionally use relative imports,
@@ -2014,11 +2016,19 @@ def _validate_existing_report(
     report_schema: Mapping[str, Any],
     corpus: Mapping[str, Any],
     corpus_schema: Mapping[str, Any],
+    corpus_already_validated: bool = False,
 ) -> None:
     """Validate an existing report before any expected-report assembly or derivative repair."""
 
     try:
-        validate_report_consistency(report, protocol, report_schema, corpus, corpus_schema)
+        validate_report_consistency(
+            report,
+            protocol,
+            report_schema,
+            corpus,
+            corpus_schema,
+            _corpus_already_validated=corpus_already_validated,
+        )
     except (AttributeError, KeyError, TypeError, ValueError) as exc:
         _fail(
             "report_identity_mismatch",
@@ -2851,6 +2861,26 @@ def _selection_axes(selection: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _validate_materialized_production_paths(corpus: Mapping[str, Any]) -> None:
+    """Reject operator placeholders before a runtime session or resume state can exist.
+
+    The checked-in P25-6 corpus is intentionally protocol-complete while its production paths
+    remain operator-editable.  Schema/protocol validation therefore cannot reject that template;
+    the executable driver must require those paths to have been materialized on the target box.
+    """
+
+    for partition_index, partition in enumerate(corpus["partitions"]):
+        if partition["kind"] != "production_external":
+            continue
+        for shot_index, shot in enumerate(partition["shots"]):
+            if _OPERATOR_PATH_PLACEHOLDER in shot["path_pattern"]:
+                _fail(
+                    "corpus_invalid",
+                    f"$.partitions[{partition_index}].shots[{shot_index}].path_pattern still "
+                    f"contains the operator placeholder {_OPERATOR_PATH_PLACEHOLDER!r}",
+                )
+
+
 def _publish_run_outputs(
     *,
     artifact_store: ArtifactStore,
@@ -2887,6 +2917,7 @@ def _publish_run_outputs(
             report_schema=config.report_schema,
             corpus=corpus,
             corpus_schema=config.corpus_schema,
+            corpus_already_validated=True,
         )
         expected_metadata = _build_report_metadata(
             config.report_metadata, corpus, environment, profile, hardware, runner_section,
@@ -2895,6 +2926,7 @@ def _publish_run_outputs(
             expected_report = assemble_report(
                 protocol, corpus, config.report_schema, config.corpus_schema,
                 expected_metadata, config.candidate_entries, plan, completed,
+                _corpus_already_validated=True,
             )
         except (AttributeError, KeyError, TypeError, ValueError) as exc:
             _fail(
@@ -2928,10 +2960,12 @@ def _publish_run_outputs(
         report = assemble_report(
             protocol, corpus, config.report_schema, config.corpus_schema,
             report_metadata, config.candidate_entries, plan, completed,
+            _corpus_already_validated=True,
         )
         write_report_pair(
             json_path, csv_path, report, protocol, config.report_schema, corpus, config.corpus_schema,
             replace=config.replace,
+            _corpus_already_validated=True,
         )
         _publish_canonical_bytes(summary_path, _render_summary_bytes(report, plan))
         _regenerate_public_evidence_outputs(
@@ -2979,6 +3013,7 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
         validate_corpus_consistency(corpus, protocol, config.corpus_schema)
     except ValidationError as exc:
         _fail("corpus_invalid", str(exc))
+    _validate_materialized_production_paths(corpus)
 
     if not isinstance(config.report_metadata, Mapping):
         _fail("report_metadata_shape", "report_metadata must be an object")
