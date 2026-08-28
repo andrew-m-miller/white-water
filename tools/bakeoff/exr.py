@@ -9,23 +9,25 @@ middle so offsets through at least +/-8 can measure chain behaviour in both dire
 This module owns two independent concerns, kept apart so the well-tested core needs no optional
 dependency:
 
-* single-frame decode via OpenImageIO, imported lazily inside :func:`frame_from_exr` so importing
-  this module -- and running everything below except the explicitly optional round-trip test --
-  never requires OIIO to be installed; and
+* single-frame decode via the OpenEXR Python bindings (the official ``OpenEXR`` module, modern
+  ``OpenEXR.File`` API), imported lazily inside :func:`frame_from_exr` so importing this module --
+  and running everything below except the explicitly optional round-trip test -- never requires
+  ``OpenEXR`` to be installed; and
 * pure sequence/pairing logic -- expanding a corpus shot's ``path_pattern`` into frame paths,
   selecting a signed-offset reference/target pair, and checking paired-frame geometry -- that
-  never touches OIIO and accepts an injected decoder so it is fully exercised without one.
+  never touches ``OpenEXR`` and accepts an injected decoder so it is fully exercised without one.
 
 Frames returned by :func:`frame_from_exr` use the same mapping shape as
 ``evaluator.frame_from_pfm``: ``width``, ``height``, ``channels`` (always 3; alpha is dropped),
 ``rows`` (``rows[y][x]`` is a 3-tuple of floats R, G, B), ``pixel_aspect_ratio``, ``frame``,
 ``sha256`` (of the raw file bytes, not the decoded pixels) and ``source``. ``rows[0]`` is the
-image's **bottom** row: OIIO presents scanlines top-to-bottom, but this repository's row
-convention -- shared with ``pfm.read_pfm`` and ``synthetic.COORDINATE_CONVENTION`` ("row zero is
-the bottom row in PFM and row-major buffers") -- is bottom-origin, so :func:`frame_from_exr`
-reverses OIIO's scanline order before returning. Two additional keys record source provenance
-without disturbing that shape: ``source_channels`` (``"RGB"`` or ``"RGBA"``, alpha dropped either
-way) and ``source_format`` (``"half"`` or ``"float"``, the on-disk pixel storage class).
+image's **bottom** row: OpenEXR presents scanlines top-to-bottom (row zero is the data window's
+top line), but this repository's row convention -- shared with ``pfm.read_pfm`` and
+``synthetic.COORDINATE_CONVENTION`` ("row zero is the bottom row in PFM and row-major buffers") --
+is bottom-origin, so :func:`frame_from_exr` reverses OpenEXR's scanline order before returning. Two
+additional keys record source provenance without disturbing that shape: ``source_channels``
+(``"RGB"`` or ``"RGBA"``, alpha dropped either way) and ``source_format`` (``"half"`` or
+``"float"``, the on-disk pixel storage class).
 """
 
 from __future__ import annotations
@@ -68,7 +70,7 @@ def _sha256_file(path: Path) -> str:
 def _classify_channels(channel_names: Sequence[str]) -> tuple[tuple[int, int, int], str]:
     """Return ``((r_index, g_index, b_index), "RGB"|"RGBA")``, rejecting anything else.
 
-    Pure by design (no OIIO): unit-tested directly with plain channel-name lists. Requires R, G
+    Pure by design (no ``OpenEXR``): unit-tested directly with plain channel-name lists. Requires R, G
     and B to be present (dropping alpha to RGB is still the decode-time behavior), and rejects
     any channel beyond R/G/B/A -- a depth AOV, a cryptomatte layer, or anything else -- because
     the plan requires a constant RGB-or-RGBA layout within a sequence, not "whatever channels
@@ -92,13 +94,29 @@ def _classify_channels(channel_names: Sequence[str]) -> tuple[tuple[int, int, in
 
 _STORAGE_NAMES = {"half": "half", "float": "float"}
 
+# OpenEXR's modern File API returns each channel's pixels as a numpy array whose dtype IS the
+# on-disk storage class: HALF -> float16, FLOAT -> float32 (UINT -> uint32). Map the numpy dtype
+# name to the storage token _format_name_from_string accepts; any other dtype (e.g. "uint32")
+# passes through unchanged so it is rejected there as unsupported_storage rather than silently
+# accepted.
+_NUMPY_PIXEL_STORAGE = {"float16": "half", "float32": "float"}
+
+
+def _storage_name_from_dtype(dtype: Any) -> str:
+    """Map a channel's numpy dtype to the ``"half"``/``"float"`` token the helpers expect."""
+
+    name = str(getattr(dtype, "name", dtype))
+    return _NUMPY_PIXEL_STORAGE.get(name, name)
+
 
 def _format_name_from_string(type_name: str) -> str:
-    """Normalize one raw OIIO pixel-format name to ``"half"``/``"float"``, or fail.
+    """Normalize one raw pixel-storage name to ``"half"``/``"float"``, or fail.
 
-    Pure by design (no OIIO): takes the plain string OIIO's ``TypeDesc.__str__`` would produce
-    (e.g. ``"half"``, ``"float"``, ``"uint32"``), so integer/other storage rejection is directly
-    unit-testable without the optional dependency installed.
+    Pure by design (no ``OpenEXR``): takes a plain storage string -- ``"half"`` or ``"float"`` for
+    the two accepted OpenEXR pixel types, or any other name (e.g. ``"uint32"``) for storage this
+    bake-off rejects -- so integer/other storage rejection is directly unit-testable without the
+    optional dependency installed. :func:`frame_from_exr` maps each channel's on-disk numpy dtype
+    (``float16``/``float32``) to one of these names before calling in.
     """
 
     key = type_name.strip().lower()
@@ -114,7 +132,7 @@ def _format_name_from_string(type_name: str) -> str:
 def _source_format_from_names(type_names: Sequence[str]) -> str:
     """Reduce the R/G/B channel storage names to one shared ``"half"``/``"float"`` format.
 
-    Pure by design (no OIIO). Rejects mixed per-channel storage as well as any non-half/float
+    Pure by design (no ``OpenEXR``). Rejects mixed per-channel storage as well as any non-half/float
     storage, since the plan requires one storage class across a sequence's color channels.
     """
 
@@ -129,9 +147,9 @@ def _source_format_from_names(type_names: Sequence[str]) -> str:
 
 
 def _bottom_origin_rows(rows_top_to_bottom: Sequence[Any]) -> tuple[Any, ...]:
-    """Reverse OIIO's top-to-bottom scanline order into this repository's bottom-origin rows.
+    """Reverse OpenEXR's top-to-bottom scanline order into this repository's bottom-origin rows.
 
-    Pure by design (no OIIO): fed a synthetic top-to-bottom sequence with a distinctive top vs
+    Pure by design (no ``OpenEXR``): fed a synthetic top-to-bottom sequence with a distinctive top vs
     bottom row, this is directly unit-testable for the vertical-inversion bug -- a reader that
     forgot to reverse would return the wrong row as ``rows[0]``, flipping dy for every downstream
     landmark and metric.
@@ -143,22 +161,24 @@ def _bottom_origin_rows(rows_top_to_bottom: Sequence[Any]) -> tuple[Any, ...]:
 def frame_from_exr(path: Path | str, *, frame_number: int = 0, pixel_aspect_ratio: float = 1.0) -> dict[str, Any]:
     """Read one OpenEXR file into the frame mapping accepted by ``condition_and_pad_pair``.
 
-    Imports OpenImageIO lazily. RGBA files drop alpha to RGB (``channels`` is always 3 on
-    success) but the original layout is recorded in ``source_channels``. Half and float pixel
-    storage are both accepted -- OIIO is asked to return float32 regardless of on-disk storage --
-    and the original per-channel storage class is recorded in ``source_format``; any other
-    storage (integer, etc.) or any channel set beyond RGB/RGBA is a typed failure. Whatever
-    compression the file uses (ZIP, PIZ, DWA, ...) is handled transparently by OIIO -- this
-    module never implements decompression itself. Returned ``rows`` are bottom-origin (see the
-    module docstring).
+    Imports the ``OpenEXR`` Python bindings (and numpy) lazily. RGBA files drop alpha to RGB
+    (``channels`` is always 3 on success) but the original layout is recorded in
+    ``source_channels``. Half and float pixel storage are both accepted -- OpenEXR's modern
+    ``File`` API returns each channel's pixels as a numpy array whose dtype (``float16`` for HALF,
+    ``float32`` for FLOAT) IS the on-disk storage class, recorded in ``source_format`` -- and every
+    sample is widened to a Python float; any other storage (integer, etc.) or any channel set
+    beyond RGB/RGBA is a typed failure. Whatever compression the file uses (ZIP, PIZ, DWA, ...) is
+    handled transparently by OpenEXR -- this module never implements decompression itself. Returned
+    ``rows`` are bottom-origin (see the module docstring).
     """
 
     try:
-        import OpenImageIO as oiio  # type: ignore
+        import numpy  # type: ignore  # noqa: F401 (imported for its side-effect on OpenEXR arrays)
+        import OpenEXR  # type: ignore
     except ImportError as exc:
         raise ExrFailure(
             "runtime_error",
-            "OpenImageIO is required to read production EXR frames and is not installed",
+            "the OpenEXR Python bindings are required to read production EXR frames and are not installed",
         ) from exc
 
     if not math.isfinite(pixel_aspect_ratio) or pixel_aspect_ratio <= 0.0:
@@ -168,46 +188,62 @@ def frame_from_exr(path: Path | str, *, frame_number: int = 0, pixel_aspect_rati
     if not input_path.is_file():
         _fail("missing_file", f"EXR file does not exist: {input_path}")
 
-    buf = oiio.ImageBuf(str(input_path))
-    if buf.has_error:
-        _fail("decode_error", f"OpenImageIO could not open {input_path}: {buf.geterror()}")
+    try:
+        # separate_channels=True skips OpenEXR's R/G/B(/A) grouping so each channel arrives as its
+        # own 2D numpy array under its raw name, giving exact per-channel names and dtypes.
+        with OpenEXR.File(str(input_path), separate_channels=True) as exr_file:
+            channel_map = exr_file.channels()
+            channel_names = list(channel_map.keys())
+            _indices, source_channels = _classify_channels(channel_names)
 
-    spec = buf.spec()
-    width, height = int(spec.width), int(spec.height)
-    if width <= 0 or height <= 0:
-        _fail("decode_error", f"EXR {input_path} has non-positive dimensions {width}x{height}")
+            r_pixels = channel_map["R"].pixels
+            g_pixels = channel_map["G"].pixels
+            b_pixels = channel_map["B"].pixels
 
-    channel_names = list(spec.channelnames)
-    (r_index, g_index, b_index), source_channels = _classify_channels(channel_names)
+            source_format = _source_format_from_names(
+                _storage_name_from_dtype(pixels.dtype) for pixels in (r_pixels, g_pixels, b_pixels)
+            )
 
-    channel_formats = list(spec.channelformats) if spec.channelformats else [spec.format] * len(channel_names)
-    source_format = _source_format_from_names(
-        str(channel_formats[index]) for index in (r_index, g_index, b_index)
-    )
+            if r_pixels.ndim != 2:
+                _fail("decode_error", f"EXR {input_path} R channel is not a 2D pixel array")
+            height, width = int(r_pixels.shape[0]), int(r_pixels.shape[1])
+            if width <= 0 or height <= 0:
+                _fail("decode_error", f"EXR {input_path} has non-positive dimensions {width}x{height}")
+            for name, pixels in (("G", g_pixels), ("B", b_pixels)):
+                if pixels.shape != r_pixels.shape:
+                    _fail(
+                        "decode_error",
+                        f"EXR {input_path} R and {name} channels differ in shape: "
+                        f"{tuple(r_pixels.shape)!r} vs {tuple(pixels.shape)!r}",
+                    )
 
-    pixels = buf.get_pixels(oiio.FLOAT)
-    if buf.has_error:
-        _fail("decode_error", f"OpenImageIO could not read pixels from {input_path}: {buf.geterror()}")
+            # OpenEXR presents scanlines top-to-bottom (row 0 is the data window's top row). Build
+            # rows in that native order first, then hand them to _bottom_origin_rows so rows[0]
+            # ends up as the BOTTOM row, matching pfm.read_pfm and synthetic.COORDINATE_CONVENTION.
+            rows_top_to_bottom: list[tuple[tuple[float, float, float], ...]] = []
+            for y in range(height):
+                r_row = r_pixels[y]
+                g_row = g_pixels[y]
+                b_row = b_pixels[y]
+                row: list[tuple[float, float, float]] = []
+                for x in range(width):
+                    pixel = (float(r_row[x]), float(g_row[x]), float(b_row[x]))
+                    if any(not math.isfinite(value) for value in pixel):
+                        _fail("nonfinite_sample", f"EXR {input_path} contains a nonfinite decoded sample")
+                    row.append(pixel)
+                rows_top_to_bottom.append(tuple(row))
 
-    # OIIO presents scanlines top-to-bottom (y=0 is the image's top row). Build rows in that
-    # native order first, then hand them to _bottom_origin_rows so rows[0] ends up as the
-    # BOTTOM row, matching pfm.read_pfm and synthetic.COORDINATE_CONVENTION.
-    rows_top_to_bottom: list[tuple[tuple[float, float, float], ...]] = []
-    for y in range(height):
-        row: list[tuple[float, float, float]] = []
-        for x in range(width):
-            sample = pixels[y, x]
-            pixel = (float(sample[r_index]), float(sample[g_index]), float(sample[b_index]))
-            if any(not math.isfinite(value) for value in pixel):
-                _fail("nonfinite_sample", f"EXR {input_path} contains a nonfinite decoded sample")
-            row.append(pixel)
-        rows_top_to_bottom.append(tuple(row))
+            rows = _bottom_origin_rows(rows_top_to_bottom)
+    except ExrFailure:
+        raise
+    except Exception as exc:  # noqa: BLE001 - OpenEXR surfaces assorted native decode errors
+        raise ExrFailure("decode_error", f"OpenEXR could not read {input_path}: {exc}") from exc
 
     return {
         "width": width,
         "height": height,
         "channels": 3,
-        "rows": _bottom_origin_rows(rows_top_to_bottom),
+        "rows": rows,
         "pixel_aspect_ratio": float(pixel_aspect_ratio),
         "frame": frame_number,
         "sha256": _sha256_file(input_path),
@@ -383,7 +419,7 @@ def load_pair(
     """Resolve, decode and validate the reference/target EXR pair at a signed offset.
 
     ``decoder`` defaults to :func:`frame_from_exr` but is injected so callers (including this
-    module's tests) can exercise pairing and validation without OpenImageIO. It is called as
+    module's tests) can exercise pairing and validation without the ``OpenEXR`` bindings. It is called as
     ``decoder(path, frame_number=..., pixel_aspect_ratio=...)`` for each of the two frames, in
     reference-then-target order. Validates, in order: paired decode geometry
     (:func:`validate_pair_geometry`), paired source layout/storage

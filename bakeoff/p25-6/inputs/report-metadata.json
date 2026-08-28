@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "source_commit": "REPLACE_WITH_WHITE_WATER_BUILD_COMMIT_40_LOWER_HEX",
     "evaluator_sha256": "REPLACE_WITH_CARRIED_EVALUATOR_SHA256_64_LOWER_HEX",
-    "runtime": "python-3.11;microsoft-onnxruntime-linux-x64-gpu_cuda12-1.29.0+whitewater-native-bridge;openimageio+openexr+imath;pynvml;conda-pack;el8-x86_64",
+    "runtime": "python-3.11;microsoft-onnxruntime-linux-x64-gpu_cuda12-1.29.0+whitewater-native-bridge;openexr-python+openexr+imath;pynvml;conda-pack;el8-x86_64",
     "runtime_sha256": "REPLACE_WITH_CARRIED_RUNTIME_TARBALL_SHA256_64_LOWER_HEX"
   },
   "hardware": {

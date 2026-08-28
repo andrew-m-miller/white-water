@@ -19,6 +19,7 @@ from .licenses import (
     LICENSE_INPUT_SCHEMA_ID,
     RUNTIME_INPUT_SCHEMA_ID,
     LicenseInputError,
+    _read_evidence,
     canonical_sha256,
     component_payload_sha256,
     collect_candidate,
@@ -518,6 +519,92 @@ class LicenseInputTests(unittest.TestCase):
         )
         self.assertTrue(Path(python_record["license_files"][0]["path"]).is_absolute())
         collect_runtime(prefix, lock, supplemented, self.root / "generated-runtime-supplemented-out", lock_sha)
+
+    def _build_package_cache(self, prefix: Path, cache: Path) -> dict[str, Path]:
+        """Populate a conda package cache from the fixture's conda-meta and return license paths."""
+
+        license_paths: dict[str, Path] = {}
+        for package_name in ("python-3.11.0-h1", "openssl-3.0.0-h2"):
+            package_dir = cache / package_name
+            licenses_dir = package_dir / "info" / "licenses"
+            licenses_dir.mkdir(parents=True)
+            metadata = json.loads(
+                next((prefix / "conda-meta").glob(f"{package_name}.json")).read_text(encoding="utf-8")
+            )
+            (package_dir / "info" / "index.json").write_text(
+                json.dumps(
+                    {
+                        "name": metadata["name"],
+                        "version": metadata["version"],
+                        "build": metadata["build"],
+                        "license": metadata["license"],
+                    },
+                    sort_keys=True,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (package_dir / "info" / "index.json").chmod(0o644)
+            license_file = licenses_dir / "LICENSE"
+            license_file.write_text(f"{metadata['license']} cached evidence\n", encoding="utf-8")
+            license_file.chmod(0o644)
+            license_paths[package_name] = license_file
+        return license_paths
+
+    def test_upstream_package_cache_license_mode_is_tolerated_but_owned_evidence_is_not(self) -> None:
+        # conda-forge ships some upstream license files non-0644 (e.g. intel-gmmlib's LICENSE.md at
+        # 0755). Their mode is not our integrity property, so the package-cache license-evidence read
+        # must accept them while still binding content + SHA256. Everything we own or carry keeps the
+        # 0644 requirement, and symlinks are rejected on every path.
+        prefix, lock, _runtime_input, lock_sha = self._runtime_fixture()
+        cache = self.root / "conda-pkgs"
+        license_paths = self._build_package_cache(prefix, cache)
+        # An upstream license file with mode 0755 must be tolerated and bound by content hash.
+        upstream_license = license_paths["openssl-3.0.0-h2"]
+        upstream_license.chmod(0o755)
+        upstream_sha = self._sha(upstream_license)
+        generated = self.root / "generated-mode-tolerant.json"
+        result = generate_runtime_input(prefix, lock, cache, generated, lock_sha)
+        self.assertEqual(result["package_count"], 2)
+        generated_value = json.loads(generated.read_text(encoding="utf-8"))
+        openssl_record = next(
+            item for item in generated_value["packages"] if "/openssl-3.0.0-h2.conda" in item["package_url"]
+        )
+        self.assertEqual(openssl_record["license_files"][0]["sha256"], upstream_sha)
+        collect_runtime(prefix, lock, generated, self.root / "generated-mode-tolerant-out", lock_sha)
+
+        # A symlinked package-cache license file is still rejected even though the mode is relaxed.
+        symlink_cache = self.root / "conda-pkgs-symlink"
+        symlink_paths = self._build_package_cache(prefix, symlink_cache)
+        victim = symlink_paths["openssl-3.0.0-h2"]
+        real_target = self.root / "outside-license.txt"
+        real_target.write_text("Apache-2.0 cached evidence\n", encoding="utf-8")
+        victim.unlink()
+        victim.symlink_to(real_target)
+        with self.assertRaises(LicenseInputError) as symlink_error:
+            generate_runtime_input(
+                prefix, lock, symlink_cache, self.root / "generated-symlink.json", lock_sha
+            )
+        self.assertIn("symlink", str(symlink_error.exception))
+
+        # Evidence we own or carry still requires 0644: only the package-cache read path is relaxed.
+        owned = self.root / "owned-evidence.txt"
+        owned.write_text("carried aggregate evidence\n", encoding="utf-8")
+        owned.chmod(0o755)
+        owned_sha = self._sha(owned)
+        with self.assertRaises(LicenseInputError) as owned_error:
+            _read_evidence(owned, owned_sha, "carried output")
+        self.assertIn("mode", str(owned_error.exception))
+        # The same file is accepted only on the mode-agnostic upstream path.
+        tolerated = _read_evidence(owned, owned_sha, "package-cache evidence", require_mode=False)
+        self.assertEqual(tolerated.sha256, owned_sha)
+        # A symlink is rejected on the mode-agnostic path too.
+        owned_symlink = self.root / "owned-evidence-symlink.txt"
+        owned_symlink.symlink_to(owned)
+        with self.assertRaises(LicenseInputError) as symlink_owned_error:
+            _read_evidence(owned_symlink, owned_sha, "package-cache evidence", require_mode=False)
+        self.assertIn("symlink", str(symlink_owned_error.exception))
 
     def test_runtime_notice_list_can_be_explicitly_empty(self) -> None:
         prefix, lock, runtime_input, lock_sha = self._runtime_fixture()

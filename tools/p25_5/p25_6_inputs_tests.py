@@ -25,7 +25,7 @@ Two review findings on PR #21 shaped the current shape and are enforced here:
 
 They import only the dependency-free planning/validation modules (``matrix``, ``validator``) plus
 the pure-Python materializer, so they run in the ordinary suite without numpy, onnxruntime,
-OpenImageIO, pynvml, or a GPU.
+the OpenEXR bindings, pynvml, or a GPU.
 """
 
 from __future__ import annotations

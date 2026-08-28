@@ -10,8 +10,16 @@
 #
 # This spec extends the P25-5 evaluator base (python 3.11 + numpy + conda-pack) with the P25-6
 # production-input and NVML dependencies:
-#   * py-openimageio pulls the OpenImageIO C++ library and, transitively, OpenEXR + Imath (EXR
-#     decode) plus libtiff/libpng/libjpeg-turbo and the rest of OIIO's format natives; and
+#   * openexr-python provides the official `OpenEXR` Python module (modern `OpenEXR.File` API,
+#     numpy-backed channel pixels) and pulls only the OpenEXR + Imath C++ libraries it needs to
+#     decode EXR frames.  This deliberately replaces OpenImageIO: OIIO dragged in a full
+#     media/codec/GPU stack (a GPL ffmpeg build, aom/dav1d/libvpx/libavif, intel-media-driver/
+#     level-zero/libva, libraw, libass, harfbuzz/freetype/fontconfig) for an EXR-only need, which
+#     bloated the EL8 runtime and exploded the legal-review surface; the direct OpenEXR bindings
+#     carry a minimal, permissive (BSD-3-Clause) license surface and no codec/GPU natives.  See
+#     docs/context.md, correction 8.
+#   * openexr + imath are listed explicitly so the two C++ libraries are first-class in the carried
+#     runtime license inventory rather than only implied dependencies; and
 #   * pynvml provides the device-memory sampling backend used beside a live Flame Batch workload.
 # The bake-off's ONNX Runtime CUDA-12 provider and the White Water native bridge are NOT conda
 # packages: they are added to the prefix from the pinned upstream archive + a CI compile, exactly
@@ -21,12 +29,18 @@
 # conda.explicit_lock_sha256 to the pinned lock's SHA256 and re-run the qualifying dispatch.
 python 3.11.*
 numpy
-conda-pack
-py-openimageio
-openimageio
+# conda-pack is pinned to 0.8.1 (matching the P25-5 lock): conda-forge's conda-pack 0.9.2 installs
+# dist-info with `Version: 0.0.0` and no License field, so licenses.py cannot derive its licence and
+# fails closed.  0.8.1 carries usable metadata and needs no supplement.  conda-pack is a pure-python
+# leaf tool (shipped only so the airgap wrapper can run conda-unpack), so pinning it does not perturb
+# the rest of the solve.
+conda-pack ==0.8.1
+# setuptools is held <81 (P25-5 ships 80.10.2) because conda-pack 0.8.1 imports `pkg_resources`,
+# which setuptools removed from its bundle in v81+; without this the solve pulls setuptools 84 and
+# conda-pack fails at import with ModuleNotFoundError: No module named 'pkg_resources'. setuptools
+# carries its own embedded MIT licence, so no supplement is needed.
+setuptools <81
+openexr-python
 openexr
 imath
-libtiff
-libpng
-libjpeg-turbo
 pynvml

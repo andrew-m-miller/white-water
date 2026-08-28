@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for the P25-6 end-to-end resumable offline profile driver (``tools.bakeoff.run``).
 
-Runs entirely without numpy, onnxruntime, OpenImageIO, pynvml, or a GPU: every dependency is
+Runs entirely without numpy, onnxruntime, the OpenEXR bindings, pynvml, or a GPU: every dependency is
 injected (a fake array/runtime module pair, a fake NVML backend, a fake EXR decoder, and --
 new in this revision -- a fake host-load checkpoint and a fake CUDA measurement runner).
 ``validate_manifest_artifact`` still needs a real manifest/artifact pair and a real protocol

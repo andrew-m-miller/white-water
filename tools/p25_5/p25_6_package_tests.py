@@ -3,11 +3,11 @@
 
 WP3 reuses the P25-5 air-gap packager (``tools/p25_5/package.py``) unchanged and adds a NEW
 package that carries the resumable profile driver (``tools/bakeoff/run.py``) and a runtime with
-OpenImageIO/OpenEXR and pynvml.  These tests pin the checked-in P25-6 package-spec template to:
+the OpenEXR Python bindings and pynvml.  These tests pin the checked-in P25-6 package-spec template to:
 
 * the exact driver import closure (recomputed here by AST walk, not trusted from a list);
 * the P25-5 support/schema/protocol/legal file set it inherits;
-* the ``__P25_6_*`` CI placeholder set and the OIIO/pynvml runtime identity; and
+* the ``__P25_6_*`` CI placeholder set and the OpenEXR/pynvml runtime identity; and
 * a full ``build_package``/``verify_package`` round trip over the real driver sources plus
   fixtures for the candidate artifact, runtime archive and legal placeholders.
 
@@ -44,7 +44,7 @@ NATIVE_BRIDGE_PATH = REPO_ROOT / "tools" / "bakeoff" / "ort_native_bridge.cpp"
 
 P25_6_RUNTIME_IDENTITY = (
     "python-3.11;microsoft-onnxruntime-linux-x64-gpu_cuda12-1.29.0+whitewater-native-bridge;"
-    "openimageio+openexr+imath;pynvml;conda-pack;el8-x86_64"
+    "openexr-python+openexr+imath;pynvml;conda-pack;el8-x86_64"
 )
 
 # The driver entrypoint and its expected first-party module closure.  ``run`` is the entrypoint;
@@ -250,7 +250,7 @@ class P25_6PackageTemplateTests(unittest.TestCase):
             "whitewater-p25-runtime-legal-review-v1",
             "scripts/ci-p25-6-qualify.sh",
             "--assume-host-load-ready",
-            "OpenImageIO",
+            "OpenEXR",
             "pynvml",
             "__P25_6_ADMISSION_CANDIDATES__",
             "__P25_6_RUNTIME_ARCHIVE__",
@@ -280,7 +280,7 @@ class P25_6PackageTemplateTests(unittest.TestCase):
             if line.strip() and not line.lstrip().startswith("#")
         ]
         self.assertNotIn("@EXPLICIT", content_lines)
-        self.assertIn("py-openimageio", content_lines)
+        self.assertIn("openexr-python", content_lines)
         self.assertIn("pynvml", content_lines)
 
 
