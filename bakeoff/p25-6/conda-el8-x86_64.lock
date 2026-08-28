@@ -35,6 +35,11 @@ numpy
 # leaf tool (shipped only so the airgap wrapper can run conda-unpack), so pinning it does not perturb
 # the rest of the solve.
 conda-pack ==0.8.1
+# setuptools is held <81 (P25-5 ships 80.10.2) because conda-pack 0.8.1 imports `pkg_resources`,
+# which setuptools removed from its bundle in v81+; without this the solve pulls setuptools 84 and
+# conda-pack fails at import with ModuleNotFoundError: No module named 'pkg_resources'. setuptools
+# carries its own embedded MIT licence, so no supplement is needed.
+setuptools <81
 openexr-python
 openexr
 imath

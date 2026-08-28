@@ -6,7 +6,7 @@
     "installer_url": "https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh",
     "installer_sha256": "848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c",
     "explicit_lock": "bakeoff/p25-6/conda-el8-x86_64.lock",
-    "explicit_lock_sha256": "3eb0515822d49d8784218121c28157fdc6c20d9dae53df9354dd7f028ab36552",
+    "explicit_lock_sha256": "b0ea074f5b60f1be9a32bea0478d360d4a80ade3db08682f831daa00819f9421",
     "explicit_lock_is_requested_spec": true,
     "note": "explicit_lock is a REQUESTED match-spec (not @EXPLICIT); CI solves it on EL8 x86_64 and emits the pinned lock as evidence. If CI re-pins the lock, update explicit_lock_sha256 to the pinned lock SHA256 before the qualifying dispatch."
   },
