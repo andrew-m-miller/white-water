@@ -30,6 +30,7 @@ from typing import Any, Mapping
 
 from . import run as run_module
 from . import synthetic as synthetic_module
+from . import validator as validator_module
 from .exr import ExrFailure
 from .matrix import build_matrix
 from .nvml import NVML_CSV_HEADER, NvmlFailure, NvmlSampler
@@ -1080,6 +1081,73 @@ def test_runner_and_hardware_metadata_preflight_is_strict_and_normalized() -> No
                 assert exc.kind == "report_metadata_value"
             else:
                 raise AssertionError(f"invalid runner {key} must fail during preflight")
+
+
+def test_protocol_incomplete_corpus_fails_before_any_cell_executes() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-corpus-preflight-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        runtime = config.runtime_module
+        # Schema-valid, and sufficient for the selected matrix cell, but missing the protocol's
+        # chain-1 case. This is the exact late-publication defect the P25-6 handoff shipped.
+        config.corpus = copy.deepcopy(config.corpus)
+        config.corpus["partitions"][0]["shots"] = [
+            config.corpus["partitions"][0]["shots"][0]
+        ]
+        try:
+            run_bakeoff(config)
+        except DriverFailure as exc:
+            assert exc.kind == "corpus_invalid"
+            assert "synthetic category 'chain' has no shot" in str(exc)
+        else:
+            raise AssertionError("protocol-incomplete corpus must fail during preflight")
+        assert runtime.sessions_created == 0
+        assert not config.state_path.exists()
+
+
+def test_unmaterialized_production_path_fails_before_any_cell_executes() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-corpus-placeholder-") as tmp:
+        # The placeholder is deliberately on an unselected production record. Reports bind the
+        # complete corpus, so even a synthetic-only invocation must reject an unmaterialized
+        # operator template before creating a session or resume state.
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        runtime = config.runtime_module
+        config.corpus = copy.deepcopy(config.corpus)
+        config.corpus["partitions"][1]["shots"][0]["path_pattern"] = (
+            "/REPLACE_WITH_ON_BOX_ABSOLUTE_PATH/plate.%04d.exr"
+        )
+        try:
+            run_bakeoff(config)
+        except DriverFailure as exc:
+            assert exc.kind == "corpus_invalid"
+            assert "still contains the operator placeholder 'REPLACE_WITH'" in str(exc)
+        else:
+            raise AssertionError("unmaterialized production path must fail during preflight")
+        assert runtime.sessions_created == 0
+        assert not config.state_path.exists()
+
+
+def test_driver_validates_the_immutable_corpus_only_once() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-corpus-once-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        original = validator_module.validate_corpus_consistency
+        calls = 0
+
+        def counted(corpus, protocol, corpus_schema) -> None:
+            nonlocal calls
+            calls += 1
+            original(corpus, protocol, corpus_schema)
+
+        # run.py holds the preflight binding; report validation resolves the validator module's
+        # binding. Patch both to catch any accidental publication-time repeat.
+        run_original = run_module.validate_corpus_consistency
+        run_module.validate_corpus_consistency = counted
+        validator_module.validate_corpus_consistency = counted
+        try:
+            run_bakeoff(config)
+        finally:
+            run_module.validate_corpus_consistency = run_original
+            validator_module.validate_corpus_consistency = original
+        assert calls == 1
 
 
 def test_legacy_v1_resume_state_is_rejected_with_fresh_replace_diagnostic() -> None:
@@ -3084,6 +3152,9 @@ def main() -> int:
     test_run_spec_builder_returns_compact_complete_identity()
     test_chain_offsets_are_sorted_unique_before_execution_and_identity()
     test_runner_and_hardware_metadata_preflight_is_strict_and_normalized()
+    test_protocol_incomplete_corpus_fails_before_any_cell_executes()
+    test_unmaterialized_production_path_fails_before_any_cell_executes()
+    test_driver_validates_the_immutable_corpus_only_once()
     test_legacy_v1_resume_state_is_rejected_with_fresh_replace_diagnostic()
     test_rerun_with_different_profile_same_state_path_is_rejected_not_reused()
     test_changed_report_warnings_and_summary_are_rejected_on_reuse()

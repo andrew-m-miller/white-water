@@ -986,14 +986,22 @@ def validate_report_consistency(
     report_schema: Mapping[str, Any],
     corpus: Mapping[str, Any] | None,
     corpus_schema: Mapping[str, Any],
+    *,
+    _corpus_already_validated: bool = False,
 ) -> None:
-    """Validate result cells, repetition profiles and report-side hard gates."""
+    """Validate result cells, repetition profiles and report-side hard gates.
+
+    ``_corpus_already_validated`` is an internal driver optimization.  Ordinary callers must
+    leave it false so a standalone report validation continues to validate the complete corpus
+    document before resolving any report identities.
+    """
 
     _require(corpus is not None, "$.corpus", "report validation requires the complete corpus document")
-    # Validate the referenced corpus before resolving any report identities.  This prevents
-    # a report from binding to a malformed or incomplete metadata document merely because
-    # its selected shot ids happen to be present.
-    validate_corpus_consistency(corpus, protocol, corpus_schema)
+    if not _corpus_already_validated:
+        # Validate the referenced corpus before resolving any report identities.  This prevents
+        # a report from binding to a malformed or incomplete metadata document merely because
+        # its selected shot ids happen to be present.
+        validate_corpus_consistency(corpus, protocol, corpus_schema)
     validate(report, report_schema)
     is_v2 = protocol.get("protocol_id") == _V2_PROTOCOL_ID
     expected_report_version = 2 if is_v2 else 1

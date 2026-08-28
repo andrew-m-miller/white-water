@@ -191,6 +191,8 @@ def assemble_report(
     candidate_entries: Any,
     plan: MatrixPlan,
     completed_results: Any,
+    *,
+    _corpus_already_validated: bool = False,
 ) -> dict[str, Any]:
     """Assemble, normalize, and validate one complete deterministic protocol report."""
 
@@ -245,7 +247,14 @@ def assemble_report(
         "summary": _summary(results, metadata),
     })
     try:
-        validate_report_consistency(report, protocol, report_schema, corpus, corpus_schema)
+        validate_report_consistency(
+            report,
+            protocol,
+            report_schema,
+            corpus,
+            corpus_schema,
+            _corpus_already_validated=_corpus_already_validated,
+        )
     except (ValidationError, ValueError, TypeError) as exc:
         raise ReportFailure("validation", str(exc)) from exc
     return report
@@ -430,6 +439,7 @@ def write_report_pair(
     corpus_schema: Mapping[str, Any],
     *,
     replace: bool = False,
+    _corpus_already_validated: bool = False,
 ) -> None:
     """Validate and stage both outputs, then publish each destination deterministically.
 
@@ -448,7 +458,14 @@ def write_report_pair(
     if json_destination == csv_destination:
         _fail("output_path", "JSON and CSV destinations must differ")
     try:
-        validate_report_consistency(report, protocol, report_schema, corpus, corpus_schema)
+        validate_report_consistency(
+            report,
+            protocol,
+            report_schema,
+            corpus,
+            corpus_schema,
+            _corpus_already_validated=_corpus_already_validated,
+        )
     except (ValidationError, ValueError, TypeError) as exc:
         raise ReportFailure("validation", str(exc)) from exc
     json_payload = render_json(report)

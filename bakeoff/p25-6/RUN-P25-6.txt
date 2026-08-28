@@ -28,7 +28,7 @@ What the package carries
   plus the package __init__);
 * the active protocol `bakeoff/protocol-v2.json` and the report/corpus/artifact schemas;
 * the candidate manifest and ONNX artifact under `models/sea-raft-m/`;
-* ready-to-run, schema-valid driver-input templates under `inputs/` (candidate-entries,
+* ready-to-run, protocol-valid driver-input templates under `inputs/` (candidate-entries,
   artifact-map, selection-smoke, selection-screen, selection-final, a NeuFlow shared-lattice
   screen that requires neuflow-v2 to be admitted first, report-metadata, and corpus.template)
   -- see step 4;
@@ -89,9 +89,9 @@ CLI help (this touches no production data):
 ----------------------------------------------
 
 The driver reads five small JSON inputs plus the production corpus.  Rather than authoring these
-from prose, this package CARRIES schema-valid, ready-to-run templates under `inputs/`.  Four of
+from prose, this package CARRIES protocol-valid, ready-to-run templates under `inputs/`.  Four of
 them are complete and are used IN PLACE (never edited); two carry clearly-marked
-`REPLACE_WITH_...` placeholders for the only values that are host/CI-specific, so you copy those
+`REPLACE_WITH_...` placeholders for the only values that are host-specific, so you copy those
 two OUT of the package, fill the placeholders, and point the driver at your copies.  Do not edit
 any carried file.
 
@@ -129,17 +129,33 @@ Used in place (already complete for the carried sea-raft-m candidate):
                     it REQUIRES that candidate to be admitted, carried, and added to your
                     candidate-entries before use, and is rejected until then.
 
-Copied out and filled (host/CI-specific placeholders only):
+Copied out and filled (host-specific placeholders only):
 
-  --corpus          copy inputs/corpus.template.json, set `corpus_id`, and set the production
-                    smoke shot's `path_pattern` to your on-box EXR sequence.  It already declares
-                    the built-in synthetic `syn-fhd-1920x1080-par1`/`syn-uhd-3840x2160-par1`
-                    targets the screen selection uses; the production frames stay on the box and
-                    are read locally.  It validates against the carried `bakeoff/corpus-v1.schema.json`.
-  --report-metadata copy inputs/report-metadata.json and fill the `REPLACE_WITH_...` runner hashes
-                    (the white-water build commit, the carried evaluator SHA256, and the carried
-                    runtime tarball SHA256 -- the last is the CI-emitted digest, not to be
-                    invented) and the target `os_release`/`cpu`/`gpu`/`driver`.
+  --corpus          copy inputs/corpus.template.json and set `corpus_id`.  Its complete frozen
+                    synthetic partition must not be changed.  Replace every production record's
+                    path/range/geometry/PAR/encoding/channels/bit_depth with truthful metadata for
+                    an on-box EXR sequence.  The template uses nine sequences, one for each frozen
+                    production category; one real shot may carry several categories, but every
+                    category must remain covered and `prod-motion-blur` must remain because the
+                    carried smoke selection names it.  Keep at least eight frames on each side of
+                    each reference frame to exercise offsets 1/2/4/8.  Production frames stay on
+                    the box and are read locally.
+  --report-metadata copy inputs/report-metadata.json and fill only the target
+                    `os_release`/`cpu`/`gpu`/`driver`.  CI already materialized the exact White
+                    Water source commit, carried driver SHA256 and runtime-tarball SHA256 into the
+                    qualified package; do not replace those hashes.  Useful target commands are
+                    `cat /etc/os-release`, `lscpu`, and
+                    `nvidia-smi --query-gpu=name,driver_version --format=csv,noheader`.
+
+For example, create the two operator-owned copies outside the extracted package:
+
+    mkdir -p /path/to/p25-6-operator-inputs
+    cp inputs/corpus.template.json /path/to/p25-6-operator-inputs/corpus.json
+    cp inputs/report-metadata.json /path/to/p25-6-operator-inputs/report-metadata.json
+
+The driver runs the complete corpus schema+protocol consistency gate before it creates resume
+state or starts any inference.  A missing category, synthetic case, or invalid shot record is an
+immediate `corpus_invalid` stop rather than a late failure after the measurements.
 
 The active protocol (`--protocol`, default `bakeoff/protocol-v2.json`) and the report/corpus
 schemas are carried and used by default.  Run `... run.py --help` for the full flag list.
@@ -198,7 +214,7 @@ c. Dependency preflight -- a STOP, not a warning.  With `LD_LIBRARY_PATH` export
 ------------------------------------
 
 Each profile is resumable: the driver commits per-cell results into an artifact store under
-`--output-dir` and republishes the five outputs atomically.  If a run is interrupted, rerun the
+`--output-dir` and republishes its result/evidence outputs atomically.  If a run is interrupted, rerun the
 IDENTICAL command to resume; it re-establishes the run identity, skips completed cells, and
 continues.  A different configuration against a populated output directory is refused rather than
 silently mixing runs.
@@ -238,13 +254,16 @@ boundary is still logged.  `--no-nvml` skips NVML sampling but is refused for a 
 CUDA cells.  Do not treat time-to-failure as performance: first, warm and steady latency are all
 recorded.
 
-7. Collect exactly the five outputs
------------------------------------
+7. Collect the returned evidence files
+--------------------------------------
 
-From each profile's `--output-dir`, return `report.json`, `summary.txt`, `runner.log`,
-`nvml.csv`, and `review.csv` (the last only when local visual review was performed).  The report
-validator (carried `bakeoff/report-v2.schema.json`) must accept `report.json`.  Do not copy
-production footage, checkpoints, or runtime files into a source repository.
+From every profile's `--output-dir`, return `report.json`, `summary.txt`, and `runner.log`.  Also
+return `nvml.csv` when the profile produced CUDA/NVML rows, and `review.csv` when the profile
+produced production-review rows and the local reviewer filled the five 0..4 score columns.
+CPU-only profiles normally have no `nvml.csv`; analytic synthetic-only profiles normally have no
+`review.csv`.  The driver also writes `report.csv` as a local convenience, but it is not part of
+the airgap return set.  Report publication itself runs the carried report-v2 validator.  Do not
+copy previews, production footage, checkpoints, or runtime files into a source repository.
 
 Legal record
 ------------

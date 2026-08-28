@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """P25-6 carried driver-input template tests.
 
-WP3 carries ready-to-run, schema-valid driver inputs under ``bakeoff/p25-6/inputs/`` so the
+WP3 carries ready-to-run, protocol-valid driver inputs under ``bakeoff/p25-6/inputs/`` so the
 airgapped operator does not have to author them from prose (the older ``candidate_id`` +
 ``measurement_providers``-only candidate shape is rejected by the carried protocol-v2 matrix
 validator before any cell runs).  These tests are the authoritative gate over every carried
@@ -60,6 +60,7 @@ REPORT_SCHEMA = json.loads((BAKEOFF / "report-v2.schema.json").read_text(encodin
 CORPUS_SCHEMA = json.loads((BAKEOFF / "corpus-v1.schema.json").read_text(encoding="utf-8"))
 
 PLACEHOLDER = materialize_module.PLACEHOLDER
+CI_PLACEHOLDER = materialize_module.CI_PLACEHOLDER
 # The stale macOS export identity the shipped inputs must never carry (models/sea-raft-m.json).
 MACOS_ARTIFACT_SHA256 = "23cc2c850d3c116df193a24ff9ae7722d5635cd04e75dd8aeb20d7e13e4f59f1"
 
@@ -237,7 +238,10 @@ class P25_6InputTemplateTests(unittest.TestCase):
     # -- corpus ------------------------------------------------------------------------------
 
     def test_corpus_template_validates_corpus_v1(self) -> None:
-        validator_module.validate(self.corpus, CORPUS_SCHEMA, root=CORPUS_SCHEMA)
+        # This is the exact full-consistency gate report publication runs. A schema-only check
+        # missed the original partial template, which passed planning and failed only after all
+        # expensive cells had completed.
+        validator_module.validate_corpus_consistency(self.corpus, PROTOCOL, CORPUS_SCHEMA)
 
     def test_corpus_declares_the_selection_shots(self) -> None:
         shot_ids = {
@@ -245,8 +249,23 @@ class P25_6InputTemplateTests(unittest.TestCase):
             for partition in self.corpus["partitions"]
             for shot in partition["shots"]
         }
-        for needed in ("prod-smoke-sample", "syn-fhd-1920x1080-par1", "syn-uhd-3840x2160-par1"):
+        for needed in ("prod-motion-blur", "syn-fhd-1920x1080-par1", "syn-uhd-3840x2160-par1"):
             self.assertIn(needed, shot_ids)
+
+    def test_corpus_template_has_complete_production_coverage_and_review_range(self) -> None:
+        production = next(
+            partition for partition in self.corpus["partitions"]
+            if partition["kind"] == "production_external"
+        )
+        categories = {
+            category for shot in production["shots"] for category in shot["categories"]
+        }
+        self.assertEqual(categories, set(PROTOCOL["primary_production_categories"]))
+        self.assertEqual(len(production["shots"]), 9)
+        for shot in production["shots"]:
+            self.assertGreaterEqual(shot["reference_frame"] - shot["first_frame"], 8)
+            self.assertGreaterEqual(shot["last_frame"] - shot["reference_frame"], 8)
+            self.assertIn("REPLACE_WITH_ON_BOX_ABSOLUTE_PATH", shot["path_pattern"])
 
     # -- selections build through the real matrix planner ------------------------------------
 
@@ -378,11 +397,46 @@ class P25_6InputTemplateTests(unittest.TestCase):
         )
         self.assertEqual(hardware["platform"], "linux")
         self.assertEqual(hardware["architecture"], "x86_64")
-        # Host/CI-specific values are clearly-marked placeholders (never fabricated hashes).
+        # CI-owned hashes are filled during qualification; the checked-in source cannot bind a
+        # future archive. Only the four target hardware strings remain operator-filled.
         for field in ("source_commit", "evaluator_sha256", "runtime_sha256"):
-            self.assertIn("REPLACE_WITH", runner[field], field)
+            self.assertEqual(runner[field], CI_PLACEHOLDER, field)
         for field in ("os_release", "cpu", "gpu", "driver"):
             self.assertIn("REPLACE_WITH", hardware[field], field)
+
+    def test_report_metadata_materializes_exact_ci_identities(self) -> None:
+        metadata = _load("report-metadata.json")
+        materialized = materialize_module.materialize_report_metadata(
+            metadata,
+            source_commit="1" * 40,
+            evaluator_sha256="2" * 64,
+            runtime_sha256="3" * 64,
+        )
+        runner = materialized["runner"]
+        self.assertEqual(runner["source_commit"], "1" * 40)
+        self.assertEqual(runner["evaluator_sha256"], "2" * 64)
+        self.assertEqual(runner["runtime_sha256"], "3" * 64)
+        # The qualified file is immediately usable once the operator fills hardware strings.
+        self.assertEqual(materialized["hardware"], metadata["hardware"])
+
+    def test_report_metadata_materializer_rejects_stale_or_malformed_identity(self) -> None:
+        metadata = _load("report-metadata.json")
+        stale = json.loads(json.dumps(metadata))
+        stale["runner"]["source_commit"] = "1" * 40
+        with self.assertRaises(materialize_module.MaterializeError):
+            materialize_module.materialize_report_metadata(
+                stale,
+                source_commit="1" * 40,
+                evaluator_sha256="2" * 64,
+                runtime_sha256="3" * 64,
+            )
+        with self.assertRaises(materialize_module.MaterializeError):
+            materialize_module.materialize_report_metadata(
+                metadata,
+                source_commit="not-a-commit",
+                evaluator_sha256="2" * 64,
+                runtime_sha256="3" * 64,
+            )
 
     # -- carried in the package spec ---------------------------------------------------------
 
