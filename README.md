@@ -38,9 +38,13 @@ frozen protocol and schemas, candidate-neutral artifact framework, and determini
 corpus/conditioning package are present. P25-3 candidate export/evidence work merged through PRs
 #11, #10 and #12, and the P25-4 offline runner and active protocol v2 merged through PR #13.
 P25-5 local/CI qualification merged through PR #15 at `946c042`; its exact evaluation-only EL8
-tarball was qualified at `adfd4fb` and is recorded in the Phase 2.5 implementation plan. No
-shipping model/default or persistent OFX choice order has been selected; airgapped target
-measurement, ranking and production inference remain open.
+tarball was qualified at `adfd4fb` and is recorded in the Phase 2.5 implementation plan. P25-6
+packaging merged through PRs #21–#24: the resumable profile driver and its airgap target-measurement
+package (an OpenEXR/pynvml runtime — the EXR backend moved off OpenImageIO to avoid a GPL media
+stack) were built and qualified on EL8, producing `whitewater-p25-6-el8.tar.gz` (SHA256 `06a72bb5…`,
+runtime inventory `a87694f5…` approved by the Andrew Miller runtime legal-review). No shipping
+model/default or persistent OFX choice order has been selected; the P25-6 human operator measurement
+run, ranking and production inference remain open.
 See [docs/host-notes.md](docs/host-notes.md), [docs/context.md](docs/context.md), and *Phasing* in
 [docs/plan.md](docs/plan.md).
 
