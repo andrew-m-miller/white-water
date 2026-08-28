@@ -54,6 +54,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BAKEOFF = REPO_ROOT / "bakeoff"
 INPUTS_DIR = BAKEOFF / "p25-6" / "inputs"
 PACKAGE_SPEC = BAKEOFF / "p25-6" / "package-spec.json"
+QUALIFY_SCRIPT = REPO_ROOT / "scripts" / "ci-p25-6-qualify.sh"
 
 PROTOCOL = json.loads((BAKEOFF / "protocol-v2.json").read_text(encoding="utf-8"))
 REPORT_SCHEMA = json.loads((BAKEOFF / "report-v2.schema.json").read_text(encoding="utf-8"))
@@ -437,6 +438,15 @@ class P25_6InputTemplateTests(unittest.TestCase):
                 evaluator_sha256="2" * 64,
                 runtime_sha256="3" * 64,
             )
+
+    def test_ci_source_identity_uses_actions_sha_without_reading_git_checkout(self) -> None:
+        script = QUALIFY_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('source_commit="${GITHUB_SHA:-}"', script)
+        self.assertIn(
+            '[[ "$source_commit" =~ ^[0-9a-f]{40}$ ]]',
+            script,
+        )
+        self.assertNotIn('git -C "$root" rev-parse HEAD', script)
 
     # -- carried in the package spec ---------------------------------------------------------
 

@@ -33,6 +33,7 @@
 #                              runtime record uses the __P25_6_RUNTIME_* placeholders
 #   P25_6_RUN_INSTRUCTIONS     explicit target-measurement run instructions source (RUN-P25-6.txt)
 #   P25_6_OUTPUT_DIR           output directory for the carried package/evidence
+#   GITHUB_SHA                 exact checked-out GitHub Actions source commit
 #
 # P25_6_PACKAGE_SPEC is a template. Its admission object must set
 # candidates=__P25_6_ADMISSION_CANDIDATES__, and it must contain exactly one runtime file record
@@ -442,7 +443,9 @@ require_regular "$generated_candidate_manifest" "P25-6 generated candidate manif
 require_regular "$inputs_dir/candidate-entries.json" "P25-6 carried candidate-entries template"
 require_regular "$inputs_dir/artifact-map.json" "P25-6 carried artifact-map template"
 require_regular "$inputs_dir/report-metadata.json" "P25-6 carried report-metadata template"
-source_commit=$(git -C "$root" rev-parse HEAD)
+source_commit="${GITHUB_SHA:-}"
+[[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || \
+  fail "GITHUB_SHA must identify the exact checked-out lowercase 40-hex source commit"
 driver_sha=$(sha256sum -- "$driver" | awk '{print $1}')
 python3 "$root/tools/p25_5/p25_6_materialize_inputs.py" \
   --manifest "$generated_candidate_manifest" \
