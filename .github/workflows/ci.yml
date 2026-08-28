@@ -1315,7 +1315,7 @@ jobs:
       P25_6_CONDA_INSTALLER_URL: https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh
       P25_6_CONDA_INSTALLER_SHA256: 848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c
       P25_6_CONDA_LOCK_FILE: bakeoff/p25-6/conda-el8-x86_64.lock
-      P25_6_CONDA_LOCK_SHA256: 0fb5be3cb8dfd9e73e564e7cf4dad249b814d961cd2a39c3331550196acf8f15
+      P25_6_CONDA_LOCK_SHA256: 3eb0515822d49d8784218121c28157fdc6c20d9dae53df9354dd7f028ab36552
       P25_6_RUNTIME_INPUTS_FILE: bakeoff/p25-6/runtime-inputs.json
       P25_6_QUALIFIER: tools/bakeoff/evaluator.py
       P25_6_DRIVER: tools/bakeoff/run.py
