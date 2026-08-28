@@ -30,6 +30,9 @@ runner and active protocol v2 merged through PR #13. P25-5 local/CI qualificatio
 PR #15 at `946c042`; its exact EL8 evaluation tarball was qualified at `adfd4fb` and is recorded
 in the Phase 2.5 plan. No model/default, target result, or persistent OFX choice index has been
 selected. P25-6 airgapped target measurement is next.
+The first qualified P25-6 outer archive (`06a72bb5…`) is withdrawn before measurement: its
+carried corpus template passed the JSON schema but not the full protocol-consistency gate, so a
+replacement package must be reviewed and qualified before the three target profiles run.
 
 The plan was amended on 2026-08-20 after an architecture review. Read `docs/plan.md` and
 `docs/context.md` before writing code against anything you remember about it.

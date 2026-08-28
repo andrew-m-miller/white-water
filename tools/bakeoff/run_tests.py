@@ -1082,6 +1082,27 @@ def test_runner_and_hardware_metadata_preflight_is_strict_and_normalized() -> No
                 raise AssertionError(f"invalid runner {key} must fail during preflight")
 
 
+def test_protocol_incomplete_corpus_fails_before_any_cell_executes() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-corpus-preflight-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        runtime = config.runtime_module
+        # Schema-valid, and sufficient for the selected matrix cell, but missing the protocol's
+        # chain-1 case. This is the exact late-publication defect the P25-6 handoff shipped.
+        config.corpus = copy.deepcopy(config.corpus)
+        config.corpus["partitions"][0]["shots"] = [
+            config.corpus["partitions"][0]["shots"][0]
+        ]
+        try:
+            run_bakeoff(config)
+        except DriverFailure as exc:
+            assert exc.kind == "corpus_invalid"
+            assert "synthetic category 'chain' has no shot" in str(exc)
+        else:
+            raise AssertionError("protocol-incomplete corpus must fail during preflight")
+        assert runtime.sessions_created == 0
+        assert not config.state_path.exists()
+
+
 def test_legacy_v1_resume_state_is_rejected_with_fresh_replace_diagnostic() -> None:
     with tempfile.TemporaryDirectory(prefix="whitewater-run-legacy-state-") as tmp:
         config = _config(Path(tmp), shot_ids=["syn-identity"])
@@ -3084,6 +3105,7 @@ def main() -> int:
     test_run_spec_builder_returns_compact_complete_identity()
     test_chain_offsets_are_sorted_unique_before_execution_and_identity()
     test_runner_and_hardware_metadata_preflight_is_strict_and_normalized()
+    test_protocol_incomplete_corpus_fails_before_any_cell_executes()
     test_legacy_v1_resume_state_is_rejected_with_fresh_replace_diagnostic()
     test_rerun_with_different_profile_same_state_path_is_rejected_not_reused()
     test_changed_report_warnings_and_summary_are_rejected_on_reuse()

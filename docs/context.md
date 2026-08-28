@@ -775,3 +775,28 @@ library than the job required.
 The lesson: pick the dependency scoped to the need, not the most general one. A general media
 library's transitive closure is a licence-and-size liability you inherit in full even when you call
 one narrow entry point of it.
+
+### 9. A schema-valid corpus failed only after the expensive measurement
+
+**Symptom:** caught during the airgapped operator handoff, before a target profile ran. The first
+qualified P25-6 archive (`06a72bb5…`) carried a small corpus containing the two selected synthetic
+performance shots and one production smoke shot. Its input test checked the JSON schema and matrix
+planning, so it passed CI. Report publication applies the stronger protocol-consistency gate: exact
+coverage of all 23 frozen synthetic cases and all nine production categories. The carried
+`synthetic-lattice` and `smoke-sample` categories were not protocol tokens, and fixing those names
+alone would still leave the coverage incomplete.
+
+The timing made this worse than an ordinary bad template. Matrix planning accepts an explicit
+subset, while full corpus validation previously happened during report assembly. An operator could
+therefore finish the costly cells and discover that no valid report could be published.
+
+**Fixed at both boundaries:** the carried corpus now contains the complete frozen synthetic
+partition and nine explicit production records; its test invokes `validate_corpus_consistency`,
+not just the schema validator. The driver runs that same gate before artifact loading, resume-state
+creation or inference. CI also fills the source commit, driver hash and runtime hash in the carried
+report metadata, leaving the operator only truthful shot and hardware metadata. The flawed archive
+is withdrawn and a replacement must be qualified; editing it in place would destroy the package
+identity the report is meant to preserve.
+
+The lesson: validating a selector is not validating the document the final report binds. Any
+expensive resumable workflow must run its publication-strength input gate before its first cell.

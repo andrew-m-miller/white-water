@@ -312,17 +312,23 @@ the inner `runtime/whitewater-p25-5-runtime.tar.gz` is only the relocatable cond
 
 ### P25-6 - Airgapped target measurement - Luna I plus human operator
 
-**Status: packaging complete; the human operator measurement run is the remaining step.** The
-resumable profile driver and its airgap package (PRs #21–#24) were built and qualified on EL8. The
+**Status: replacement packaging required before the human run.** The resumable profile driver and
+its first airgap package (PRs #21–#24) were built and qualified on EL8, but the archive was
+withdrawn before measurement when its carried corpus template proved schema-valid but not
+protocol-valid. The report validator requires every frozen synthetic case and production category;
+the partial carried template would have failed only during report publication after the selected
+cells ran. The correction carries the complete corpus, preflights full consistency before any
+inference, and materializes runner hashes in CI. It must be reviewed and requalified. The
 runtime carries the profile driver plus an OpenEXR/pynvml conda runtime; the EXR decode backend was
 moved off OpenImageIO to the direct OpenEXR Python bindings because conda-forge's `openimageio`
 transitively pulls a GPL ffmpeg/media/GPU stack for an EXR-only need (see `docs/context.md`
-correction 8). The qualified outer archive `whitewater-p25-6-el8.tar.gz` has SHA256
+correction 8). The withdrawn outer archive `whitewater-p25-6-el8.tar.gz` has SHA256
 `06a72bb53d2919b8d2ed03fbcf7cbd314e3c2604fa377b912f01040ce67c707a`; its runtime license inventory
 `a87694f5c564f9572f259487bc49017005abb39712091df831cd597e76036b7b` was approved by the Andrew Miller
 runtime legal-review (`bakeoff/p25-6/runtime-legal-review.json`, PR #24). Along the way a
 GitHub-Actions `workflow_dispatch` 25-input cap that made the `build` workflow undispatchable was
-fixed with a guard test (PR #22). The operator procedure is the carried `bakeoff/p25-6/RUN-P25-6.txt`.
+fixed with a guard test (PR #22). Do not use that archive for target measurement; the replacement
+operator procedure remains `bakeoff/p25-6/RUN-P25-6.txt`.
 
 Before the human run, package or otherwise provide the exact resumable profile entrypoints,
 production-corpus inputs, output paths, and recovery commands needed to drive the P25-4

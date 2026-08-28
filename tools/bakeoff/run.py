@@ -99,7 +99,13 @@ from .resume import ResumeFailure, create_state, load_state
 from .reporting import ReportFailure, assemble_report, render_csv, write_report_pair
 from .run_spec import IDENTITY_SCHEMA_VERSION, RunSpec, RunSpecError
 from .synthetic import SyntheticCase, encode_pfm
-from .validator import canonical_sha256, load_json, validate_report_consistency
+from .validator import (
+    ValidationError,
+    canonical_sha256,
+    load_json,
+    validate_corpus_consistency,
+    validate_report_consistency,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -2966,6 +2972,14 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
     # state creation, and executor construction.  A malformed/ambiguous report input must never
     # get as far as a cell, and the normalized values below are reused for both identity and
     # publication.
+    # Corpus consistency used to run only during final report assembly. A schema-valid but
+    # protocol-incomplete operator template could therefore finish every expensive cell and then
+    # fail publication. Run the exact report-side corpus gate before planning or inference.
+    try:
+        validate_corpus_consistency(corpus, protocol, config.corpus_schema)
+    except ValidationError as exc:
+        _fail("corpus_invalid", str(exc))
+
     if not isinstance(config.report_metadata, Mapping):
         _fail("report_metadata_shape", "report_metadata must be an object")
     chain_offsets = _canonical_chain_offsets(config.chain_offsets)

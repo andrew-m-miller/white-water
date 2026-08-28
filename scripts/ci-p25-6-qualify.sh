@@ -425,8 +425,9 @@ print(f"  OpenEXR: {OpenEXR.__file__}")
 print(f"  pynvml: {pynvml.__file__}")
 PY
 
-# Materialize the carried candidate/artifact-map identity from the freshly exported linux manifest,
-# in place, immediately before packaging (Finding A). The checked-in inputs are platform-neutral
+# Materialize the carried candidate/artifact-map identity from the freshly exported linux manifest
+# and the report runner identity from exact CI inputs, in place immediately before packaging. The
+# checked-in inputs are platform-neutral
 # PLACEHOLDER templates; filling them here binds the linux-x86_64 artifact_sha256/manifest_sha256/
 # export_environment_sha256/artifact_size_bytes and artifact-map platform from the generated
 # models/sea-raft-m.json -- never a hardcoded, reproducible-forever constant -- exactly as the
@@ -440,10 +441,17 @@ generated_candidate_manifest="$root/models/sea-raft-m.json"
 require_regular "$generated_candidate_manifest" "P25-6 generated candidate manifest"
 require_regular "$inputs_dir/candidate-entries.json" "P25-6 carried candidate-entries template"
 require_regular "$inputs_dir/artifact-map.json" "P25-6 carried artifact-map template"
+require_regular "$inputs_dir/report-metadata.json" "P25-6 carried report-metadata template"
+source_commit=$(git -C "$root" rev-parse HEAD)
+driver_sha=$(sha256sum -- "$driver" | awk '{print $1}')
 python3 "$root/tools/p25_5/p25_6_materialize_inputs.py" \
   --manifest "$generated_candidate_manifest" \
   --candidate-entries "$inputs_dir/candidate-entries.json" \
-  --artifact-map "$inputs_dir/artifact-map.json"
+  --artifact-map "$inputs_dir/artifact-map.json" \
+  --report-metadata "$inputs_dir/report-metadata.json" \
+  --source-commit "$source_commit" \
+  --evaluator-sha256 "$driver_sha" \
+  --runtime-sha256 "$P25_6_RUNTIME_SHA256"
 
 # Materialize a fresh spec after qualification, immediately before invoking package.py. This
 # patches only the tightly defined admission and runtime placeholders; candidate files are never

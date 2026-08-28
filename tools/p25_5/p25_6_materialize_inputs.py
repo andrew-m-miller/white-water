@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Materialize the P25-6 carried candidate/artifact-map templates from the linux export.
+"""Materialize the P25-6 carried input templates from CI-owned identities.
 
 Finding A (PR #21 review): the checked-in ``bakeoff/p25-6/inputs/candidate-entries.json`` and
 ``bakeoff/p25-6/inputs/artifact-map.json`` must NOT ship a macOS-arm64 identity.  The candidate
@@ -21,10 +21,12 @@ This module is the single source of truth for that fill: ``scripts/ci-p25-6-qual
 CLI, and ``tools/p25_5/p25_6_inputs_tests.py`` calls the same functions against a staged linux
 manifest fixture -- so the inputs test is authoritative over exactly what CI ships.
 
-The non-identity fields (``candidate_id``, ``status``, ``measurement_status``, ``source_commit``,
+The non-identity candidate fields (``candidate_id``, ``status``, ``measurement_status``, ``source_commit``,
 ``checkpoint_sha256``, ``measurement_providers``, ``exclusion_reason`` and every license/notice
 surface) are provenance/legal content that does not change with the export platform; they are
-carried verbatim and are never touched here.
+carried verbatim and are never touched here. CI also materializes the report runner's exact
+White Water commit, carried driver SHA256 and runtime-archive SHA256. Those identities are known
+at qualification time and must not be delegated to the airgapped operator.
 """
 
 from __future__ import annotations
@@ -43,6 +45,7 @@ from typing import Any, Mapping, Sequence
 # so the report-v2 candidate schema (hex patterns, positive-int size) rejects an un-materialized
 # template rather than silently shipping it.
 PLACEHOLDER = "materialize-from-linux-manifest"
+CI_PLACEHOLDER = "materialize-from-ci"
 
 # candidate-entries identity fields filled from the exported linux platform_artifacts row.
 CANDIDATE_IDENTITY_FIELDS: tuple[str, ...] = (
@@ -53,6 +56,7 @@ CANDIDATE_IDENTITY_FIELDS: tuple[str, ...] = (
 )
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_HEX40 = re.compile(r"^[0-9a-f]{40}$")
 
 
 class MaterializeError(RuntimeError):
@@ -203,6 +207,44 @@ def materialize_artifact_map(
     return materialized
 
 
+def materialize_report_metadata(
+    metadata: Mapping[str, Any],
+    *,
+    source_commit: str,
+    evaluator_sha256: str,
+    runtime_sha256: str,
+) -> dict[str, Any]:
+    """Bind runner identities that qualification already knows.
+
+    Every field must still carry :data:`CI_PLACEHOLDER`; refusing a pre-filled value prevents an
+    old qualification identity from silently surviving into a replacement package.
+    """
+
+    if not isinstance(metadata, Mapping):
+        raise MaterializeError("report-metadata.json must be an object")
+    runner = metadata.get("runner")
+    if not isinstance(runner, Mapping):
+        raise MaterializeError("report-metadata.json must contain a runner object")
+    identities = {
+        "source_commit": (source_commit, _HEX40),
+        "evaluator_sha256": (evaluator_sha256, _HEX64),
+        "runtime_sha256": (runtime_sha256, _HEX64),
+    }
+    materialized_runner = dict(runner)
+    for field, (value, pattern) in identities.items():
+        if runner.get(field) != CI_PLACEHOLDER:
+            raise MaterializeError(
+                f"report-metadata runner field {field!r} must be the {CI_PLACEHOLDER!r} "
+                f"placeholder in the checked-in template (got {runner.get(field)!r})"
+            )
+        if not isinstance(value, str) or pattern.fullmatch(value) is None:
+            raise MaterializeError(f"CI identity {field!r} has the wrong hash shape: {value!r}")
+        materialized_runner[field] = value
+    materialized = dict(metadata)
+    materialized["runner"] = materialized_runner
+    return materialized
+
+
 def _load_json(path: Path) -> Any:
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -222,6 +264,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--manifest", required=True, type=Path, help="freshly exported linux models/sea-raft-m.json")
     parser.add_argument("--candidate-entries", required=True, type=Path)
     parser.add_argument("--artifact-map", required=True, type=Path)
+    parser.add_argument("--report-metadata", required=True, type=Path)
+    parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--evaluator-sha256", required=True)
+    parser.add_argument("--runtime-sha256", required=True)
     parser.add_argument(
         "--out-candidate-entries",
         type=Path,
@@ -232,24 +278,39 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         help="output path for the materialized artifact-map.json (default: overwrite in place)",
     )
+    parser.add_argument(
+        "--out-report-metadata",
+        type=Path,
+        help="output path for materialized report-metadata.json (default: overwrite in place)",
+    )
     args = parser.parse_args(argv)
 
     manifest = _load_json(args.manifest)
     entries = _load_json(args.candidate_entries)
     artifact_map = _load_json(args.artifact_map)
+    report_metadata = _load_json(args.report_metadata)
 
     materialized_entries = materialize_candidate_entries(entries, manifest, args.manifest)
     materialized_map = materialize_artifact_map(artifact_map, manifest)
+    materialized_metadata = materialize_report_metadata(
+        report_metadata,
+        source_commit=args.source_commit,
+        evaluator_sha256=args.evaluator_sha256,
+        runtime_sha256=args.runtime_sha256,
+    )
 
     out_entries = args.out_candidate_entries or args.candidate_entries
     out_map = args.out_artifact_map or args.artifact_map
+    out_metadata = args.out_report_metadata or args.report_metadata
     _write_json(out_entries, materialized_entries)
     _write_json(out_map, materialized_map)
+    _write_json(out_metadata, materialized_metadata)
 
     platform, row = _linux_export_row(manifest)
     print(f"P25-6 inputs materialized for {platform}:")
     print(f"  candidate-entries: {out_entries}")
     print(f"  artifact-map:      {out_map}")
+    print(f"  report-metadata:   {out_metadata}")
     print(f"  artifact_sha256:   {row['sha256']}")
     print(f"  artifact_size:     {row['size_bytes']} bytes")
     return 0
