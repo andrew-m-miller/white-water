@@ -26,8 +26,16 @@ matte, partial-render and ST contracts. Phase 2 merged through PR #4; its host-f
 `NullPairwiseEstimator`, `ww-flow`, and expanded unit/harness coverage are now the base for the
 Phase 2.5 bake-off. P25-0, P25-1 and P25-2 merged through PRs #6, #8 and #7 respectively.
 P25-3 candidate export/evidence work merged through PRs #11, #10 and #12; the P25-4 offline
-runner and active protocol v2 merged through PR #13. No model/default, target result, or persistent
-OFX choice index has been selected. P25-5 local/CI qualification is next.
+runner and active protocol v2 merged through PR #13; P25-5 local/CI qualification merged through
+PR #15 at `946c042`. **P25-6 packaging is complete:** the airgap target-measurement package
+(profile driver plus an OpenEXR/pynvml runtime — the EXR backend was moved off OpenImageIO to drop
+a GPL media stack; see `docs/context.md` correction 8) was built and qualified on EL8 through PRs
+#21, #22, #23 and #24. The qualified `whitewater-p25-6-el8.tar.gz` has SHA256
+`06a72bb53d2919b8d2ed03fbcf7cbd314e3c2604fa377b912f01040ce67c707a`; its runtime license inventory
+`a87694f5…` was approved by the Andrew Miller runtime legal-review in PR #24. No model/default,
+target result, or persistent OFX choice index has been selected. The P25-6 human operator
+measurement run on the airgapped box (`smoke`/`screen`/`final` per `bakeoff/p25-6/RUN-P25-6.txt`)
+is next, then P25-7 ranking/selection.
 
 The plan was amended on 2026-08-20 after an architecture review. Read `docs/plan.md` and
 `docs/context.md` before writing code against anything you remember about it.
