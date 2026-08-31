@@ -258,6 +258,18 @@ use the cpu correctness provider, so they need no CUDA setup.  The carried final
 CUDA `mp2` idle+live_flame run over the synthetic FHD/UHD PAR1 targets and MUST NOT be started
 until the step 5 CUDA preflight passes.
 
+For CUDA, the evaluator requires `CUDAExecutionProvider` to be available and selected first.  The
+Python ONNX Runtime path enforces that provider order with `session.get_providers()`: a CUDA
+request whose list reports `CPUExecutionProvider` first is rejected.  The native bridge used on
+the target has a different contract: its `selected_providers` response echoes the requested
+provider after session creation.  That is a nominal/request-contract check, not an observation of
+per-node graph placement.  The bridge leaves ONNX Runtime's lower-priority CPU execution available
+for SEA-RAFT's known shape and housekeeping nodes; that is per-node graph partitioning, not a
+whole-session CPU fallback.  Successful native CUDA session creation proves that the CUDA provider
+loaded and the session was created, but it does not prove that graph work executed on the GPU.  The
+required final NVML rows (baseline, session_create, steady, cleanup, and process_exit) are the
+direct execution evidence; timing is performance evidence, not proof by itself.
+
 * smoke  (`profile=smoke` in the selection): verifies archive/artifact hashes, runtime/provider
   selection and directions against a small production sample.
 * screen (`profile=screen`): compares all surviving candidates across curves and practical caps.

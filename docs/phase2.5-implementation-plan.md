@@ -329,9 +329,20 @@ continues to supply cuBLAS, cuBLASLt, CUDA runtime and cuRAND. The repository ru
 that ordering and its `ldd` ownership check explicit. After that fix, all four final cells reached
 ORT session creation but were typed `provider_unavailable`: the evaluator's hard-coded
 `session.disable_cpu_ep_fallback=1` rejects SEA-RAFT's already-measured CPU-assigned shape nodes.
-That evaluator defect, its tests and the native bridge must be corrected and a new package
-qualified before the final profile is repeated; the failed final is diagnostic, not returned
-qualification evidence.
+The correction removes that setting from both runtime paths while preserving the existing gate
+that CUDA be available and first in provider order. Python ORT enforces that gate through
+`session.get_providers()` and rejects a CUDA request that reports CPU first. The native bridge's
+`selected_providers` response echoes the requested provider after session creation, so it is a
+nominal/request-contract check rather than observed graph placement. Successful native CUDA
+session creation proves provider loading and session creation, not GPU execution; the final target
+run requires all five NVML stages as direct CUDA-execution evidence, while timing is performance
+evidence and not proof by itself. Its tests also pin the distinction between accepted per-node
+shape work and an unacceptable whole-session CPU fallback. The rebuilt bridge changed the runtime
+inventory, so the prior runtime legal review did not authorize it; CI generated the replacement
+inventory and Andrew approved its exact `c7b36cc1…` digest before the packaging dispatch. Any
+follow-up change to package-carried sources still requires a freshly qualified outer archive
+before the final profile is repeated, even when the approved runtime inventory is unchanged. The
+failed final is diagnostic, not returned qualification evidence.
 
 The runtime carries the profile driver plus an OpenEXR/pynvml conda runtime; the EXR decode
 backend was moved off OpenImageIO to the direct OpenEXR Python bindings because conda-forge's `openimageio`

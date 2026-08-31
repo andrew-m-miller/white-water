@@ -252,6 +252,9 @@ class P25_6PackageTemplateTests(unittest.TestCase):
             "--assume-host-load-ready",
             "OpenEXR",
             "pynvml",
+            "resolved_ort=$(ldd \"$bridge\"",
+            'export LD_LIBRARY_PATH="$native_ort_dir:$flame_cuda_dir',
+            "WRONG ONNX Runtime",
             "__P25_6_ADMISSION_CANDIDATES__",
             "__P25_6_RUNTIME_ARCHIVE__",
             "__P25_6_RUNTIME_SHA256__",
@@ -260,6 +263,25 @@ class P25_6PackageTemplateTests(unittest.TestCase):
             self.assertIn(needle, text, needle)
         # This must NOT masquerade as the P25-5 evaluation procedure.
         self.assertIn("is NOT the P25-5 evaluation package", text)
+
+    def test_run_instructions_distinguish_provider_contract_from_cuda_evidence(self) -> None:
+        # Collapse prose wrapping so the guard checks the wording, not the chosen line length.
+        text = " ".join(RUN_PATH.read_text(encoding="utf-8").split())
+        for needle in (
+            "`session.get_providers()`",
+            "`selected_providers` response echoes the requested provider",
+            "nominal/request-contract check",
+            "Successful native CUDA session creation proves that the CUDA provider loaded and the session was created",
+            "required final NVML rows (baseline, session_create, steady, cleanup, and process_exit) are the direct execution evidence",
+            "timing is performance evidence, not proof by itself",
+        ):
+            self.assertIn(needle, text, needle)
+
+    def test_native_bridge_allows_cpu_assigned_cuda_graph_nodes(self) -> None:
+        bridge = NATIVE_BRIDGE_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("session.disable_cpu_ep_fallback", bridge)
+        self.assertIn("SessionOptionsAppendExecutionProvider_CUDA", bridge)
+        self.assertIn("CPU fallback", bridge)
 
     def test_runtime_inputs_hashes_bind_exact_local_files(self) -> None:
         inputs = json.loads(RUNTIME_INPUTS_PATH.read_text(encoding="utf-8"))

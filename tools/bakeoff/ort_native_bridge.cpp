@@ -336,17 +336,13 @@ WW_ORT_EXPORT ww_ort_session* ww_ort_session_create(
     // The official 1.29.0 CUDA-12 archive carries the public C API header at include/
     // onnxruntime_c_api.h; it does not carry cuda_provider_factory.h.  Use the versioned API
     // table entry and its public options struct, which loads the adjacent CUDA provider shared
-    // object and returns a status if CUDA/cuDNN is absent.  There is no CPU fallback because the
-    // evaluator adds the explicit session config below.
+    // object and returns a status if CUDA/cuDNN is absent.  Keep ORT's ordinary lower-priority
+    // CPU fallback: SEA-RAFT has shape/housekeeping nodes that ORT intentionally assigns there,
+    // while appending CUDA first keeps it the requested execution provider.
       OrtCUDAProviderOptions cuda_options{};
       cuda_options.device_id = 0;
       if (!check_status(api->SessionOptionsAppendExecutionProvider_CUDA(options, &cuda_options),
                         "SessionOptionsAppendExecutionProvider_CUDA")) {
-        api->ReleaseSessionOptions(options);
-        return nullptr;
-      }
-      if (!check_status(api->AddSessionConfigEntry(options, "session.disable_cpu_ep_fallback", "1"),
-                        "AddSessionConfigEntry")) {
         api->ReleaseSessionOptions(options);
         return nullptr;
       }

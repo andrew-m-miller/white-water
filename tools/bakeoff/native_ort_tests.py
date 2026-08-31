@@ -25,14 +25,25 @@ class _Function:
 class _FakeLibrary:
     def __init__(self):
         self._output = (ctypes.c_float * 4)(1.0, 2.0, 3.0, 4.0)
+        self.requested_provider = b"cpu"
         self.ww_ort_last_error = _Function(lambda: b"")
         self.ww_ort_version = _Function(lambda: b"1.29.0")
         self.ww_ort_available_providers = _Function(
             lambda: b'["CUDAExecutionProvider","CPUExecutionProvider"]'
         )
-        self.ww_ort_session_create = _Function(lambda path, provider: 17)
+        def create_session(path, provider):
+            self.requested_provider = provider
+            return 17
+
+        self.ww_ort_session_create = _Function(create_session)
         self.ww_ort_session_release = _Function(lambda handle: None)
-        self.ww_ort_session_providers = _Function(lambda handle: b'["CPUExecutionProvider"]')
+        self.ww_ort_session_providers = _Function(
+            lambda handle: (
+                b'["CUDAExecutionProvider"]'
+                if self.requested_provider == b"cuda"
+                else b'["CPUExecutionProvider"]'
+            )
+        )
         self.ww_ort_session_metadata = _Function(
             lambda handle: (
                 b'{"inputs":[{"name":"image1","type":"tensor(float)","shape":[1,3,"height","width"]},'
@@ -67,6 +78,9 @@ class _FakeBridge:
 
 
 class NativeOrtTests(unittest.TestCase):
+    def test_public_exports_are_defined(self) -> None:
+        self.assertTrue(all(hasattr(native_ort, name) for name in native_ort.__all__))
+
     def test_missing_bridge_is_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             with self.assertRaises(native_ort.NativeRuntimeUnavailable):
@@ -103,18 +117,19 @@ class NativeOrtTests(unittest.TestCase):
             with self.assertRaisesRegex(native_ort.NativeRuntimeUnavailable, "not exactly 1.29.0"):
                 native_ort.NativeRuntime("/unused")
 
-    def test_cuda_session_requires_explicit_no_fallback_option(self) -> None:
+    def test_cuda_session_preserves_requested_provider_without_disabling_cpu_nodes(self) -> None:
         bridge = _FakeBridge()
         runtime = object.__new__(native_ort.NativeRuntime)
         runtime._bridge = bridge
-        with self.assertRaisesRegex(RuntimeError, "fallback"):
-            runtime.InferenceSession("model.onnx", providers=["CUDAExecutionProvider"])
-        options = native_ort.SessionOptions()
-        options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
         session = runtime.InferenceSession(
-            "model.onnx", providers=["CUDAExecutionProvider"], sess_options=options
+            "model.onnx", providers=["CUDAExecutionProvider"]
         )
-        self.assertEqual(session.get_providers(), ["CPUExecutionProvider"])
+        self.assertEqual(bridge.library.requested_provider, b"cuda")
+        self.assertEqual(session.get_providers(), ["CUDAExecutionProvider"])
+        with self.assertRaisesRegex(RuntimeError, "does not support session options"):
+            runtime.InferenceSession(
+                "model.onnx", providers=["CUDAExecutionProvider"], sess_options=object()
+            )
 
 
 if __name__ == "__main__":

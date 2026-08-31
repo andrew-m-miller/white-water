@@ -855,6 +855,16 @@ evaluator rejected SEA-RAFT's CPU-assigned shape nodes because it sets
 report or `nvml.csv` in the returned evidence directory. That separate evaluator defect remains
 open for the next corrected package; the current CPU reports do not select a shipping model.
 
+The replacement policy keeps `CUDAExecutionProvider` available and first but no longer disables
+ORT's lower-priority per-node CPU execution. That matches the 2026-08-21 real-network measurement:
+SEA-RAFT's CPU-assigned shape operations were performance diagnostics while numerical CUDA checks
+passed. The Python ORT path can enforce the CPU-first rejection from `session.get_providers()`;
+the native bridge's `selected_providers` response only echoes the requested provider and is a
+nominal/request-contract check, not observed graph placement. Successful native CUDA session
+creation proves provider loading, not GPU execution. The replacement bundle must still produce
+passing final cells with all five required NVML rows as direct CUDA-execution evidence; timing is
+performance evidence, not proof by itself.
+
 ## Open
 
 Phase 0A's five questions and all Phase 0B measurements are closed — see the measured sections

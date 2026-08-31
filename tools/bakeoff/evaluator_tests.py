@@ -134,29 +134,13 @@ class _FakeRuntime:
         self.bad_output_name = bad_output_name
         self.nonfinite = nonfinite
         self.requested: list[list[str]] = []
-        self.session_options: list[Any] = []
-
-    class _Options:
-        def __init__(self) -> None:
-            self.entries: dict[str, str] = {}
-
-        def add_session_config_entry(self, key: str, value: str) -> None:
-            self.entries[key] = value
-
-    def SessionOptions(self) -> Any:
-        return self._Options()
 
     def get_available_providers(self) -> list[str]:
         return ["CPUExecutionProvider", "CUDAExecutionProvider"]
 
-    def InferenceSession(self, path: str, *, providers: list[str], **kwargs: Any) -> _FakeSession:
+    def InferenceSession(self, path: str, *, providers: list[str]) -> _FakeSession:
         self.requested.append(list(providers))
-        self.session_options.append(kwargs.get("sess_options"))
         return _FakeSession(self.selected, bad_output_name=self.bad_output_name, nonfinite=self.nonfinite)
-
-
-class _NoOptionsRuntime(_FakeRuntime):
-    SessionOptions = None  # type: ignore[assignment]
 
 
 class _Clock:
@@ -215,16 +199,15 @@ def _test_provider_and_contract() -> None:
         verified = evaluator.verify("cpu")
         assert verified["requested_provider"] == "CPUExecutionProvider"
         assert evaluator.runtime.requested == [["CPUExecutionProvider"]]
-        assert evaluator.runtime.session_options == [None]
 
         cuda = _evaluator(Path(temporary), _FakeRuntime(["CUDAExecutionProvider", "CPUExecutionProvider"]))
-        assert cuda.verify("cuda")["requested_provider"] == "CUDAExecutionProvider"
-        options = cuda.runtime.session_options[0]
-        assert options is not None
-        assert options.entries == {"session.disable_cpu_ep_fallback": "1"}
+        cuda_verified = cuda.verify("cuda")
+        assert cuda_verified["requested_provider"] == "CUDAExecutionProvider"
+        assert cuda_verified["selected_providers"] == ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        assert cuda.runtime.requested == [["CUDAExecutionProvider"]]
 
-        no_options = _evaluator(Path(temporary), _NoOptionsRuntime(["CUDAExecutionProvider"]))
-        _expect("provider_unavailable", lambda: no_options.verify("cuda"))
+        cpu_first = _evaluator(Path(temporary), _FakeRuntime(["CPUExecutionProvider", "CUDAExecutionProvider"]))
+        _expect("provider_unavailable", lambda: cpu_first.verify("cuda"))
 
         wrong_priority = _evaluator(Path(temporary), _FakeRuntime(["AzureExecutionProvider", "CPUExecutionProvider"]))
         _expect("provider_unavailable", lambda: wrong_priority.verify("cpu"))

@@ -13,8 +13,8 @@ CI copies them into the conda-pack environment.  Resolution is relative to ``sys
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import ctypes
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
@@ -31,16 +31,6 @@ class TensorMeta:
     name: str
     type: str
     shape: tuple[Any, ...]
-
-
-class SessionOptions:
-    """Small compatibility object for evaluator._no_cpu_fallback_options."""
-
-    def __init__(self) -> None:
-        self.entries: dict[str, str] = {}
-
-    def add_session_config_entry(self, key: str, value: str) -> None:
-        self.entries[str(key)] = str(value)
 
 
 def _decode(value: bytes | None) -> str:
@@ -247,9 +237,6 @@ class NativeRuntime:
             raise NativeRuntimeUnavailable("native ORT bridge returned invalid available providers")
         return value
 
-    def SessionOptions(self) -> SessionOptions:
-        return SessionOptions()
-
     def InferenceSession(
         self,
         path: str,
@@ -257,18 +244,11 @@ class NativeRuntime:
         providers: Sequence[str],
         **kwargs: Any,
     ) -> NativeSession:
-        unknown = sorted(set(kwargs) - {"sess_options"})
+        unknown = sorted(kwargs)
         if unknown:
             raise RuntimeError(f"native ORT bridge does not support session options: {unknown!r}")
         if len(providers) != 1 or providers[0] not in {"CPUExecutionProvider", "CUDAExecutionProvider"}:
             raise RuntimeError(f"native ORT bridge only accepts one CPU/CUDA provider: {providers!r}")
-        session_options = kwargs.get("sess_options")
-        if providers[0] == "CUDAExecutionProvider":
-            entries = getattr(session_options, "entries", None)
-            configured = isinstance(entries, Mapping) and entries.get("session.disable_cpu_ep_fallback") == "1"
-            configured = configured or getattr(session_options, "disable_cpu_ep_fallback", False) is True
-            if not configured:
-                raise RuntimeError("CUDA native ORT sessions require CPU fallback to be disabled")
         provider_name = "cpu" if providers[0] == "CPUExecutionProvider" else "cuda"
         handle = self._bridge.library.ww_ort_session_create(
             os.fsencode(path), os.fsencode(provider_name)
@@ -288,7 +268,6 @@ __all__ = [
     "NativeRuntime",
     "NativeRuntimeUnavailable",
     "NativeSession",
-    "SessionOptions",
     "TensorMeta",
     "load_runtime",
 ]
