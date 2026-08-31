@@ -834,6 +834,27 @@ confirmed that the node's connected matte output reproduces the Insert matte. Th
 RGB plus separate correct matte is therefore the intended contract, not a defect; it also agrees
 with the host-free harness's complete RGBA comparison.
 
+## Measured — P25-6 target CPU profiles and CUDA loader boundary
+
+The qualified P25-6 package at source commit `a8e974d` ran on **2026-08-31** on Rocky Linux 9.5,
+an Intel Xeon Gold 6154 and NVIDIA RTX A5000 with driver 580.95.05. The returned reports are under
+[`measurements/2026-08-31-p25-6/`](measurements/2026-08-31-p25-6/): CPU smoke passed its one
+`prod-motion-blur`/`mp0_5` cell, and CPU screen passed both FHD and UHD synthetic cells on the
+shared 768×432 lattice. These are correctness/screening results, not CUDA performance evidence.
+
+The first CUDA final attempt exposed a loader collision before measurement. Adding Flame's
+`/opt/Autodesk/lib64/2026.2.1/` directory to `LD_LIBRARY_PATH` supplied the required CUDA math
+libraries but also selected that directory's `libonnxruntime.so.1`. `ldd` reported that the host
+library did not provide the bridge's required `VERS_1.29.0`. Prepending the carried
+`runtime-env/lib/whitewater/ort-cuda12/onnxruntime` directory made the bridge select its matching
+ORT while retaining Flame's CUDA libraries later on the search path.
+
+That corrected ordering advanced all four final cells to CUDA session creation, where the current
+evaluator rejected SEA-RAFT's CPU-assigned shape nodes because it sets
+`session.disable_cpu_ep_fallback=1`. No cell reached NVML sampling, so there is no accepted final
+report or `nvml.csv` in the returned evidence directory. That separate evaluator defect remains
+open for the next corrected package; the current CPU reports do not select a shipping model.
+
 ## Open
 
 Phase 0A's five questions and all Phase 0B measurements are closed — see the measured sections
