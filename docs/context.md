@@ -826,12 +826,19 @@ The evaluator had turned a provider-priority requirement into a graph-partitioni
 it requested CUDA first but also set `session.disable_cpu_ep_fallback=1` in both the Python path
 and native bridge. SEA-RAFT's already-measured shape/housekeeping nodes are intentionally assigned
 to CPU by ORT, so session creation correctly refused that contradictory configuration. The
-replacement removes only that session setting. CUDA must remain available and first in the
-reported provider order; CPU-first sessions still fail. This permits lower-priority per-node CPU
-work without treating a whole-session CPU fallback as CUDA evidence. A rebuilt bridge changes the
-runtime identity and legal inventory, so the old runtime review cannot authorize the replacement
-bundle; a new two-pass qualification and human inventory review are required before another target
-run.
+replacement removes only that session setting. Python ORT still enforces that a CUDA request report
+`CUDAExecutionProvider` first through `session.get_providers()`; a CPU-first result is rejected.
+The native bridge's `selected_providers` response instead echoes the requested provider after
+session creation, so it is nominal/request-contract data rather than an observation of graph
+placement. Native CUDA session creation proves provider loading and session creation, not that
+graph work ran on the GPU. The target's required final NVML rows (baseline, session_create, steady,
+cleanup, and process_exit) are the direct execution evidence; timing is performance evidence, not
+proof by itself. This permits lower-priority per-node CPU work without treating a whole-session CPU
+fallback as CUDA evidence. The rebuilt bridge changed the runtime identity and legal inventory,
+so the old runtime review could not authorize it; CI generated the replacement inventory and
+Andrew approved its exact `c7b36cc1…` digest before packaging. Follow-up changes to package-carried
+sources still require a freshly qualified outer archive before another target run, even when they
+do not change that approved runtime inventory.
 
 The lesson: a directory selected for four known dependencies is still a loader namespace, not a
 bag of only those four files. Verify ownership of the primary runtime library as well as absence

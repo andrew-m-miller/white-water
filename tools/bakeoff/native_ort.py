@@ -268,7 +268,6 @@ __all__ = [
     "NativeRuntime",
     "NativeRuntimeUnavailable",
     "NativeSession",
-    "SessionOptions",
     "TensorMeta",
     "load_runtime",
 ]

@@ -148,14 +148,7 @@ class _FakeRuntime:
     def get_available_providers(self) -> list[str]:
         return ["CPUExecutionProvider", "CUDAExecutionProvider"]
 
-    class _Options:
-        def add_session_config_entry(self, key: str, value: str) -> None:
-            pass
-
-    def SessionOptions(self) -> Any:
-        return self._Options()
-
-    def InferenceSession(self, path: str, *, providers: list[str], **kwargs: Any) -> _FakeSession:
+    def InferenceSession(self, path: str, *, providers: list[str]) -> _FakeSession:
         self.sessions_created += 1
         if self._path_dependent:
             if path not in self._path_flow_values:

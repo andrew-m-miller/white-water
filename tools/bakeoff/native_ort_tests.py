@@ -78,6 +78,9 @@ class _FakeBridge:
 
 
 class NativeOrtTests(unittest.TestCase):
+    def test_public_exports_are_defined(self) -> None:
+        self.assertTrue(all(hasattr(native_ort, name) for name in native_ort.__all__))
+
     def test_missing_bridge_is_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             with self.assertRaises(native_ort.NativeRuntimeUnavailable):
