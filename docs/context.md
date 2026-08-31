@@ -800,3 +800,28 @@ identity the report is meant to preserve.
 
 The lesson: validating a selector is not validating the document the final report binds. Any
 expensive resumable workflow must run its publication-strength input gate before its first cell.
+
+### 10. Flame's CUDA directory also supplied an incompatible ONNX Runtime
+
+**Symptom:** the P25-6 target CPU smoke and screen completed, but the first CUDA final invocation
+could not load the carried native bridge. `ldd` selected
+`/opt/Autodesk/lib64/2026.2.1/libonnxruntime.so.1` and reported that `VERS_1.29.0` was not found,
+even though the package carried the required ORT 1.29 library beside the bridge.
+
+The runbook had said the runtime and Flame CUDA directories held disjoint SONAMEs. That was false:
+the Flame directory needed for `libcublas.so.12`, `libcublasLt.so.12`, `libcudart.so.12` and
+`libcurand.so.10` also contains Flame's own ORT. The bridge's `$ORIGIN/onnxruntime` `RUNPATH` loses
+to `LD_LIBRARY_PATH`, so exporting only the Flame directory chose the host ORT before the carried
+one.
+
+**The measured workaround is an ordered composition:** put the carried
+`runtime-env/lib/whitewater/ort-cuda12/onnxruntime` first, Flame's CUDA directory second, and let
+the wrapper prepend the runtime's top-level `lib`. The CUDA preflight must inspect the bridge as
+well as the provider: `libonnxruntime.so.1` must resolve inside the carried native directory and
+neither `ldd` closure may contain `not found`. After that ordering change the run advanced through
+bridge loading to CUDA session creation, where it exposed the separate no-CPU-node-fallback defect
+that blocks the final profile and will be corrected in the next package.
+
+The lesson: a directory selected for four known dependencies is still a loader namespace, not a
+bag of only those four files. Verify ownership of the primary runtime library as well as absence
+of unresolved transitive dependencies; a clean provider-only `ldd` is not enough.

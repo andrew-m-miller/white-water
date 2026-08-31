@@ -176,11 +176,14 @@ version- and host-specific, so locate YOUR box's directory rather than copying t
 The wrapper `scripts/ww-bakeoff-airgap` sanitizes Python/conda/proxy variables and PREPENDS the
 runtime's own `lib` to `LD_LIBRARY_PATH` -- so the conda `libstdc++` that the OpenEXR/Imath native
 `.so` files (loaded by the OpenEXR Python bindings) need (`CXXABI_1.3.15`) wins over the EL8 system
-one -- while PRESERVING any `LD_LIBRARY_PATH` you export here (see its `sanitize_environment`).  The
-runtime `lib` and your Flame CUDA directory hold DISJOINT SONAMEs, so the two compose without
-conflict: the OpenEXR bindings get the conda `libstdc++` and ONNX Runtime still resolves the CUDA
-math libraries from the directory you export below.  You therefore export ONLY the Flame CUDA directory; the runtime's own libraries
-are already on the loader path automatically, so do not add `runtime-env/lib` yourself.
+one -- while PRESERVING any `LD_LIBRARY_PATH` you export here (see its `sanitize_environment`).
+
+The target run found that Flame's CUDA directory is NOT SONAME-disjoint: it also contains Flame's
+own `libonnxruntime.so.1`.  If that directory precedes the carried ORT directory, `ldd` selects
+Flame's older ORT and the bridge fails with `VERS_1.29.0 not found`.  Put the carried ORT directory
+first, then Flame's directory for the four CUDA math libraries.  The wrapper still supplies the
+runtime's top-level `lib`; do not add `runtime-env/lib` yourself.  Clear the internal native-root
+test override so an inherited shell value cannot redirect the bridge away from this runtime.
 
 a. Locate your box's Flame CUDA library directory (the one holding all four SONAMEs):
 
@@ -193,22 +196,36 @@ a. Locate your box's Flame CUDA library directory (the one holding all four SONA
    If your Flame is not under `/opt/Autodesk/lib64/<version>/`, set `flame_cuda_dir` to the exact
    directory on your box that contains those four `.so` files.
 
-b. Export it for every CUDA invocation in steps 6 (prepend, never replace, an existing value):
+b. Identify the carried native runtime and export both directories for every CUDA invocation in
+   step 6.  The order is load-bearing: carried ORT first, Flame CUDA second, then any existing
+   loader path:
 
-    export LD_LIBRARY_PATH="$flame_cuda_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    runtime_env=/path/to/whitewater-p25-6-runtime-env
+    native_root="$runtime_env/lib/whitewater/ort-cuda12"
+    native_ort_dir="$native_root/onnxruntime"
+    unset WHITEWATER_NATIVE_ORT_ROOT
+    export LD_LIBRARY_PATH="$native_ort_dir:$flame_cuda_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-c. Dependency preflight -- a STOP, not a warning.  With `LD_LIBRARY_PATH` exported and the
-   runtime already unpacked (step 3), confirm the carried ORT CUDA provider resolves every CUDA
-   library.  A single `not found` line means STOP and fix `flame_cuda_dir`; do not start a CUDA
-   profile until this reports clean:
+c. Dependency preflight -- a STOP, not a warning.  With `LD_LIBRARY_PATH` exported and the runtime
+   already unpacked (step 3), confirm the bridge selects the carried ORT and both the bridge and
+   CUDA provider have a complete closure.  A host-owned ORT selection or a single `not found` line
+   means STOP; do not start a CUDA profile until both checks report clean:
 
-    provider="/path/to/whitewater-p25-6-runtime-env/lib/whitewater/ort-cuda12/onnxruntime/libonnxruntime_providers_cuda.so"
-    unresolved=$(ldd "$provider" | grep -E 'libcublas\.so\.12|libcublasLt\.so\.12|libcudart\.so\.12|libcurand\.so\.10' | grep -c 'not found' || true)
-    test "$unresolved" -eq 0 || { echo "Unresolved CUDA dependencies: $unresolved -- fix LD_LIBRARY_PATH before measuring" >&2; exit 1; }
+    bridge="$native_root/libwhitewater_ort_bridge.so"
+    provider="$native_ort_dir/libonnxruntime_providers_cuda.so"
+    resolved_ort=$(ldd "$bridge" | awk '$1 == "libonnxruntime.so.1" && $2 == "=>" {print $3; exit}')
+    case "$resolved_ort" in
+      "$native_ort_dir"/*) ;;
+      *) echo "WRONG ONNX Runtime: $resolved_ort (expected under $native_ort_dir)" >&2; exit 1 ;;
+    esac
+    unresolved=$( { ldd "$bridge"; ldd "$provider"; } | grep -c 'not found' || true)
+    test "$unresolved" -eq 0 || { echo "Unresolved native dependencies: $unresolved -- fix LD_LIBRARY_PATH before measuring" >&2; exit 1; }
+    echo "Resolved ONNX Runtime: $resolved_ort"
     echo "Unresolved dependencies: <none>"
 
-   The expected clean result mirrors the measured host evidence (`Unresolved dependencies:
-   <none>`).  Only after it prints that may you run the CUDA profiles.
+   The expected clean result names `native_ort_dir/libonnxruntime.so.1` and mirrors the measured
+   CUDA closure (`Unresolved dependencies: <none>`).  Only after it prints both may you run the
+   CUDA profiles.  Do not use `sudo`: its environment policy commonly strips `LD_LIBRARY_PATH`.
 
 6. Run the three resumable profiles
 ------------------------------------

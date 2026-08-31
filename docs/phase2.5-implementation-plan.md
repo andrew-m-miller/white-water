@@ -13,10 +13,11 @@ respectively.** They provide the frozen protocol and schemas, candidate-neutral 
 framework, and deterministic corpus/conditioning package. P25-3 candidate export/evidence work
 merged through PRs #11, #10 and #12, and the P25-4 offline runner and active protocol v2 merged
 through PR #13. P25-5 local/CI qualification merged through PR #15 at `946c042`; the exact
-evaluation artifact remains the one qualified at `adfd4fb`. P25-6 airgapped target measurement is
-next. No production target measurement, ranking decision, shipping model, or OFX choice order has
-been selected, and broader closeout for Phases 2 and 2.5 remains deferred while the bake-off is
-open.
+evaluation artifact remains the one qualified at `adfd4fb`. The corrected P25-6 package was
+qualified at `a8e974d`; its target CPU smoke and screen reports were returned on 2026-08-31 and
+passed every planned cell. The CUDA final remains open. No ranking decision, shipping model, or
+OFX choice order has been selected, and broader closeout for Phases 2 and 2.5 remains deferred
+while the bake-off is open.
 
 The successful P25-5 workflow-dispatch run is `32780658875`. Its uploaded artifact is
 `whitewater-p25-5-el8-adfd4fb85ce319bfc76468a9d097f514901405c9`; the exact carried evaluator
@@ -312,22 +313,35 @@ the inner `runtime/whitewater-p25-5-runtime.tar.gz` is only the relocatable cond
 
 ### P25-6 - Airgapped target measurement - Luna I plus human operator
 
-**Status: replacement packaging required before the human run.** The resumable profile driver and
-its first airgap package (PRs #21–#24) were built and qualified on EL8, but the archive was
-withdrawn before measurement when its carried corpus template proved schema-valid but not
-protocol-valid. The report validator requires every frozen synthetic case and production category;
-the partial carried template would have failed only during report publication after the selected
-cells ran. The correction carries the complete corpus, preflights full consistency before any
-inference, and materializes runner hashes in CI. It must be reviewed and requalified. The
-runtime carries the profile driver plus an OpenEXR/pynvml conda runtime; the EXR decode backend was
-moved off OpenImageIO to the direct OpenEXR Python bindings because conda-forge's `openimageio`
+**Status: CPU smoke and screen passed; corrected CUDA final required.** The resumable profile
+driver's first airgap package (PRs #21–#24) was withdrawn before measurement when its carried
+corpus template proved schema-valid but not protocol-valid. PRs #26 and #27 corrected the corpus
+handoff and CI source identity; workflow run `33206608547` qualified commit `a8e974d` as outer
+archive SHA256 `b0d2302f7302669f47ba29e11626494da7f7d7ef04c5ab9bc75d26f5a0311e37`.
+The 2026-08-31 target smoke and screen reports pass 1/1 and 2/2 planned CPU cells respectively and
+are archived under `docs/measurements/2026-08-31-p25-6/`.
+
+The first CUDA final attempt exposed two independent defects before any timing/VRAM measurement.
+First, putting Flame's CUDA directory on `LD_LIBRARY_PATH` also selected Flame's older
+`libonnxruntime.so.1`, so the carried bridge failed its `VERS_1.29.0` requirement. Prepending the
+carried `ort-cuda12/onnxruntime` directory fixes that ownership collision while Flame's directory
+continues to supply cuBLAS, cuBLASLt, CUDA runtime and cuRAND. The repository runbook now makes
+that ordering and its `ldd` ownership check explicit. After that fix, all four final cells reached
+ORT session creation but were typed `provider_unavailable`: the evaluator's hard-coded
+`session.disable_cpu_ep_fallback=1` rejects SEA-RAFT's already-measured CPU-assigned shape nodes.
+That evaluator defect, its tests and the native bridge must be corrected and a new package
+qualified before the final profile is repeated; the failed final is diagnostic, not returned
+qualification evidence.
+
+The runtime carries the profile driver plus an OpenEXR/pynvml conda runtime; the EXR decode
+backend was moved off OpenImageIO to the direct OpenEXR Python bindings because conda-forge's `openimageio`
 transitively pulls a GPL ffmpeg/media/GPU stack for an EXR-only need (see `docs/context.md`
 correction 8). The withdrawn outer archive `whitewater-p25-6-el8.tar.gz` has SHA256
 `06a72bb53d2919b8d2ed03fbcf7cbd314e3c2604fa377b912f01040ce67c707a`; its runtime license inventory
 `a87694f5c564f9572f259487bc49017005abb39712091df831cd597e76036b7b` was approved by the Andrew Miller
 runtime legal-review (`bakeoff/p25-6/runtime-legal-review.json`, PR #24). Along the way a
 GitHub-Actions `workflow_dispatch` 25-input cap that made the `build` workflow undispatchable was
-fixed with a guard test (PR #22). Do not use that archive for target measurement; the replacement
+fixed with a guard test (PR #22). Do not use that withdrawn archive for target measurement; the
 operator procedure remains `bakeoff/p25-6/RUN-P25-6.txt`.
 
 Before the human run, package or otherwise provide the exact resumable profile entrypoints,
