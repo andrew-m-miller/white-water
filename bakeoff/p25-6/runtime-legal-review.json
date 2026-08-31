@@ -1,8 +1,8 @@
 {
   "schema_id": "whitewater-p25-runtime-legal-review-v1",
-  "inventory_sha256": "a87694f5c564f9572f259487bc49017005abb39712091df831cd597e76036b7b",
+  "inventory_sha256": "c7b36cc1ebc81f861d53884ea5e1cb2f1340007f1d4c51e4ba99978ff5563066",
   "reviewed": true,
   "reviewer": "Andrew Miller",
-  "reviewed_at": "2026-08-28T04:43:00Z",
-  "statement": "I, Andrew Miller, reviewed the generated P25-6 runtime license and notice inventory with SHA256 a87694f5c564f9572f259487bc49017005abb39712091df831cd597e76036b7b, including its conda packages (python, numpy, the OpenEXR Python bindings, OpenEXR, Imath and their transitive natives, pynvml, conda-pack), ONNX Runtime 1.29.0 CUDA-12, and the White Water native ORT bridge. I approve this exact runtime inventory for P25-6 airgapped target measurement."
+  "reviewed_at": "2026-08-31T22:02:50Z",
+  "statement": "I, Andrew Miller, reviewed the generated P25-6 runtime license and notice inventory with SHA256 c7b36cc1ebc81f861d53884ea5e1cb2f1340007f1d4c51e4ba99978ff5563066, including its conda packages (python, numpy, the OpenEXR Python bindings, OpenEXR, Imath and their transitive natives, pynvml, conda-pack), ONNX Runtime 1.29.0 CUDA-12, and the White Water native ORT bridge. I approve this exact runtime inventory for P25-6 airgapped target measurement."
 }
