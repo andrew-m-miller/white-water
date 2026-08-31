@@ -218,13 +218,17 @@ def _test_provider_and_contract() -> None:
         assert evaluator.runtime.session_options == [None]
 
         cuda = _evaluator(Path(temporary), _FakeRuntime(["CUDAExecutionProvider", "CPUExecutionProvider"]))
-        assert cuda.verify("cuda")["requested_provider"] == "CUDAExecutionProvider"
-        options = cuda.runtime.session_options[0]
-        assert options is not None
-        assert options.entries == {"session.disable_cpu_ep_fallback": "1"}
+        cuda_verified = cuda.verify("cuda")
+        assert cuda_verified["requested_provider"] == "CUDAExecutionProvider"
+        assert cuda_verified["selected_providers"] == ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        assert cuda.runtime.requested == [["CUDAExecutionProvider"]]
+        assert cuda.runtime.session_options == [None]
 
         no_options = _evaluator(Path(temporary), _NoOptionsRuntime(["CUDAExecutionProvider"]))
-        _expect("provider_unavailable", lambda: no_options.verify("cuda"))
+        assert no_options.verify("cuda")["requested_provider"] == "CUDAExecutionProvider"
+
+        cpu_first = _evaluator(Path(temporary), _FakeRuntime(["CPUExecutionProvider", "CUDAExecutionProvider"]))
+        _expect("provider_unavailable", lambda: cpu_first.verify("cuda"))
 
         wrong_priority = _evaluator(Path(temporary), _FakeRuntime(["AzureExecutionProvider", "CPUExecutionProvider"]))
         _expect("provider_unavailable", lambda: wrong_priority.verify("cpu"))

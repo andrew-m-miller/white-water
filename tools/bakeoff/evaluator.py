@@ -393,44 +393,6 @@ class ProviderSession:
     contract: SessionContract
 
 
-def _no_cpu_fallback_options(runtime: RuntimeModule, provider: str) -> Any | None:
-    """Create ORT session options that disable per-node CPU fallback for GPU/CoreML.
-
-    Recent ORT Python builds expose this as the ``session.disable_cpu_ep_fallback`` session
-    config entry rather than a Python attribute.  A runtime that cannot accept either form is
-    rejected instead of being allowed to report a nominal CUDA/CoreML provider while executing
-    unsupported nodes on CPU.
-    """
-
-    if provider == "cpu":
-        return None
-    factory = getattr(runtime, "SessionOptions", None)
-    if not callable(factory):
-        _fail("provider_unavailable", "non-CPU provider requires ONNX Runtime SessionOptions")
-    try:
-        options = factory()
-    except Exception as exc:
-        raise EvaluatorFailure("provider_unavailable", f"cannot create provider SessionOptions: {exc}") from exc
-    configured = False
-    if hasattr(options, "disable_cpu_ep_fallback"):
-        try:
-            options.disable_cpu_ep_fallback = True
-            configured = getattr(options, "disable_cpu_ep_fallback") is True
-        except Exception:
-            configured = False
-    if not configured:
-        add_entry = getattr(options, "add_session_config_entry", None)
-        if callable(add_entry):
-            try:
-                add_entry("session.disable_cpu_ep_fallback", "1")
-                configured = True
-            except Exception:
-                configured = False
-    if not configured:
-        _fail("provider_unavailable", "runtime cannot enforce session.disable_cpu_ep_fallback=1")
-    return options
-
-
 class Evaluator:
     """Execute one candidate/cap/conditioning cell using injected runtime dependencies."""
 
@@ -457,13 +419,10 @@ class Evaluator:
             raise EvaluatorFailure("provider_unavailable", f"cannot query runtime providers: {exc}") from exc
         if execution_provider not in available:
             _fail("provider_unavailable", f"requested {execution_provider} is unavailable; available={available!r}")
-        session_options = _no_cpu_fallback_options(self.runtime, provider)
-        session_kwargs = {} if session_options is None else {"sess_options": session_options}
         try:
             session = self.runtime.InferenceSession(
                 str(self.artifact.artifact_path),
                 providers=[execution_provider],
-                **session_kwargs,
             )
         except Exception as exc:
             raise EvaluatorFailure("provider_unavailable", f"{execution_provider} session creation failed: {exc}") from exc

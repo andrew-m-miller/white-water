@@ -329,8 +329,12 @@ continues to supply cuBLAS, cuBLASLt, CUDA runtime and cuRAND. The repository ru
 that ordering and its `ldd` ownership check explicit. After that fix, all four final cells reached
 ORT session creation but were typed `provider_unavailable`: the evaluator's hard-coded
 `session.disable_cpu_ep_fallback=1` rejects SEA-RAFT's already-measured CPU-assigned shape nodes.
-That evaluator defect, its tests and the native bridge must be corrected and a new package
-qualified before the final profile is repeated; the failed final is diagnostic, not returned
+The correction removes that setting from both runtime paths while preserving the existing gate
+that CUDA be available and first in provider order; CPU-first sessions remain rejected. Its tests
+also pin the distinction between accepted per-node shape work and an unacceptable whole-session
+CPU fallback. Because the rebuilt bridge changes the runtime inventory, the prior runtime legal
+review does not authorize it: a fresh inventory, human approval and second packaging dispatch are
+required before the final profile is repeated. The failed final is diagnostic, not returned
 qualification evidence.
 
 The runtime carries the profile driver plus an OpenEXR/pynvml conda runtime; the EXR decode

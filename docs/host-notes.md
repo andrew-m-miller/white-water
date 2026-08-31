@@ -855,6 +855,12 @@ evaluator rejected SEA-RAFT's CPU-assigned shape nodes because it sets
 report or `nvml.csv` in the returned evidence directory. That separate evaluator defect remains
 open for the next corrected package; the current CPU reports do not select a shipping model.
 
+The replacement policy keeps `CUDAExecutionProvider` available and first but no longer disables
+ORT's lower-priority per-node CPU execution. That matches the 2026-08-21 real-network measurement:
+SEA-RAFT's CPU-assigned shape operations were performance diagnostics while numerical CUDA checks
+passed. It does not accept CPU first, and it is not itself new CUDA evidence; the replacement
+bundle must still produce passing final cells and NVML rows on this box.
+
 ## Open
 
 Phase 0A's five questions and all Phase 0B measurements are closed — see the measured sections

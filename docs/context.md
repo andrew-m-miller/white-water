@@ -820,7 +820,18 @@ the wrapper prepend the runtime's top-level `lib`. The CUDA preflight must inspe
 well as the provider: `libonnxruntime.so.1` must resolve inside the carried native directory and
 neither `ldd` closure may contain `not found`. After that ordering change the run advanced through
 bridge loading to CUDA session creation, where it exposed the separate no-CPU-node-fallback defect
-that blocks the final profile and will be corrected in the next package.
+that blocks the qualified package's final profile.
+
+The evaluator had turned a provider-priority requirement into a graph-partitioning prohibition:
+it requested CUDA first but also set `session.disable_cpu_ep_fallback=1` in both the Python path
+and native bridge. SEA-RAFT's already-measured shape/housekeeping nodes are intentionally assigned
+to CPU by ORT, so session creation correctly refused that contradictory configuration. The
+replacement removes only that session setting. CUDA must remain available and first in the
+reported provider order; CPU-first sessions still fail. This permits lower-priority per-node CPU
+work without treating a whole-session CPU fallback as CUDA evidence. A rebuilt bridge changes the
+runtime identity and legal inventory, so the old runtime review cannot authorize the replacement
+bundle; a new two-pass qualification and human inventory review are required before another target
+run.
 
 The lesson: a directory selected for four known dependencies is still a loader namespace, not a
 bag of only those four files. Verify ownership of the primary runtime library as well as absence
