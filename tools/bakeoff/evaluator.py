@@ -96,6 +96,14 @@ def _is_allocation_exhaustion(exc: BaseException) -> bool:
     text = str(exc).casefold()
     if not text:
         return False
+    if any(marker in text for marker in ("bfcarena", "gpu_mem_limit")):
+        # Match the dependency-free ORT probe: these are allocator-specific diagnostics even
+        # when the provider omits the surrounding allocation wording.
+        return True
+    if "arena" in text and any(
+        marker in text for marker in ("out of memory", "failed to allocate", "memory allocation", "available memory")
+    ):
+        return True
     if any(
         marker in text
         for marker in (
@@ -111,10 +119,8 @@ def _is_allocation_exhaustion(exc: BaseException) -> bool:
         )
     ):
         return True
-    # ORT's BFCArena/gpu_mem_limit diagnostic often says only that available memory is smaller
-    # than the request.  Require an allocator-specific marker as well so a generic provider
-    # message containing the phrase "available memory" is not retyped as OOM.
-    allocator_marker = "bfcarena" in text or "gpu_mem_limit" in text or "cuda malloc" in text
+    # Preserve the additional CUDA allocator marker supported by this Python boundary.
+    allocator_marker = "cuda malloc" in text
     return allocator_marker and any(marker in text for marker in ("allocate", "allocation", "available memory"))
 
 

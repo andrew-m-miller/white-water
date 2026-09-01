@@ -351,6 +351,9 @@ def _expect_pair_failure(kind: str, message: str, evaluator: Evaluator, *, stage
 def _test_oom_at_session_creation_is_typed() -> None:
     errors = (
         MemoryError("GPU memory exhausted"),
+        RuntimeError("BFCArena"),
+        RuntimeError("gpu_mem_limit"),
+        RuntimeError("arena reports available memory below request"),
         RuntimeError("BFCArena: unable to allocate requested workspace"),
         RuntimeError("failed to allocate requested GPU workspace"),
     )
@@ -363,6 +366,9 @@ def _test_oom_at_session_creation_is_typed() -> None:
 def _test_oom_at_inference_is_typed() -> None:
     errors = (
         MemoryError("GPU memory exhausted"),
+        RuntimeError("BFCArena"),
+        RuntimeError("gpu_mem_limit"),
+        RuntimeError("arena reports available memory below request"),
         RuntimeError("BFCArena: unable to allocate requested workspace"),
         RuntimeError("failed to allocate requested GPU workspace"),
     )
@@ -373,15 +379,29 @@ def _test_oom_at_inference_is_typed() -> None:
 
 
 def _test_generic_provider_and_runtime_errors_keep_existing_kinds() -> None:
-    with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-generic-create-") as temporary:
-        evaluator = _evaluator(Path(temporary), _FailingRuntime(creation_error=RuntimeError("provider initialization failed")))
-        _expect_pair_failure(
-            "provider_unavailable", "provider initialization failed", evaluator, stage="session_create",
-        )
+    creation_errors = (
+        RuntimeError("provider initialization failed"),
+        RuntimeError("arena metadata unavailable"),
+        RuntimeError("available memory query"),
+        RuntimeError("GPU memory is available"),
+        RuntimeError("gpu_mem"),
+    )
+    for error in creation_errors:
+        with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-generic-create-") as temporary:
+            evaluator = _evaluator(Path(temporary), _FailingRuntime(creation_error=error))
+            _expect_pair_failure("provider_unavailable", str(error), evaluator, stage="session_create")
 
-    with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-generic-inference-") as temporary:
-        evaluator = _evaluator(Path(temporary), _FailingRuntime(inference_error=RuntimeError("inference kernel failed")))
-        _expect_pair_failure("runtime_error", "inference kernel failed", evaluator, stage="inference")
+    inference_errors = (
+        RuntimeError("inference kernel failed"),
+        RuntimeError("arena metadata unavailable"),
+        RuntimeError("available memory query"),
+        RuntimeError("GPU memory is available"),
+        RuntimeError("gpu_mem"),
+    )
+    for error in inference_errors:
+        with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-generic-inference-") as temporary:
+            evaluator = _evaluator(Path(temporary), _FailingRuntime(inference_error=error))
+            _expect_pair_failure("runtime_error", str(error), evaluator, stage="inference")
 
 
 def _test_pfm_adapter() -> None:

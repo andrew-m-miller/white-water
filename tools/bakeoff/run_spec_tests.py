@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import math
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 from types import MappingProxyType
 
 try:
@@ -275,6 +276,67 @@ def test_with_publication_preserves_identity() -> None:
     assert second.publication.as_dict()["report_id"] == "second"
 
 
+def test_runner_and_validator_share_per_cell_hard_gate_specification() -> None:
+    """Adding a per-cell gate to validator's public spec reaches both consumers."""
+
+    from . import run as run_module
+    from . import validator as validator_module
+
+    assert run_module.validator_module is validator_module
+    original_gates = validator_module.PER_CELL_HARD_GATES
+    probe = validator_module.PerCellHardGate(
+        protocol_key="probe_max",
+        result_section="metrics",
+        result_key="probe_metric",
+        validation_message="pass result exceeds probe gate",
+        failure_stage="metrics",
+    )
+    try:
+        validator_module.PER_CELL_HARD_GATES = (*original_gates, probe)
+        runner_failure = run_module._hard_gate_failure(
+            {"hard_gates": {"probe_max": 0.0}},
+            {"probe_metric": 1.0},
+            {},
+        )
+        assert runner_failure == {
+            "type": "quality_gate_failed",
+            "message": "probe_metric=1.0 exceeds hard gate 0.0",
+            "stage": "metrics",
+        }
+
+        root = Path(__file__).resolve().parents[2]
+        protocol = validator_module.load_json(root / "bakeoff/protocol-v2.json")
+        report = validator_module.load_json(root / "bakeoff/fixtures/positive/report-v2.json")
+        corpus = validator_module.load_json(root / "bakeoff/fixtures/positive/corpus-v1.json")
+        protocol["hard_gates"]["probe_max"] = 0.0
+        result = copy.deepcopy(report["results"][0])
+        result["metrics"]["probe_metric"] = 1.0
+        shot = next(
+            shot
+            for partition in corpus["partitions"]
+            for shot in partition["shots"]
+            if shot["id"] == result["shot_id"]
+        )
+        cap_map = {cap["token"]: cap for cap in protocol["analysis_caps"]}
+        try:
+            validator_module._validate_result_measurement(
+                result,
+                shot,
+                "$.results[0]",
+                protocol["profiles"][report["profile"]],
+                protocol,
+                cap_map,
+                report["profile"],
+            )
+        except validator_module.ValidationError as failure:
+            assert failure.path == "$.results[0].metrics.probe_metric"
+            assert failure.message == "pass result exceeds probe gate"
+        else:
+            raise AssertionError("validator did not consume the shared per-cell gate spec")
+    finally:
+        validator_module.PER_CELL_HARD_GATES = original_gates
+
+
 def main() -> int:
     test_canonical_json_is_order_independent_and_hashes_utf8_bytes()
     test_canonicalization_rejects_non_json_and_nonfinite_values()
@@ -290,6 +352,7 @@ def main() -> int:
     test_run_spec_is_immutable_and_defensively_copies_inputs()
     test_from_inputs_hashes_extra_stable_fields()
     test_with_publication_preserves_identity()
+    test_runner_and_validator_share_per_cell_hard_gate_specification()
     print("RunSpec tests passed")
     return 0
 

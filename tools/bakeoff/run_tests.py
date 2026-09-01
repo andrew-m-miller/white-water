@@ -1058,6 +1058,180 @@ def test_cuda_memory_gate_failure_resume_reuses_generation_and_repairs_nvml() ->
         assert nvml_path.read_bytes() == nvml_before
 
 
+def _assert_cuda_scoring_failure_published_with_evidence(
+    config: RunConfig,
+    result: Any,
+    expected_message: str,
+) -> None:
+    assert not result.incomplete
+    assert result.report is not None
+    validate_report_consistency(
+        result.report, config.protocol, config.report_schema, config.corpus, config.corpus_schema,
+    )
+    cell_result = result.report["results"][0]
+    assert cell_result["status"] == "fail"
+    assert cell_result["failure"] == {
+        "type": "quality_gate_failed",
+        "message": expected_message,
+        "stage": "metrics",
+    }
+    # Scoring did not produce a complete metrics disposition.  The measured fields remain useful
+    # evidence, but an incomplete metrics mapping must not be emitted as if it were a score.
+    assert "metrics" not in cell_result
+    for field in (
+        "input_frames", "geometry", "timing", "resource", "environment", "conditioning_parameters",
+    ):
+        assert field in cell_result
+    resource = cell_result["resource"]
+    assert resource["nvml_samples"]
+
+    state = json.loads(config.state_path.read_text(encoding="utf-8"))
+    artifact_ref = state["entries"][0]["artifact_ref"]
+    with run_module.ArtifactStore(config.output_dir.resolve() / ".artifacts", state["identity"]) as store:
+        manifest = store.load_ref(artifact_ref)
+        assert "evidence/nvml_rows.json" in {entry["path"] for entry in manifest["artifacts"]}
+        committed_rows = run_module._decode_nvml_rows(
+            store.read_artifact(artifact_ref, "evidence/nvml_rows.json"),
+            expected_identity={
+                "candidate_id": cell_result["candidate_id"],
+                "shot_id": cell_result["shot_id"],
+                "conditioning_token": cell_result["conditioning_token"],
+                "cap_token": cell_result["cap_token"],
+                "provider": cell_result["provider"],
+                "host_load": cell_result["host_load"],
+            },
+        )
+    assert committed_rows
+    assert len(committed_rows) == len(resource["nvml_samples"])
+    with (config.output_dir / "nvml.csv").open(newline="", encoding="utf-8") as stream:
+        public_rows = list(csv.reader(stream))
+    assert tuple(public_rows[0]) == NVML_CSV_HEADER
+    assert public_rows[1:] == committed_rows
+    assert json.loads((config.output_dir / "report.json").read_text(encoding="utf-8")) == result.report
+
+
+def test_cuda_dense_scoring_failure_preserves_measurement_evidence_and_publishes_nvml() -> None:
+    """A dense scoring failure after CUDA measurement retains exact NVML evidence."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-dense-score-failure-") as tmp:
+        shared_backend = _ScriptedBackend([
+            (1000.0, None), (1200.0, None), (1300.0, None), (1100.0, None), (900.0, None),
+        ])
+        config = _config(
+            Path(tmp), shot_ids=["syn-identity"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: shared_backend,
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        original_dense = run_module.metrics_module.dense_metrics
+        original_build_executor = run_module.build_executor
+        contexts: list[Any] = []
+
+        def fail_dense(*_args: Any, **_kwargs: Any) -> Any:
+            raise run_module.MetricFailure("test_dense", "injected dense scoring failure")
+
+        def capture_build_executor(*args: Any, **kwargs: Any) -> Any:
+            executor, context = original_build_executor(*args, **kwargs)
+            contexts.append(context)
+            return executor, context
+
+        run_module.metrics_module.dense_metrics = fail_dense
+        run_module.build_executor = capture_build_executor
+        try:
+            result = run_bakeoff(config)
+        finally:
+            run_module.metrics_module.dense_metrics = original_dense
+            run_module.build_executor = original_build_executor
+
+        _assert_cuda_scoring_failure_published_with_evidence(
+            config, result, "dense metrics could not be computed: test_dense: injected dense scoring failure",
+        )
+        assert contexts and contexts[0].measured_cell is None
+        log_text = (config.output_dir / "runner.log").read_text(encoding="utf-8")
+        assert log_text.count("cell start ") == 1
+
+
+def test_cuda_chain_scoring_failure_preserves_measurement_evidence_and_publishes_nvml() -> None:
+    """A chain-drift scoring failure after CUDA measurement retains exact NVML evidence."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-chain-score-failure-") as tmp:
+        shared_backend = _ScriptedBackend([
+            (1000.0, None), (1200.0, None), (1300.0, None), (1100.0, None), (900.0, None),
+        ])
+        config = _config(
+            Path(tmp), shot_ids=["syn-chain1"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: shared_backend,
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        original_chain = run_module.metrics_module.chain_drift_px
+        original_build_executor = run_module.build_executor
+        contexts: list[Any] = []
+
+        def fail_chain(*_args: Any, **_kwargs: Any) -> Any:
+            raise run_module.MetricFailure("test_chain", "injected chain scoring failure")
+
+        def capture_build_executor(*args: Any, **kwargs: Any) -> Any:
+            executor, context = original_build_executor(*args, **kwargs)
+            contexts.append(context)
+            return executor, context
+
+        run_module.metrics_module.chain_drift_px = fail_chain
+        run_module.build_executor = capture_build_executor
+        try:
+            result = run_bakeoff(config)
+        finally:
+            run_module.metrics_module.chain_drift_px = original_chain
+            run_module.build_executor = original_build_executor
+
+        _assert_cuda_scoring_failure_published_with_evidence(
+            config, result, "chain drift could not be computed: test_chain: injected chain scoring failure",
+        )
+        assert contexts and contexts[0].measured_cell is None
+        log_text = (config.output_dir / "runner.log").read_text(encoding="utf-8")
+        assert log_text.count("cell start ") == 1
+
+
+def test_cuda_chain_error_after_measurement_preserves_evidence_and_publishes_nvml() -> None:
+    """A returned chain-link error retains completed base/NVML measurement evidence."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-chain-error-") as tmp:
+        shared_backend = _ScriptedBackend([
+            (1000.0, None), (1200.0, None), (1300.0, None), (1100.0, None), (900.0, None),
+        ])
+        config = _config(
+            Path(tmp), shot_ids=["syn-chain1"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: shared_backend,
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        original_inference = run_module._perform_cell_inference
+        original_build_executor = run_module.build_executor
+        contexts: list[Any] = []
+
+        def return_chain_error(*args: Any, **kwargs: Any) -> Any:
+            payload = original_inference(*args, **kwargs)
+            payload["chain_error"] = "injected chain-link inference failure"
+            return payload
+
+        def capture_build_executor(*args: Any, **kwargs: Any) -> Any:
+            executor, context = original_build_executor(*args, **kwargs)
+            contexts.append(context)
+            return executor, context
+
+        run_module._perform_cell_inference = return_chain_error
+        run_module.build_executor = capture_build_executor
+        try:
+            result = run_bakeoff(config)
+        finally:
+            run_module._perform_cell_inference = original_inference
+            run_module.build_executor = original_build_executor
+
+        _assert_cuda_scoring_failure_published_with_evidence(
+            config, result, "chain drift could not be computed: injected chain-link inference failure",
+        )
+        assert contexts and contexts[0].measured_cell is None
+        log_text = (config.output_dir / "runner.log").read_text(encoding="utf-8")
+        assert log_text.count("cell start ") == 1
+
+
 def test_missing_artifact_map_entry_raises_typed_driver_failure() -> None:
     with tempfile.TemporaryDirectory(prefix="whitewater-run-missing-artifact-") as tmp:
         config = _config(Path(tmp), shot_ids=["syn-identity"])
@@ -3370,6 +3544,9 @@ def main() -> int:
     test_execution_classifies_metric_hard_gate_overruns()
     test_cuda_memory_gate_becomes_failed_cell_with_evidence_and_publishes_package()
     test_cuda_memory_gate_failure_resume_reuses_generation_and_repairs_nvml()
+    test_cuda_dense_scoring_failure_preserves_measurement_evidence_and_publishes_nvml()
+    test_cuda_chain_scoring_failure_preserves_measurement_evidence_and_publishes_nvml()
+    test_cuda_chain_error_after_measurement_preserves_evidence_and_publishes_nvml()
     test_missing_artifact_map_entry_raises_typed_driver_failure()
     test_manifest_candidate_id_mismatch_is_a_typed_driver_failure()
     test_identity_differs_between_profiles_for_an_otherwise_identical_selection()
