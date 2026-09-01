@@ -669,6 +669,21 @@ thresholds tied to the exact model and runtime hashes.
 | **5** | Optional second model behind `PairwiseFlowEstimator` | If Phase 2.5 selects a second shipping model, the Model parameter switches cleanly and both paths are covered; otherwise this phase is omitted and no one-option Model choice is published |
 | **6** | FB check, smoothing, input curves, perf gate, CI packaging | Perf threshold recorded; tarball installs on the airgapped box |
 
+The 2026-09-01 P25-6 final attempt's evaluator and runtime hashes match workflow run `33448282919`
+from source `b5b4cbf` (qualified outer SHA256 `ffe36cf5...`), but its operator report metadata
+retained `source_commit: a8e974d`. The source-identity mismatch makes that returned evidence
+diagnostic only, not formally admissible qualification evidence; no replacement bundle containing
+the publication fix has yet been qualified or run. Idle FHD and UHD completed at
+`21.967529296875` GiB and `21.7393798828125` GiB incremental device memory, respectively,
+against the 15 GiB resource gate. Live Flame first inference encountered an explicit
+`3,940,826,368`-byte ORT `BFCArena` allocation failure.
+
+The initial publication aborted because completed gate overruns were mislabeled `pass`. The
+publication correction records those completed cells as `quality_gate_failed` at `resource`,
+retains timing and full NVML evidence, and publishes a failed package. Explicit native/ORT
+allocation exhaustion maps to `out_of_memory`; generic runtime failures remain `runtime_error`.
+The P25-6 ranking, shipping choice and target qualification remain open.
+
 ---
 
 ## Deferred, deliberately

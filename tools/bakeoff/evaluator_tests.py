@@ -143,6 +143,33 @@ class _FakeRuntime:
         return _FakeSession(self.selected, bad_output_name=self.bad_output_name, nonfinite=self.nonfinite)
 
 
+class _FailingSession(_FakeSession):
+    def __init__(self, selected: list[str], error: BaseException):
+        super().__init__(selected)
+        self.error = error
+
+    def run(self, names: list[str], feeds: dict[str, Any]) -> list[_FakeArray]:
+        if self.calls == 0:
+            self.calls += 1
+            raise self.error
+        return super().run(names, feeds)
+
+
+class _FailingRuntime(_FakeRuntime):
+    def __init__(self, *, creation_error: BaseException | None = None, inference_error: BaseException | None = None):
+        super().__init__()
+        self.creation_error = creation_error
+        self.inference_error = inference_error
+
+    def InferenceSession(self, path: str, *, providers: list[str]) -> _FakeSession:
+        self.requested.append(list(providers))
+        if self.creation_error is not None:
+            raise self.creation_error
+        if self.inference_error is not None:
+            return _FailingSession(self.selected, self.inference_error)
+        return super().InferenceSession(path, providers=providers)
+
+
 class _Clock:
     def __init__(self):
         self.value = 0.0
@@ -303,6 +330,60 @@ def _test_nonfinite_output() -> None:
         ))
 
 
+def _run_pair(evaluator: Evaluator) -> dict[str, Any]:
+    first = _FakeArray([[[[0.0] * 8 for _ in range(8)] for _ in range(3)]], (1, 3, 8, 8))
+    return evaluator.run_nchw_pair(
+        first, first, provider="cpu", analysis_width=8, analysis_height=8, padded_width=8, padded_height=8,
+    )
+
+
+def _expect_pair_failure(kind: str, message: str, evaluator: Evaluator, *, stage: str) -> None:
+    try:
+        _run_pair(evaluator)
+    except EvaluatorFailure as failure:
+        assert failure.kind == kind, (failure.kind, kind)
+        assert message in failure.message, (failure.message, message)
+        assert failure.stage == stage, (failure.stage, stage)
+    else:
+        raise AssertionError(f"expected {kind} failure")
+
+
+def _test_oom_at_session_creation_is_typed() -> None:
+    errors = (
+        MemoryError("GPU memory exhausted"),
+        RuntimeError("BFCArena: unable to allocate requested workspace"),
+        RuntimeError("failed to allocate requested GPU workspace"),
+    )
+    for error in errors:
+        with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-oom-create-") as temporary:
+            evaluator = _evaluator(Path(temporary), _FailingRuntime(creation_error=error))
+            _expect_pair_failure("out_of_memory", str(error), evaluator, stage="session_create")
+
+
+def _test_oom_at_inference_is_typed() -> None:
+    errors = (
+        MemoryError("GPU memory exhausted"),
+        RuntimeError("BFCArena: unable to allocate requested workspace"),
+        RuntimeError("failed to allocate requested GPU workspace"),
+    )
+    for error in errors:
+        with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-oom-inference-") as temporary:
+            evaluator = _evaluator(Path(temporary), _FailingRuntime(inference_error=error))
+            _expect_pair_failure("out_of_memory", str(error), evaluator, stage="inference")
+
+
+def _test_generic_provider_and_runtime_errors_keep_existing_kinds() -> None:
+    with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-generic-create-") as temporary:
+        evaluator = _evaluator(Path(temporary), _FailingRuntime(creation_error=RuntimeError("provider initialization failed")))
+        _expect_pair_failure(
+            "provider_unavailable", "provider initialization failed", evaluator, stage="session_create",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-generic-inference-") as temporary:
+        evaluator = _evaluator(Path(temporary), _FailingRuntime(inference_error=RuntimeError("inference kernel failed")))
+        _expect_pair_failure("runtime_error", "inference kernel failed", evaluator, stage="inference")
+
+
 def _test_pfm_adapter() -> None:
     with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-pfm-") as temporary:
         path = Path(temporary) / "frame.pfm"
@@ -343,6 +424,9 @@ def main() -> int:
     _test_verify_does_not_load_numpy()
     _test_conditioning_padding_and_execution()
     _test_nonfinite_output()
+    _test_oom_at_session_creation_is_typed()
+    _test_oom_at_inference_is_typed()
+    _test_generic_provider_and_runtime_errors_keep_existing_kinds()
     _test_pfm_adapter()
     _test_typed_preparation_and_output()
     _test_atomic_json_output()

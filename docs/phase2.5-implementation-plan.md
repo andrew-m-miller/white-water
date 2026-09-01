@@ -313,7 +313,8 @@ the inner `runtime/whitewater-p25-5-runtime.tar.gz` is only the relocatable cond
 
 ### P25-6 - Airgapped target measurement - Luna I plus human operator
 
-**Status: CPU smoke and screen passed; corrected CUDA final required.** The resumable profile
+**Status: CPU smoke and screen passed; the 2026-09-01 CUDA final attempt is diagnostic only;
+corrected CUDA final required.** The resumable profile
 driver's first airgap package (PRs #21–#24) was withdrawn before measurement when its carried
 corpus template proved schema-valid but not protocol-valid. PRs #26 and #27 corrected the corpus
 handoff and CI source identity; workflow run `33206608547` qualified commit `a8e974d` as outer
@@ -343,6 +344,17 @@ inventory and Andrew approved its exact `c7b36cc1…` digest before the packagin
 follow-up change to package-carried sources still requires a freshly qualified outer archive
 before the final profile is repeated, even when the approved runtime inventory is unchanged. The
 failed final is diagnostic, not returned qualification evidence.
+
+The 2026-09-01 operator attempt's evaluator and runtime hashes match workflow run `33448282919`
+from source `b5b4cbf` (qualified outer SHA256 `ffe36cf5...`), but the report metadata retained
+`source_commit: a8e974d`, so the returned evidence is not formally admissible. No replacement outer
+bundle containing the publication fix has yet been qualified or run. Idle FHD and UHD completed at
+`21.967529296875` GiB and `21.7393798828125` GiB incremental device memory, respectively,
+against the 15 GiB resource gate. Live Flame first inference encountered an explicit
+`3,940,826,368`-byte ORT `BFCArena` allocation failure. Publication aborted because completed
+gate overruns were still labeled `pass`. The fix types completed overrun cells as
+`quality_gate_failed` at `resource`, retains timing and full NVML evidence, and publishes a failed
+package; explicit native/ORT allocation exhaustion maps to `out_of_memory` at its runtime stage.
 
 The runtime carries the profile driver plus an OpenEXR/pynvml conda runtime; the EXR decode
 backend was moved off OpenImageIO to the direct OpenEXR Python bindings because conda-forge's `openimageio`

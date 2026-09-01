@@ -37,7 +37,7 @@ from .nvml import NVML_CSV_HEADER, NvmlFailure, NvmlSampler
 from .resume import ResumeFailure, mark_in_progress
 from .run import CudaMeasurementResult, DriverFailure, RunConfig, run_bakeoff
 from .run_spec import RunSpec
-from .validator import canonical_sha256, load_json, validate_report_consistency
+from .validator import ValidationError, canonical_sha256, load_json, validate_report_consistency
 
 ROOT = Path(__file__).resolve().parents[2]
 POSITIVE_MANIFEST = ROOT / "models" / "fixtures" / "positive" / "artifact-v1.json"
@@ -851,6 +851,211 @@ def test_cuda_cell_writes_nvml_csv_with_required_stages_and_resource() -> None:
 
         # Fix B: the CUDA host_load boundary was confirmed before the cell ran.
         assert config.host_load_checkpoint.calls == ["idle"]
+
+
+def test_validator_rejects_each_pass_only_hard_gate() -> None:
+    """Each report-side per-cell hard gate must reject a still-passing result.
+
+    These checks intentionally mutate an otherwise valid published report.  The runner's
+    execution-side classification is covered below; this test pins the validator contract so a
+    future change cannot accidentally make an over-limit pass row publishable again.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-hard-gates-validator-") as tmp:
+        config = _config(Path(tmp), shot_ids=["syn-identity"])
+        result = run_bakeoff(config)
+        assert result.report is not None
+        report = result.report
+
+        violations = (
+            ("metrics", "nonfinite_fraction", 0.000001),
+            ("metrics", "repeated_run_p99_delta_px", 0.050001),
+            ("resource", "peak_incremental_device_memory_gib", 15.000001),
+        )
+        for section, field, value in violations:
+            with_value = copy.deepcopy(report)
+            with_value["results"][0][section][field] = value
+            expected_path = f"$.results[0].{section}.{field}"
+            try:
+                validate_report_consistency(
+                    with_value,
+                    config.protocol,
+                    config.report_schema,
+                    config.corpus,
+                    config.corpus_schema,
+                )
+            except ValidationError as failure:
+                assert failure.path == expected_path
+                assert "pass result exceeds" in failure.message
+            else:
+                raise AssertionError(f"expected validator rejection for {expected_path}")
+
+
+def test_execution_classifies_metric_hard_gate_overruns() -> None:
+    protocol = _protocol()
+    resource = {"peak_incremental_device_memory_gib": 0.0}
+    for field, value in (
+        ("nonfinite_fraction", 0.000001),
+        ("repeated_run_p99_delta_px", 0.050001),
+    ):
+        metrics = {"nonfinite_fraction": 0.0, "repeated_run_p99_delta_px": 0.0}
+        metrics[field] = value
+        failure = run_module._hard_gate_failure(protocol, metrics, resource)
+        assert failure is not None
+        assert failure["type"] == "quality_gate_failed"
+        assert failure["stage"] == "metrics"
+        assert field in failure["message"]
+
+
+def test_cuda_memory_gate_becomes_failed_cell_with_evidence_and_publishes_package() -> None:
+    """A measured peak-memory overrun is a typed cell failure, not a report-publication abort.
+
+    The peak is deliberately transient (the session-create sample), matching the target failure
+    shape that motivated the regression.  The failed result must retain timing/resource evidence,
+    commit the exact NVML rows, and regenerate the public CSV from that committed generation.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-hard-gate-memory-") as tmp:
+        shared_backend = _ScriptedBackend([
+            (1000.0, None),   # baseline
+            (18000.0, None),  # session_create transient: 16.60 GiB incremental
+            (12000.0, None),  # steady
+            (1100.0, None),   # cleanup
+            (900.0, None),    # process_exit
+        ])
+        config = _config(
+            Path(tmp),
+            shot_ids=["syn-identity"],
+            provider="cuda",
+            host_loads=["idle"],
+            nvml_backend_factory=lambda: shared_backend,
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+
+        result = run_bakeoff(config)
+        assert not result.incomplete
+        assert result.report is not None
+        report = result.report
+        validate_report_consistency(
+            report,
+            config.protocol,
+            config.report_schema,
+            config.corpus,
+            config.corpus_schema,
+        )
+
+        cell_result = report["results"][0]
+        assert cell_result["status"] == "fail"
+        failure = cell_result["failure"]
+        assert failure["type"] == "quality_gate_failed"
+        assert failure["stage"] == "resource"
+        assert "peak_incremental_device_memory_gib" in failure["message"]
+
+        # A gate failure after a completed measurement keeps the full timing/resource record.
+        assert cell_result["timing"]["steady_samples_ms"]
+        resource = cell_result["resource"]
+        assert resource["peak_incremental_device_memory_gib"] > config.protocol["hard_gates"][
+            "peak_incremental_device_memory_gib_max"
+        ]
+        assert resource["peak_device_memory_mib"] == max(
+            sample["used_mib"] for sample in resource["nvml_samples"]
+        )
+        assert {sample["stage"] for sample in resource["nvml_samples"]} >= {
+            "baseline", "session_create", "steady", "cleanup", "process_exit",
+        }
+
+        # The exact failed-cell generation must carry the same NVML evidence used to compute the
+        # resource gate, rather than silently dropping it because the result is not ``pass``.
+        state = json.loads(config.state_path.read_text(encoding="utf-8"))
+        artifact_ref = state["entries"][0]["artifact_ref"]
+        with run_module.ArtifactStore(config.output_dir.resolve() / ".artifacts", state["identity"]) as store:
+            manifest = store.load_ref(artifact_ref)
+            assert "evidence/nvml_rows.json" in {entry["path"] for entry in manifest["artifacts"]}
+            committed_rows = run_module._decode_nvml_rows(
+                store.read_artifact(artifact_ref, "evidence/nvml_rows.json"),
+                expected_identity={
+                    "candidate_id": cell_result["candidate_id"],
+                    "shot_id": cell_result["shot_id"],
+                    "conditioning_token": cell_result["conditioning_token"],
+                    "cap_token": cell_result["cap_token"],
+                    "provider": cell_result["provider"],
+                    "host_load": cell_result["host_load"],
+                },
+            )
+        assert len(committed_rows) == len(resource["nvml_samples"])
+        assert [row[6] for row in committed_rows] == [sample["stage"] for sample in resource["nvml_samples"]]
+        assert [float(row[9]) for row in committed_rows] == [sample["used_mib"] for sample in resource["nvml_samples"]]
+
+        # Report publication completes all required public outputs, including the regenerated
+        # device log.  A report-side validation exception would leave report.json absent.
+        for name in ("report.json", "report.csv", "summary.txt", "runner.log", "nvml.csv"):
+            assert (config.output_dir / name).is_file(), name
+        with (config.output_dir / "nvml.csv").open(newline="", encoding="utf-8") as stream:
+            public_rows = list(csv.reader(stream))
+        assert tuple(public_rows[0]) == NVML_CSV_HEADER
+        assert public_rows[1:] == committed_rows
+        with (config.output_dir / "report.csv").open(newline="", encoding="utf-8") as stream:
+            report_rows = list(csv.DictReader(stream))
+        assert len(report_rows) == 1
+        assert report_rows[0]["status"] == "fail"
+        assert report_rows[0]["failure_type"] == "quality_gate_failed"
+        assert json.loads((config.output_dir / "report.json").read_text(encoding="utf-8")) == report
+
+
+def test_cuda_memory_gate_failure_resume_reuses_generation_and_repairs_nvml() -> None:
+    """A published CUDA gate failure resumes without inference or a new artifact generation."""
+
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-hard-gate-resume-") as tmp:
+        shared_backend = _ScriptedBackend([
+            (1000.0, None),   # baseline
+            (18000.0, None),  # session_create transient: 16.60 GiB incremental
+            (12000.0, None),  # steady
+            (1100.0, None),   # cleanup
+            (900.0, None),    # process_exit
+        ])
+        config = _config(
+            Path(tmp),
+            shot_ids=["syn-identity"],
+            provider="cuda",
+            host_loads=["idle"],
+            nvml_backend_factory=lambda: shared_backend,
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+
+        first = run_bakeoff(config)
+        assert not first.incomplete
+        assert first.report is not None
+        assert first.report["results"][0]["status"] == "fail"
+        assert config.runtime_module.sessions_created >= 1
+
+        state_before = json.loads(config.state_path.read_text(encoding="utf-8"))
+        artifact_ref_before = state_before["entries"][0]["artifact_ref"]
+        nvml_path = config.output_dir / "nvml.csv"
+        nvml_before = nvml_path.read_bytes()
+        assert nvml_before
+
+        # Force the report-reuse branch to repair a damaged derivative.  The exact immutable
+        # cell generation remains untouched while the canonical CSV is regenerated from it.
+        nvml_path.write_bytes(nvml_before[:-1] + b"x")
+
+        config2 = copy.copy(config)
+        config2.runtime_module = _FakeRuntime()
+        config2.host_load_checkpoint = _RecordingHostLoadCheckpoint()
+
+        def unexpected_measurement(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("a complete failed cell must not be measured again on resume")
+
+        config2.cuda_measurement_runner = unexpected_measurement
+        second = run_bakeoff(config2)
+        assert not second.incomplete
+        assert second.report == first.report
+        assert config2.runtime_module.sessions_created == 0
+        assert config2.host_load_checkpoint.calls == []
+
+        state_after = json.loads(config.state_path.read_text(encoding="utf-8"))
+        assert state_after["entries"][0]["artifact_ref"] == artifact_ref_before
+        assert state_after["entries"][0]["artifact_ref"]["attempt_id"] == artifact_ref_before["attempt_id"]
+        assert nvml_path.read_bytes() == nvml_before
 
 
 def test_missing_artifact_map_entry_raises_typed_driver_failure() -> None:
@@ -1818,6 +2023,28 @@ def test_child_exit_without_queueing_yields_typed_failure_not_a_hang() -> None:
         assert failure.kind in {"out_of_memory", "runtime_error"}
     else:
         raise AssertionError("expected DriverFailure for a child that exited without queueing")
+
+
+def test_cuda_child_preserves_typed_failure_stage() -> None:
+    class _StagedFailure(RuntimeError):
+        kind = "out_of_memory"
+        stage = "session_create"
+
+    def work(stage_sampler):
+        raise _StagedFailure("BFCArena failed to allocate memory")
+
+    try:
+        _call_with_timeout(
+            lambda: run_module.run_cuda_measurement_in_subprocess(
+                work, lambda: _FakeNvmlBackend(), 0, 0.01,
+            ),
+            15.0,
+        )
+    except DriverFailure as failure:
+        assert failure.kind == "out_of_memory"
+        assert failure.stage == "session_create"
+    else:
+        raise AssertionError("expected typed child failure")
 
 
 def test_final_cuda_without_nvml_is_rejected_before_state_or_cells() -> None:
@@ -3139,6 +3366,10 @@ def main() -> int:
     test_production_partition_uses_injected_exr_decoder_and_emits_review_row()
     test_chain_shot_computes_chain_drift_px()
     test_cuda_cell_writes_nvml_csv_with_required_stages_and_resource()
+    test_validator_rejects_each_pass_only_hard_gate()
+    test_execution_classifies_metric_hard_gate_overruns()
+    test_cuda_memory_gate_becomes_failed_cell_with_evidence_and_publishes_package()
+    test_cuda_memory_gate_failure_resume_reuses_generation_and_repairs_nvml()
     test_missing_artifact_map_entry_raises_typed_driver_failure()
     test_manifest_candidate_id_mismatch_is_a_typed_driver_failure()
     test_identity_differs_between_profiles_for_an_otherwise_identical_selection()
@@ -3168,6 +3399,7 @@ def main() -> int:
     test_truncated_sidecar_outputs_are_repaired_to_canonical_bytes_and_left_alone_once_correct()
     test_cuda_cell_runs_all_inference_in_the_child_not_the_parent()
     test_child_exit_without_queueing_yields_typed_failure_not_a_hang()
+    test_cuda_child_preserves_typed_failure_stage()
     test_identity_differs_for_measurement_config_changes()
     test_identity_binds_protocol_content_not_just_protocol_id()
     test_rerun_with_nvml_disabled_after_nvml_enabled_is_rejected()
