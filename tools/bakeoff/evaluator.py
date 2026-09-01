@@ -68,16 +68,66 @@ REPORT_METRICS = (
 class EvaluatorFailure(ValueError):
     """Stable, typed failure at the evaluator boundary."""
 
-    def __init__(self, kind: str, message: str):
+    def __init__(self, kind: str, message: str, *, stage: str | None = None):
         self.kind = kind
         self.reason = kind
         self.failure_type = "evaluator_failure"
         self.message = message
+        self.stage = stage
         super().__init__(f"{kind}: {message}")
 
 
 class DependencyFailure(EvaluatorFailure):
     """An optional runtime dependency is not available."""
+
+
+def _is_allocation_exhaustion(exc: BaseException) -> bool:
+    """Return whether an exception explicitly reports an allocation exhaustion.
+
+    ONNX Runtime's Python and native adapters currently expose most provider failures as plain
+    exceptions, so the evaluator has to retain this small, deliberately narrow text fallback
+    until the native bridge exposes a machine-readable status.  These markers are the same
+    allocation-specific signatures used by the dependency-free ORT probe: generic provider or
+    runtime errors must stay in their existing taxonomy rather than being guessed as OOM.
+    """
+
+    if isinstance(exc, MemoryError):
+        return True
+    text = str(exc).casefold()
+    if not text:
+        return False
+    if any(marker in text for marker in ("bfcarena", "gpu_mem_limit")):
+        # Match the dependency-free ORT probe: these are allocator-specific diagnostics even
+        # when the provider omits the surrounding allocation wording.
+        return True
+    if "arena" in text and any(
+        marker in text for marker in ("out of memory", "failed to allocate", "memory allocation", "available memory")
+    ):
+        return True
+    if any(
+        marker in text
+        for marker in (
+            "out of memory",
+            "failed to allocate",
+            "allocation failed",
+            "memory allocation",
+            "cudaerroroutofmemory",
+            "cuda_error_out_of_memory",
+            "cublas_status_alloc_failed",
+            "cudnn_status_alloc_failed",
+            "hiperroroutofmemory",
+        )
+    ):
+        return True
+    # Preserve the additional CUDA allocator marker supported by this Python boundary.
+    allocator_marker = "cuda malloc" in text
+    return allocator_marker and any(marker in text for marker in ("allocate", "allocation", "available memory"))
+
+
+def _failure_kind(exc: BaseException, fallback: str) -> str:
+    """Retain ``fallback`` unless ``exc`` has an explicit allocation-exhaustion signature."""
+
+    return "out_of_memory" if _is_allocation_exhaustion(exc) else fallback
 
 
 def _fail(kind: str, message: str) -> None:
@@ -425,7 +475,11 @@ class Evaluator:
                 providers=[execution_provider],
             )
         except Exception as exc:
-            raise EvaluatorFailure("provider_unavailable", f"{execution_provider} session creation failed: {exc}") from exc
+            raise EvaluatorFailure(
+                _failure_kind(exc, "provider_unavailable"),
+                f"{execution_provider} session creation failed: {exc}",
+                stage="session_create",
+            ) from exc
         return ProviderSession(session, validate_session_contract(session, self.artifact, provider))
 
     def verify(self, provider: str) -> dict[str, Any]:
@@ -505,7 +559,11 @@ class Evaluator:
                 try:
                     first_output = session.run([output_name], feeds)
                 except Exception as exc:
-                    raise EvaluatorFailure("runtime_error", f"first inference failed: {exc}") from exc
+                    raise EvaluatorFailure(
+                        _failure_kind(exc, "runtime_error"),
+                        f"first inference failed: {exc}",
+                        stage="inference",
+                    ) from exc
                 first_ms = (self.clock() - first_start) * 1000.0
             output = _one_output(first_output)
             _validate_runtime_output(output, arrays, analysis_width, analysis_height, padded_width, padded_height)
@@ -523,7 +581,11 @@ class Evaluator:
                     try:
                         warm_output = _one_output(session.run([output_name], feeds))
                     except Exception as exc:
-                        raise EvaluatorFailure("runtime_error", f"warm-up inference failed: {exc}") from exc
+                        raise EvaluatorFailure(
+                            _failure_kind(exc, "runtime_error"),
+                            f"warm-up inference failed: {exc}",
+                            stage="inference",
+                        ) from exc
                     _validate_runtime_output(warm_output, arrays, analysis_width, analysis_height, padded_width, padded_height)
                     session_record["warmup_ms"] = (self.clock() - warm_start) * 1000.0
                 for _ in range(counts["steady_samples_per_session"]):
@@ -531,7 +593,11 @@ class Evaluator:
                     try:
                         steady_output = _one_output(session.run([output_name], feeds))
                     except Exception as exc:
-                        raise EvaluatorFailure("runtime_error", f"steady inference failed: {exc}") from exc
+                        raise EvaluatorFailure(
+                            _failure_kind(exc, "runtime_error"),
+                            f"steady inference failed: {exc}",
+                            stage="inference",
+                        ) from exc
                     duration_ms = (self.clock() - steady_start) * 1000.0
                     _validate_runtime_output(steady_output, arrays, analysis_width, analysis_height, padded_width, padded_height)
                     session_record["steady_samples_ms"].append(duration_ms)

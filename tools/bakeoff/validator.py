@@ -18,7 +18,7 @@ import math
 import re
 from itertools import product
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, NamedTuple, Sequence
 
 
 class ValidationError(ValueError):
@@ -218,6 +218,45 @@ _EXPECTED_HARD_GATES = {
         {"source_target": "uhd-3840x2160-par1", "cap_token": "mp2", "provider": "cuda"},
     ],
 }
+
+
+class PerCellHardGate(NamedTuple):
+    """One hard gate that applies to a completed per-cell measurement."""
+
+    protocol_key: str
+    result_section: str
+    result_key: str
+    validation_message: str
+    failure_stage: str
+
+
+# Keep the executable per-cell gate contract next to the validator's protocol expectations.  The
+# runner imports this public specification so a new per-cell gate is classified before report
+# publication and validated with the same result path/message without a second hand-maintained
+# list.
+PER_CELL_HARD_GATES: tuple[PerCellHardGate, ...] = (
+    PerCellHardGate(
+        protocol_key="nonfinite_fraction_max",
+        result_section="metrics",
+        result_key="nonfinite_fraction",
+        validation_message="pass result exceeds nonfinite gate",
+        failure_stage="metrics",
+    ),
+    PerCellHardGate(
+        protocol_key="repeated_run_p99_delta_px_max",
+        result_section="metrics",
+        result_key="repeated_run_p99_delta_px",
+        validation_message="pass result exceeds repeated-run gate",
+        failure_stage="metrics",
+    ),
+    PerCellHardGate(
+        protocol_key="peak_incremental_device_memory_gib_max",
+        result_section="resource",
+        result_key="peak_incremental_device_memory_gib",
+        validation_message="pass result exceeds memory gate",
+        failure_stage="resource",
+    ),
+)
 _EXPECTED_RANKING = {
     "material_quality_points": 3.0,
     "default_order": [
@@ -1537,12 +1576,14 @@ def _validate_result_measurement(
     not_applicable = report_metrics["not_applicable"]
     _validate_metric_applicability(report_metrics, not_applicable, shot, path)
 
-    _require(report_metrics["nonfinite_fraction"] <= protocol["hard_gates"]["nonfinite_fraction_max"],
-             f"{path}.metrics.nonfinite_fraction", "pass result exceeds nonfinite gate")
-    _require(report_metrics["repeated_run_p99_delta_px"] <= protocol["hard_gates"]["repeated_run_p99_delta_px_max"],
-             f"{path}.metrics.repeated_run_p99_delta_px", "pass result exceeds repeated-run gate")
-    _require(result["resource"]["peak_incremental_device_memory_gib"] <= protocol["hard_gates"]["peak_incremental_device_memory_gib_max"],
-             f"{path}.resource.peak_incremental_device_memory_gib", "pass result exceeds memory gate")
+    values_by_section = {"metrics": report_metrics, "resource": result["resource"]}
+    for gate in PER_CELL_HARD_GATES:
+        values = values_by_section[gate.result_section]
+        _require(
+            values[gate.result_key] <= protocol["hard_gates"][gate.protocol_key],
+            f"{path}.{gate.result_section}.{gate.result_key}",
+            gate.validation_message,
+        )
     input_frames = result["input_frames"]
     _require(len(input_frames) == 2, f"{path}.input_frames", "exactly two input frames are required")
     frame_numbers = [frame["frame"] for frame in input_frames]

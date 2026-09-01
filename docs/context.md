@@ -346,6 +346,32 @@ completion claim.
 
 ---
 
+## Session 14 — 2026-09-01 — P25-6 final attempt and publication correction
+
+The latest operator attempt's evaluator and runtime hashes match workflow run `33448282919` from
+source commit `b5b4cbf` (qualified outer SHA256 `ffe36cf5...`), but the operator-owned report
+metadata retained `source_commit: a8e974d`, the earlier package commit. Since the report binds
+measurements to source identity, the returned evidence is diagnostic only and is not formally
+admissible qualification evidence. No replacement outer bundle containing the publication fix
+below has yet been qualified or run.
+
+The idle FHD and UHD cells completed at `21.967529296875` GiB and `21.7393798828125` GiB
+incremental device memory respectively, against the 15 GiB resource gate. Both are completed
+quality-gate overruns, not allocator failures. Beside a live Flame workload, first inference hit
+an explicit `3,940,826,368`-byte ONNX Runtime `BFCArena` allocation failure, which is a runtime
+allocation-exhaustion outcome.
+
+The first publication attempt aborted because the completed idle overruns were still labeled
+`pass`; publication therefore rejected them only after measurement had been committed. The
+taxonomy/publication fix moves the disposition into the cell result: a completed resource
+overrun is `quality_gate_failed` with `stage: resource`, while its timing, metrics and full NVML
+evidence remain attached and a failed package can be published. Explicit native/ORT allocation
+exhaustion is typed `out_of_memory` at the relevant runtime stage; generic runtime failures stay
+`runtime_error`. This fixes the reporting contract without turning the stale-metadata diagnostic
+attempt into a qualified result.
+
+---
+
 ## Decisions
 
 ### Vendored from warp-drive rather than submoduled

@@ -865,6 +865,31 @@ creation proves provider loading, not GPU execution. The replacement bundle must
 passing final cells with all five required NVML rows as direct CUDA-execution evidence; timing is
 performance evidence, not proof by itself.
 
+## Measured — P25-6 final attempt and failure taxonomy — 2026-09-01
+
+The latest operator attempt's evaluator and runtime hashes match workflow run `33448282919` from
+source commit `b5b4cbf` (qualified outer SHA256 `ffe36cf5...`), but its operator-owned report
+metadata still recorded `source_commit` as the earlier `a8e974d`. Because the report binds evidence
+to the source identity, that mismatch makes the returned final evidence diagnostic only, not
+formally admissible qualification evidence. No replacement outer bundle containing the
+publication fix below has yet been qualified or run.
+
+The idle FHD and UHD cells completed measurement at `21.967529296875` GiB and
+`21.7393798828125` GiB incremental device memory respectively, both above the 15 GiB P25-6
+resource gate. The live-Flame run reached first inference and encountered an explicit
+`3,940,826,368`-byte ONNX Runtime `BFCArena` allocation failure. These are different outcomes:
+the idle measurements completed and exceeded a quality gate, while the live-Flame allocation
+failure is an out-of-memory runtime failure.
+
+Publication aborted because the completed idle gate overruns were emitted as `pass` cells; the
+report validator rejected those pass-only resource values after the expensive work had already
+been committed. The fix records a completed overrun as `quality_gate_failed` at stage `resource`,
+retains its timing, metrics and full NVML evidence, and publishes a failed package. Explicit
+native/ORT allocation exhaustion, including the BFCArena failure above, is typed
+`out_of_memory` at the relevant runtime stage; generic runtime errors remain `runtime_error`.
+This correction changes the publication contract and does not turn this diagnostic attempt into a
+qualified result.
+
 ## Open
 
 Phase 0A's five questions and all Phase 0B measurements are closed — see the measured sections

@@ -79,6 +79,7 @@ if not __package__:
 
 from . import exr as exr_module
 from . import synthetic as synthetic_module
+from . import validator as validator_module
 from .artifact_store import ArtifactStore, ArtifactStoreFailure
 from .coordinator import CommittedExecution, CoordinatorFailure, IncompleteFailure, RunCoordinator
 from .evaluator import (
@@ -167,11 +168,12 @@ _REQUIRED_FINAL_NVML_STAGES = frozenset({
 class DriverFailure(ValueError):
     """Stable, reportable driver-level (non-per-cell) failure."""
 
-    def __init__(self, kind: str, message: str):
+    def __init__(self, kind: str, message: str, *, stage: str | None = None):
         self.kind = kind
         self.reason = kind
         self.failure_type = "driver_failure"
         self.message = message
+        self.stage = stage
         super().__init__(f"{kind}: {message}")
 
 
@@ -293,6 +295,21 @@ class CellBundle:
         return value
 
 
+@dataclass(frozen=True)
+class _MeasuredCell:
+    """Evidence available after inference and resource measurement have completed.
+
+    Scoring runs after this boundary and may still raise a typed ``_CellFail``.  Keeping this
+    context separate from the public result lets the executor turn any such post-measurement
+    failure into a failed bundle without pretending that a partial metrics mapping is valid.
+    """
+
+    payload: Mapping[str, Any]
+    resource: Mapping[str, Any]
+    nvml_rows: tuple[tuple[str, ...], ...]
+    log_messages: tuple[str, ...]
+
+
 def _failure(kind: str, message: str, *, stage: str | None = None, retryable: bool | None = None) -> dict[str, Any]:
     failure: dict[str, Any] = {"type": kind, "message": message}
     if stage is not None:
@@ -311,6 +328,49 @@ def _is_finite_number(value: Any) -> bool:
     """
 
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _hard_gate_failure(
+    protocol: Mapping[str, Any],
+    metrics: Mapping[str, Any],
+    resource: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Return a typed failure when a completed measurement exceeds a per-cell hard gate.
+
+    ``validate_report_consistency`` applies these checks only to ``pass`` rows.  The executor
+    must classify a measurement that completed but failed one of those checks before it reaches
+    the coordinator; otherwise report assembly sees an invalid pass row and aborts the whole
+    publication.  The shared specification is owned by :mod:`validator`; the aggregate/matrix
+    gates are intentionally outside it because they cannot be attributed to one result row here.
+    """
+
+    hard_gates = protocol.get("hard_gates")
+    if not isinstance(hard_gates, Mapping):
+        return None
+
+    values_by_section = {"metrics": metrics, "resource": resource}
+    violations: list[tuple[str, Any, Any, str]] = []
+    for gate in validator_module.PER_CELL_HARD_GATES:
+        values = values_by_section[gate.result_section]
+        if gate.protocol_key not in hard_gates or gate.result_key not in values:
+            continue
+        limit = hard_gates[gate.protocol_key]
+        value = values[gate.result_key]
+        # The evaluator/NVML reducers already guarantee finite values.  Keep this guard narrow:
+        # a malformed value should continue through the normal schema/measurement validation,
+        # while a finite value over its frozen threshold becomes a reportable cell failure.
+        if _is_finite_number(limit) and _is_finite_number(value) and value > limit:
+            violations.append((gate.result_key, value, limit, gate.failure_stage))
+    if not violations:
+        return None
+
+    stages = {stage for _, _, _, stage in violations}
+    stage = next(iter(stages)) if len(stages) == 1 else "quality_gates"
+    details = "; ".join(
+        f"{value_name}={value!r} exceeds hard gate {limit!r}"
+        for value_name, value, limit, _ in violations
+    )
+    return _failure("quality_gate_failed", details, stage=stage)
 
 
 _EXR_FAILURE_TYPES = {
@@ -816,7 +876,7 @@ def run_cuda_measurement_in_subprocess(
             payload, samples = _measure_cuda_work_once(work, nvml_backend_factory, device_index, poll_interval_s)
         except BaseException as exc:  # noqa: BLE001 - reported to the parent, not raised here
             kind = getattr(exc, "kind", None)
-            stage = "load_input" if isinstance(exc, ExrFailure) else "inference"
+            stage = "load_input" if isinstance(exc, ExrFailure) else getattr(exc, "stage", None) or "inference"
             result_queue.put(("error", kind, stage, str(exc)))
             return
         result_queue.put(("ok", payload, samples))
@@ -846,7 +906,11 @@ def run_cuda_measurement_in_subprocess(
         )
     if outcome[0] == "error":
         _, kind, stage, message = outcome
-        raise DriverFailure(_map_child_failure_kind(kind), f"[{stage}] CUDA measurement subprocess failed: {message}")
+        raise DriverFailure(
+            _map_child_failure_kind(kind),
+            f"[{stage}] CUDA measurement subprocess failed: {message}",
+            stage=stage,
+        )
     _, payload, samples = outcome
 
     # The measured work already succeeded in the child; this is the PARENT's own post-join
@@ -1051,8 +1115,15 @@ def _commit_cell_bundle(
     """Commit one complete CellBundle, retrying optional preview staging without the previews."""
 
     result = bundle.public_result()
-    required_nvml = result.get("status") == "pass" and result.get("provider") == "cuda" and nvml_enabled
-    if required_nvml and not bundle.nvml_rows:
+    cuda_nvml_enabled = result.get("provider") == "cuda" and nvml_enabled
+    # A completed CUDA measurement can fail a report hard gate after inference has returned.  Its
+    # NVML rows are still first-class evidence and must be committed alongside the failed result;
+    # an inference failure that occurs before a complete measurement simply has no rows and does
+    # not become evidence by virtue of its provider token.
+    required_nvml = cuda_nvml_enabled and (
+        result.get("status") == "pass" or bool(bundle.nvml_rows)
+    )
+    if cuda_nvml_enabled and result.get("status") == "pass" and not bundle.nvml_rows:
         raise ArtifactStoreFailure(
             "nvml_missing",
             f"CUDA cell {cell!r} passed with NVML enabled but returned no NVML evidence rows",
@@ -1141,6 +1212,7 @@ class _RunnerContext:
     host_load_checkpoint: HostLoadCheckpoint
     cuda_measurement_runner: CudaMeasurementRunner
     confirmed_host_load: str | None = field(default=None, init=False)
+    measured_cell: _MeasuredCell | None = field(default=None, init=False)
 
 
 def _base_result_fields(cell: CellKey) -> dict[str, Any]:
@@ -1156,6 +1228,47 @@ def _base_result_fields(cell: CellKey) -> dict[str, Any]:
         "provider": cell.provider,
         "host_load": cell.host_load,
     }
+
+
+def _measured_failure_bundle(
+    cell: CellKey,
+    shot_ctx: _ShotContext,
+    measured: _MeasuredCell,
+    failure: Mapping[str, Any],
+) -> CellBundle:
+    """Build a failed bundle from the completed measurement without partial metrics.
+
+    The scoring phase may fail after the evaluator and (for CUDA) NVML sampler have returned.
+    Preserve only the measurement fields that are already complete and validated; a scoring
+    failure must not expose a half-populated metrics object that the report validator could
+    mistake for a measured score.  ``measured.nvml_rows`` is the exact sampler reduction, so an
+    available nonempty CUDA evidence payload is committed by the normal bundle path.
+    """
+
+    payload = measured.payload
+    result: dict[str, Any] = {
+        **_base_result_fields(cell),
+        "status": "fail",
+        "failure": dict(failure),
+        "resource": measured.resource,
+    }
+    base = payload.get("base")
+    if isinstance(base, Mapping):
+        for field_name in (
+            "geometry", "timing", "environment", "conditioning_parameters",
+        ):
+            if field_name in base:
+                result[field_name] = base[field_name]
+    if "input_frames" in payload:
+        result["input_frames"] = payload["input_frames"]
+    category = (shot_ctx.shot.get("categories") or [None])[0]
+    if category is not None:
+        result["category"] = category
+    return CellBundle(
+        result=result,
+        nvml_rows=measured.nvml_rows,
+        log_messages=measured.log_messages,
+    )
 
 
 class _ReplayNvmlBackend:
@@ -1341,12 +1454,12 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> CellBundle:
             # run_cuda_measurement_in_subprocess already maps the child's reported failure kind
             # (including an ExrFailure's kind, via _map_child_failure_kind) onto a permitted
             # coordinator failure type before raising, so exc.kind is used as-is here.
-            raise _CellFail(_failure(exc.kind, str(exc), stage="inference")) from exc
+            raise _CellFail(_failure(exc.kind, str(exc), stage=exc.stage or "inference")) from exc
         except (DependencyFailure, EvaluatorFailure, ExrFailure) as exc:
             # An injected test CudaMeasurementRunner may raise these directly, in-process,
             # rather than going through the subprocess boundary's own error reporting.
             kind = getattr(exc, "kind", None)
-            stage = "load_input" if isinstance(exc, ExrFailure) else "inference"
+            stage = "load_input" if isinstance(exc, ExrFailure) else getattr(exc, "stage", None) or "inference"
             raise _CellFail(_failure(_map_child_failure_kind(kind), str(exc), stage=stage)) from exc
         payload = measurement.payload
         nvml_samples = list(measurement.samples)
@@ -1384,12 +1497,28 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> CellBundle:
         except DependencyFailure as exc:
             raise _CellFail(_failure("runtime_error", str(exc), stage="inference", retryable=True)) from exc
         except EvaluatorFailure as exc:
-            raise _CellFail(_failure(exc.kind if exc.kind in _RESULT_FAILURE_TYPES else "runtime_error", str(exc), stage="inference")) from exc
+            raise _CellFail(_failure(
+                exc.kind if exc.kind in _RESULT_FAILURE_TYPES else "runtime_error",
+                str(exc),
+                stage=exc.stage or "inference",
+            )) from exc
         resource = {"peak_incremental_device_memory_gib": 0.0}
 
-    # From here on: PURE scoring and preview rendering from `payload`'s already-returned data.
-    # No inference call of any kind happens below this line, for either provider.
     log_messages.extend(payload.get("log_messages", []))
+    # From here on: PURE scoring and preview rendering from `payload`'s already-returned data.
+    # No inference call of any kind happens below this line, for either provider.  Publish this
+    # boundary to the executor before scoring starts: any _CellFail below it can retain the
+    # completed measurement without claiming that partial metrics are a valid score.
+    # ``_perform_cell_inference`` has returned and resource reduction has completed.  Even when
+    # it reports a mandatory chain-link failure or no chain flows below, the base inference's
+    # timing/input/environment and the sampler's exact rows are completed measurements.  The
+    # scoring failure path can therefore retain those fields without claiming a valid score.
+    ctx.measured_cell = _MeasuredCell(
+        payload=payload,
+        resource=resource,
+        nvml_rows=tuple(tuple(row) for row in nvml_rows),
+        log_messages=tuple(log_messages),
+    )
 
     base = payload["base"]
     base_result = {"metrics": base["metrics"], "timing": base["timing"], "environment": base["environment"]}
@@ -1532,8 +1661,16 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> CellBundle:
     }
     if category is not None:
         passing["category"] = category
+    gate_failure = _hard_gate_failure(ctx.protocol, result_metrics, resource)
+    result = {**_base_result_fields(cell), "status": "pass", **passing}
+    if gate_failure is not None:
+        # Keep the complete measurement payload on a failed row.  Report validation deliberately
+        # skips pass-only gate checks for typed failures, allowing publication to retain timing,
+        # resource reduction, and (for CUDA) the exact NVML evidence that explains the failure.
+        result["status"] = "fail"
+        result["failure"] = gate_failure
     return CellBundle(
-        result={**_base_result_fields(cell), "status": "pass", **passing},
+        result=result,
         nvml_rows=tuple(tuple(row) for row in nvml_rows),
         previews=tuple(preview_payloads),
         log_messages=tuple(log_messages),
@@ -1594,24 +1731,43 @@ def build_executor(
     def executor(cell: CellKey) -> CellBundle:
         base = _base_result_fields(cell)
         start_message = f"cell start {json.dumps(cell.as_dict(), sort_keys=True)}"
+        # ``_run_cell`` records this only after inference and resource measurement succeed.  It
+        # is deliberately per-invocation state so a pre-/mid-inference failure cannot inherit
+        # evidence from an earlier cell, while any later scoring _CellFail is converted into a
+        # complete evidence-preserving failed bundle.
+        ctx.measured_cell = None
         try:
-            bundle = _run_cell(cell, ctx)
-        except _CellFail as failure:
+            try:
+                bundle = _run_cell(cell, ctx)
+            except _CellFail as failure:
+                measured = ctx.measured_cell
+                if measured is not None:
+                    failed_bundle = _measured_failure_bundle(
+                        cell, ctx.shot_contexts[cell.shot], measured, failure.failure,
+                    )
+                    return CellBundle(
+                        result=failed_bundle.public_result(),
+                        nvml_rows=failed_bundle.nvml_rows,
+                        previews=failed_bundle.previews,
+                        log_messages=(start_message, *failed_bundle.log_messages),
+                    )
+                return CellBundle(
+                    result={**base, "status": "fail", "failure": failure.failure},
+                    log_messages=(start_message,),
+                )
+            except _CellSkip as skip:
+                return CellBundle(
+                    result={**base, "status": "skip", "failure": skip.failure},
+                    log_messages=(start_message,),
+                )
             return CellBundle(
-                result={**base, "status": "fail", "failure": failure.failure},
-                log_messages=(start_message,),
+                result=bundle.public_result(),
+                nvml_rows=bundle.nvml_rows,
+                previews=bundle.previews,
+                log_messages=(start_message, *bundle.log_messages),
             )
-        except _CellSkip as skip:
-            return CellBundle(
-                result={**base, "status": "skip", "failure": skip.failure},
-                log_messages=(start_message,),
-            )
-        return CellBundle(
-            result=bundle.public_result(),
-            nvml_rows=bundle.nvml_rows,
-            previews=bundle.previews,
-            log_messages=(start_message, *bundle.log_messages),
-        )
+        finally:
+            ctx.measured_cell = None
 
     return executor, ctx
 
@@ -2648,7 +2804,7 @@ def _regenerate_public_evidence_outputs(
         named_paths = {entry["path"] for entry in manifest["artifacts"]}
         evidence_path = "evidence/nvml_rows.json"
         if evidence_path in named_paths:
-            if not (nvml_enabled and result.get("status") == "pass" and result.get("provider") == "cuda"):
+            if not (nvml_enabled and result.get("provider") == "cuda"):
                 raise ArtifactStoreFailure(
                     "nvml_unexpected",
                     f"completed cell {cell!r} carries NVML evidence while NVML is not required",
@@ -2658,13 +2814,13 @@ def _regenerate_public_evidence_outputs(
                 expected_identity=_base_result_fields(cell),
                 required_stages=(
                     _REQUIRED_FINAL_NVML_STAGES
-                    if require_nvml_stages and result.get("status") == "pass" and result.get("provider") == "cuda"
+                    if require_nvml_stages and result.get("provider") == "cuda"
                     else None
                 ),
             )
             if not decoded_rows:
                 raise ArtifactStoreFailure(
-                    "nvml_missing", f"passing CUDA cell {cell!r} has empty committed NVML evidence",
+                    "nvml_missing", f"CUDA cell {cell!r} has empty committed NVML evidence",
                 )
             nvml_rows.extend(decoded_rows)
         elif nvml_enabled and result.get("status") == "pass" and result.get("provider") == "cuda":
