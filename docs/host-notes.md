@@ -890,6 +890,38 @@ native/ORT allocation exhaustion, including the BFCArena failure above, is typed
 This correction changes the publication contract and does not turn this diagnostic attempt into a
 qualified result.
 
+## Measured — P25-6 final run completed on the publication-fixed source — 2026-09-01
+
+A second 2026-09-01 run against the same box (Rocky Linux 9.5, Xeon Gold 6154, RTX A5000, driver
+580.95.05) is the first to complete all four final CUDA cells with accepted NVML evidence. Its
+`runner.source_commit` is `5731b2d` — main HEAD, the merge carrying the publication fix — so the
+runner axis no longer records the earlier `a8e974d` mismatch; formal admissibility still depends on
+the outer archive matching its qualifying dispatch, which is a review-time check, not something the
+returned evidence alone establishes. The returned reports are under
+[`measurements/2026-09-01-p25-6/`](measurements/2026-09-01-p25-6/). CPU smoke and screen again pass
+1/1 and 2/2. Both `live_flame` CUDA cells pass with all five NVML stages present — the earlier
+live-Flame `BFCArena` allocation failure did not recur — and both `idle` cells complete and exceed
+the 15 GiB resource gate, now correctly typed `quality_gate_failed`/`stage: resource`.
+
+The measured device-memory numbers, and the reason the two host loads disagree:
+
+| Host load | Baseline (MiB) | Peak device (MiB) | Incremental | Gate |
+|---|---|---|---|---|
+| idle (FHD) | 1,083.4 | 23,444.5 | 21.837 GiB | **fail** |
+| idle (UHD) | 1,074.9 | 23,398.0 | 21.800 GiB | **fail** |
+| live_flame (FHD) | 9,989.8 | 21,626.9 | 11.364 GiB | pass |
+| live_flame (UHD) | 9,994.0 | 21,628.2 | 11.362 GiB | pass |
+
+Absolute peak device memory is ~21.6–23.4 GiB of the card's 24 GiB in **both** loads: the workload
+wants essentially the whole card regardless of host. The gate keys on
+`peak_incremental = peak_device − baseline_device`, so live Flame's ~10 GiB resident baseline
+subtracts most of the footprint away and the same workload passes, while from the idle ~1 GiB
+baseline it fails. The verdict flips on baseline subtraction, not on candidate behaviour, and the
+near-OOM headroom is identical. Whether the P25-6/P25-7 gate should also key on absolute peak is a
+ranking decision recorded in `docs/context.md` Session 15; this section records only what the box
+measured. Steady inference was ~277–278 ms across all four CUDA cells and quality metrics were
+excellent (endpoint error ≈ 0.001 px). No shipping model is selected by this run.
+
 ## Open
 
 Phase 0A's five questions and all Phase 0B measurements are closed — see the measured sections

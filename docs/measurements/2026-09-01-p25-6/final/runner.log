@@ -1,0 +1,17 @@
+2026-09-01T20:54:59.369029+00:00 run invoked
+2026-09-01T20:54:59.370413+00:00 matrix planned: 4 cells, matrix_sha256=bd90a83475402bae25a6d72381dc04de4a58b4f83e8ae530574774d2e835016d
+2026-09-01T20:54:59.371150+00:00 validated artifacts for candidates: ['sea-raft-m']
+2026-09-01T20:54:59.374616+00:00 created new state
+2026-09-01T20:59:44.006465+00:00 cell start {"candidate": "sea-raft-m", "cap": "mp2", "conditioning": "native-clamp01-v1", "host_load": "idle", "provider": "cuda", "shot": "syn-fhd-1920x1080-par1"}
+2026-09-01T20:59:44.007286+00:00 host load boundary confirmed: host_load=idle
+2026-09-01T20:59:44.036105+00:00 cell artifact committed status=fail {"candidate": "sea-raft-m", "cap": "mp2", "conditioning": "native-clamp01-v1", "host_load": "idle", "provider": "cuda", "shot": "syn-fhd-1920x1080-par1"} reason=quality_gate_failed
+2026-09-01T21:15:11.176516+00:00 cell start {"candidate": "sea-raft-m", "cap": "mp2", "conditioning": "native-clamp01-v1", "host_load": "live_flame", "provider": "cuda", "shot": "syn-fhd-1920x1080-par1"}
+2026-09-01T21:15:11.177375+00:00 host load boundary confirmed: host_load=live_flame
+2026-09-01T21:15:11.194459+00:00 cell artifact committed status=pass {"candidate": "sea-raft-m", "cap": "mp2", "conditioning": "native-clamp01-v1", "host_load": "live_flame", "provider": "cuda", "shot": "syn-fhd-1920x1080-par1"}
+2026-09-01T21:25:16.674477+00:00 cell start {"candidate": "sea-raft-m", "cap": "mp2", "conditioning": "native-clamp01-v1", "host_load": "idle", "provider": "cuda", "shot": "syn-uhd-3840x2160-par1"}
+2026-09-01T21:25:16.675963+00:00 host load boundary confirmed: host_load=idle
+2026-09-01T21:25:16.700732+00:00 cell artifact committed status=fail {"candidate": "sea-raft-m", "cap": "mp2", "conditioning": "native-clamp01-v1", "host_load": "idle", "provider": "cuda", "shot": "syn-uhd-3840x2160-par1"} reason=quality_gate_failed
+2026-09-01T21:54:32.505624+00:00 cell start {"candidate": "sea-raft-m", "cap": "mp2", "conditioning": "native-clamp01-v1", "host_load": "live_flame", "provider": "cuda", "shot": "syn-uhd-3840x2160-par1"}
+2026-09-01T21:54:32.506468+00:00 host load boundary confirmed: host_load=live_flame
+2026-09-01T21:54:32.523290+00:00 cell artifact committed status=pass {"candidate": "sea-raft-m", "cap": "mp2", "conditioning": "native-clamp01-v1", "host_load": "live_flame", "provider": "cuda", "shot": "syn-uhd-3840x2160-par1"}
+2026-09-01T21:54:32.613471+00:00 run complete; report.json/summary.txt/nvml.csv/review.csv published

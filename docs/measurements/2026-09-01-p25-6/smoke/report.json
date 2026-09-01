@@ -1,0 +1,176 @@
+{
+  "candidates": [
+    {
+      "artifact_sha256": "3fd6e110a7459567d2bc8f8dd30ba5e40c780e862fd0fd95809e7ad2e026fa0e",
+      "artifact_size_bytes": 78840944,
+      "candidate_id": "sea-raft-m",
+      "checkpoint_sha256": "cb8cfbf14c5e0f6734b64add383708b7ff68cc6089a0007c67165d4761346102",
+      "exclusion_reason": {
+        "message": "P25-6 is a target-measurement run only. Shipping eligibility and the OFX default selection are deferred to P25-7, so this measurable candidate is intentionally declared status=excluded here (measurement_status=measurable). The license surface below is the reviewed 2026-08-23 audit from models/sea-raft-m.json and is carried as evidence, not as a shipping authorization.",
+        "type": "other"
+      },
+      "export_environment_sha256": "8ff8de3d6df330fe73f8e382a93b8a33c15efeeb03b888135ab23153da1dd50c",
+      "license_verdicts": {
+        "backbone": "commercial_use_permitted",
+        "checkpoint": "commercial_use_permitted",
+        "code": "commercial_use_permitted"
+      },
+      "manifest_sha256": "8fa3b5deec5806b613290e7315b5af01d56139fe2534135af8797703c6de70de",
+      "measurement_providers": [
+        "cpu",
+        "cuda"
+      ],
+      "measurement_status": "measurable",
+      "redistribution_permitted": {
+        "backbone": "permitted",
+        "checkpoint": "permitted",
+        "code": "permitted"
+      },
+      "redistribution_terms_reviewed": {
+        "backbone": true,
+        "checkpoint": true,
+        "code": true
+      },
+      "source_commit": "9137517ba24e628442aec097d3afe71d03503b75",
+      "status": "excluded"
+    }
+  ],
+  "completed_utc": "2026-09-01T20:41:55.189033+00:00",
+  "corpus_id": "p25-6-flame6-20260831-v1",
+  "corpus_sha256": "48be9169948e500961145dada98f146dc773aa10a4af4eb5b09a2240f9bf2601",
+  "environment": "el8-x86_64",
+  "hardware": {
+    "architecture": "x86_64",
+    "cpu": "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz",
+    "driver": "580.95.05",
+    "gpu": "NVIDIA RTX A5000",
+    "os_release": "Rocky Linux 9.5 (Blue Onyx)",
+    "platform": "linux"
+  },
+  "matrix": {
+    "candidate_ids": [
+      "sea-raft-m"
+    ],
+    "cap_tokens": [
+      "mp0_5"
+    ],
+    "conditioning_tokens": [
+      "native-clamp01-v1"
+    ],
+    "matrix_sha256": "0ad2d919922d71d5eb010d063d295311528b316a211e7dc4d1e6d60d7df42700",
+    "providers": [
+      {
+        "host_loads": [
+          "not_applicable"
+        ],
+        "token": "cpu"
+      }
+    ],
+    "shot_ids": [
+      "prod-motion-blur"
+    ]
+  },
+  "profile": "smoke",
+  "protocol_id": "whitewater-p25-v2",
+  "report_id": "p25-6-sea-raft-m-target",
+  "results": [
+    {
+      "candidate_id": "sea-raft-m",
+      "cap_token": "mp0_5",
+      "category": "motion-blur",
+      "conditioning_parameters": {},
+      "conditioning_token": "native-clamp01-v1",
+      "environment": {
+        "model_manifest_sha256": "8fa3b5deec5806b613290e7315b5af01d56139fe2534135af8797703c6de70de",
+        "provider_version": "CPUExecutionProvider",
+        "runtime_version": "1.29.0"
+      },
+      "geometry": {
+        "analysis_height": 530,
+        "analysis_width": 943,
+        "canonical_height": 1080.0,
+        "canonical_width": 1920.0,
+        "effective_padded_megapixels": 0.505984,
+        "padded_height": 536,
+        "padded_width": 944,
+        "source_height": 1080,
+        "source_pixel_aspect_ratio": 1.0,
+        "source_width": 1920,
+        "spacing_x_source_pixels": 2.036055143160127,
+        "spacing_y_source_pixels": 2.0377358490566038
+      },
+      "host_load": "not_applicable",
+      "input_frames": [
+        {
+          "frame": 1007,
+          "sha256": "706f025276f9b0c9936fcedd7fba61cce853a464bd2c683a7c480d37d9820e8b"
+        },
+        {
+          "frame": 1008,
+          "sha256": "96510a50cb17463741302454b71cc052e105ab07eaed4cec5831f92fd08f9eb3"
+        }
+      ],
+      "metrics": {
+        "forward_backward_residual_px": 0.21067491629027563,
+        "nonfinite_fraction": 0.0,
+        "not_applicable": [
+          "chain_drift_px",
+          "endpoint_error_px",
+          "fraction_le_1px",
+          "fraction_le_3px",
+          "landmark_median_error_px",
+          "landmark_p95_error_px"
+        ],
+        "repeated_run_p99_delta_px": 0.0,
+        "visible_warp_residual": 1.7091833365523563
+      },
+      "provider": "cpu",
+      "resource": {
+        "peak_incremental_device_memory_gib": 0.0
+      },
+      "shot_id": "prod-motion-blur",
+      "status": "pass",
+      "timing": {
+        "first_inference_ms": 1357.7155070379376,
+        "postprocessing_ms": 303.62211214378476,
+        "preprocessing_ms": 24587.775781285018,
+        "session_creation_ms": 523.9170431159437,
+        "sessions": [
+          {
+            "first_inference_ms": 1357.7155070379376,
+            "session_creation_ms": 523.9170431159437,
+            "session_index": 0,
+            "steady_samples_ms": [
+              1378.2228189520538,
+              1297.0189969055355
+            ],
+            "warmup_recorded": false
+          }
+        ],
+        "steady_inference_ms": 1337.6209079287946,
+        "steady_samples_ms": [
+          1378.2228189520538,
+          1297.0189969055355
+        ],
+        "total_pair_ms": 26229.018801357597
+      }
+    }
+  ],
+  "runner": {
+    "command": "/home/flame/whitewater-p25-6/tools/bakeoff/run.py --selection inputs/selection-smoke.json --candidates inputs/candidate-entries.json --artifact-map inputs/artifact-map.json --corpus /home/flame/p25-6-operator-inputs/corpus.json --report-metadata /home/flame/p25-6-operator-inputs/report-metadata.json --output-dir /data/volume01/media/mti_vfx/interchange/white-water/out/smoke",
+    "evaluator_sha256": "1cc042656e88f535c8913d377c85e6f530c9ee8cd87f70199cdbbbd6881aa76d",
+    "name": "ww-bakeoff",
+    "runtime": "python-3.11;microsoft-onnxruntime-linux-x64-gpu_cuda12-1.29.0+whitewater-native-bridge;openexr-python+openexr+imath;pynvml;conda-pack;el8-x86_64",
+    "runtime_sha256": "48e6925df9d5a3a17b21794f64b0f3225ed4a76d3bd8c9d7751a3a14fea97068",
+    "source_commit": "5731b2de8010c74b081c0696ddc986f5a25c851d",
+    "version": "0.1.0"
+  },
+  "schema_version": 2,
+  "started_utc": "2026-09-01T20:41:55.189017+00:00",
+  "summary": {
+    "failed_cells": 0,
+    "passed_cells": 1,
+    "required_cells": 1,
+    "skipped_cells": 0
+  }
+}

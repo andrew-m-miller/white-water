@@ -1,0 +1,11 @@
+White Water P25-6 bake-off summary
+profile: smoke
+environment: el8-x86_64
+matrix_sha256: 0ad2d919922d71d5eb010d063d295311528b316a211e7dc4d1e6d60d7df42700
+cells: required=1 passed=1 failed=0 skipped=0
+
+Per-candidate headline latency (steady_inference_ms) and memory (peak_device_memory_mib):
+  sea-raft-m: median steady=1337.621ms peak_device_memory=n/a (CPU or unmeasured)
+
+Typed failures and skips:
+  (none)

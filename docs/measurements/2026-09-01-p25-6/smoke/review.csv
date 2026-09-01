@@ -1,0 +1,2 @@
+candidate_label,shot_id,category,conditioning_token,cap_token,provider,host_load,preview_path,edge_adherence,occlusion_reveal,blur,jitter,drift,notes
+candidate-9476565c4514,prod-motion-blur,motion-blur,native-clamp01-v1,mp0_5,cpu,not_applicable,/data/volume01/media/mti_vfx/interchange/white-water/out/smoke/.artifacts/cf0fb5321b88b9cc577965615e42638c0e01c75fa0aaec13f866e3ff3a64c875/cells/d1aefbbe46ef6368225062109ebff60a1f64d9dd4b1b0aba90965752d8b84fed/attempts/f9ae162c-8d8c-4c8d-89c7-55977fe8a8b9/previews,,,,,,

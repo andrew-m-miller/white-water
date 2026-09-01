@@ -1,0 +1,12 @@
+White Water P25-6 bake-off summary
+profile: final
+environment: el8-x86_64
+matrix_sha256: bd90a83475402bae25a6d72381dc04de4a58b4f83e8ae530574774d2e835016d
+cells: required=4 passed=2 failed=2 skipped=0
+
+Per-candidate headline latency (steady_inference_ms) and memory (peak_device_memory_mib):
+  sea-raft-m: median steady=278.427ms peak_device_memory=21628.2MiB
+
+Typed failures and skips:
+  [fail] sea-raft-m/syn-fhd-1920x1080-par1/native-clamp01-v1/mp2/cuda/idle: quality_gate_failed: peak_incremental_device_memory_gib=21.8370361328125 exceeds hard gate 15.0
+  [fail] sea-raft-m/syn-uhd-3840x2160-par1/native-clamp01-v1/mp2/cuda/idle: quality_gate_failed: peak_incremental_device_memory_gib=21.7999267578125 exceeds hard gate 15.0

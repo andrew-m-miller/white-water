@@ -1,0 +1,927 @@
+{
+  "candidates": [
+    {
+      "artifact_sha256": "3fd6e110a7459567d2bc8f8dd30ba5e40c780e862fd0fd95809e7ad2e026fa0e",
+      "artifact_size_bytes": 78840944,
+      "candidate_id": "sea-raft-m",
+      "checkpoint_sha256": "cb8cfbf14c5e0f6734b64add383708b7ff68cc6089a0007c67165d4761346102",
+      "exclusion_reason": {
+        "message": "P25-6 is a target-measurement run only. Shipping eligibility and the OFX default selection are deferred to P25-7, so this measurable candidate is intentionally declared status=excluded here (measurement_status=measurable). The license surface below is the reviewed 2026-08-23 audit from models/sea-raft-m.json and is carried as evidence, not as a shipping authorization.",
+        "type": "other"
+      },
+      "export_environment_sha256": "8ff8de3d6df330fe73f8e382a93b8a33c15efeeb03b888135ab23153da1dd50c",
+      "license_verdicts": {
+        "backbone": "commercial_use_permitted",
+        "checkpoint": "commercial_use_permitted",
+        "code": "commercial_use_permitted"
+      },
+      "manifest_sha256": "8fa3b5deec5806b613290e7315b5af01d56139fe2534135af8797703c6de70de",
+      "measurement_providers": [
+        "cpu",
+        "cuda"
+      ],
+      "measurement_status": "measurable",
+      "redistribution_permitted": {
+        "backbone": "permitted",
+        "checkpoint": "permitted",
+        "code": "permitted"
+      },
+      "redistribution_terms_reviewed": {
+        "backbone": true,
+        "checkpoint": true,
+        "code": true
+      },
+      "source_commit": "9137517ba24e628442aec097d3afe71d03503b75",
+      "status": "excluded"
+    }
+  ],
+  "completed_utc": "2026-09-01T21:54:32.561008+00:00",
+  "corpus_id": "p25-6-flame6-20260831-v1",
+  "corpus_sha256": "48be9169948e500961145dada98f146dc773aa10a4af4eb5b09a2240f9bf2601",
+  "environment": "el8-x86_64",
+  "hardware": {
+    "architecture": "x86_64",
+    "cpu": "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz",
+    "driver": "580.95.05",
+    "gpu": "NVIDIA RTX A5000",
+    "os_release": "Rocky Linux 9.5 (Blue Onyx)",
+    "platform": "linux"
+  },
+  "matrix": {
+    "candidate_ids": [
+      "sea-raft-m"
+    ],
+    "cap_tokens": [
+      "mp2"
+    ],
+    "conditioning_tokens": [
+      "native-clamp01-v1"
+    ],
+    "matrix_sha256": "bd90a83475402bae25a6d72381dc04de4a58b4f83e8ae530574774d2e835016d",
+    "providers": [
+      {
+        "host_loads": [
+          "idle",
+          "live_flame"
+        ],
+        "token": "cuda"
+      }
+    ],
+    "shot_ids": [
+      "syn-fhd-1920x1080-par1",
+      "syn-uhd-3840x2160-par1"
+    ]
+  },
+  "profile": "final",
+  "protocol_id": "whitewater-p25-v2",
+  "report_id": "p25-6-sea-raft-m-target",
+  "results": [
+    {
+      "candidate_id": "sea-raft-m",
+      "cap_token": "mp2",
+      "category": "identity",
+      "conditioning_parameters": {},
+      "conditioning_token": "native-clamp01-v1",
+      "environment": {
+        "model_manifest_sha256": "8fa3b5deec5806b613290e7315b5af01d56139fe2534135af8797703c6de70de",
+        "provider_version": "CUDAExecutionProvider",
+        "runtime_version": "1.29.0"
+      },
+      "failure": {
+        "message": "peak_incremental_device_memory_gib=21.8370361328125 exceeds hard gate 15.0",
+        "stage": "resource",
+        "type": "quality_gate_failed"
+      },
+      "geometry": {
+        "analysis_height": 1060,
+        "analysis_width": 1886,
+        "canonical_height": 1080.0,
+        "canonical_width": 1920.0,
+        "effective_padded_megapixels": 2.008832,
+        "padded_height": 1064,
+        "padded_width": 1888,
+        "source_height": 1080,
+        "source_pixel_aspect_ratio": 1.0,
+        "source_width": 1920,
+        "spacing_x_source_pixels": 1.0180275715800635,
+        "spacing_y_source_pixels": 1.0188679245283019
+      },
+      "host_load": "idle",
+      "input_frames": [
+        {
+          "frame": 4,
+          "sha256": "b7250c77ec5fff9892061bc52aaea2ef48709421724dd6b454d4abda91f6b86f"
+        },
+        {
+          "frame": 5,
+          "sha256": "b7250c77ec5fff9892061bc52aaea2ef48709421724dd6b454d4abda91f6b86f"
+        }
+      ],
+      "metrics": {
+        "endpoint_error_px": 0.0013235897996905506,
+        "forward_backward_residual_px": 0.0026485982643789856,
+        "fraction_le_1px": 1.0,
+        "fraction_le_3px": 1.0,
+        "nonfinite_fraction": 0.0,
+        "not_applicable": [
+          "chain_drift_px",
+          "landmark_median_error_px",
+          "landmark_p95_error_px"
+        ],
+        "repeated_run_p99_delta_px": 0.0,
+        "visible_warp_residual": 0.0061622090767015966
+      },
+      "provider": "cuda",
+      "resource": {
+        "baseline_device_memory_mib": 1083.375,
+        "cleanup_device_memory_mib": 1291.8125,
+        "nvml_samples": [
+          {
+            "stage": "baseline",
+            "used_mib": 1083.375
+          },
+          {
+            "process_used_mib": 11492.0,
+            "stage": "session_create",
+            "used_mib": 12680.5
+          },
+          {
+            "process_used_mib": 22242.0,
+            "stage": "steady",
+            "used_mib": 23430.5
+          },
+          {
+            "process_used_mib": 22260.0,
+            "stage": "session_create",
+            "used_mib": 23444.5
+          },
+          {
+            "process_used_mib": 22246.0,
+            "stage": "steady",
+            "used_mib": 23434.5
+          },
+          {
+            "process_used_mib": 22254.0,
+            "stage": "session_create",
+            "used_mib": 23437.8125
+          },
+          {
+            "process_used_mib": 22248.0,
+            "stage": "steady",
+            "used_mib": 23431.8125
+          },
+          {
+            "process_used_mib": 214.0,
+            "stage": "cleanup",
+            "used_mib": 1291.8125
+          },
+          {
+            "stage": "process_exit",
+            "used_mib": 1072.6875
+          }
+        ],
+        "peak_device_memory_mib": 23444.5,
+        "peak_incremental_device_memory_gib": 21.8370361328125,
+        "process_exit_device_memory_mib": 1072.6875
+      },
+      "shot_id": "syn-fhd-1920x1080-par1",
+      "status": "fail",
+      "timing": {
+        "first_inference_ms": 754.1837813332677,
+        "postprocessing_ms": 17819.989045150578,
+        "preprocessing_ms": 35374.09721175209,
+        "session_creation_ms": 433.80251806229353,
+        "sessions": [
+          {
+            "first_inference_ms": 941.5615703910589,
+            "session_creation_ms": 709.1035367920995,
+            "session_index": 0,
+            "steady_samples_ms": [
+              284.0856621041894,
+              282.1583361364901,
+              280.6502180173993,
+              276.51338931173086,
+              276.47600416094065,
+              276.4021339826286,
+              275.7527632638812,
+              275.0411252491176,
+              275.4215793684125,
+              275.41926223784685
+            ],
+            "warmup_ms": 413.13653299584985,
+            "warmup_recorded": true
+          },
+          {
+            "first_inference_ms": 754.1837813332677,
+            "session_creation_ms": 433.80251806229353,
+            "session_index": 1,
+            "steady_samples_ms": [
+              273.7058801576495,
+              275.49312030896544,
+              281.52882028371096,
+              279.63375486433506,
+              281.13733883947134,
+              279.464032035321,
+              276.3334419578314,
+              275.5513028241694,
+              277.07327296957374,
+              284.01091089472175
+            ],
+            "warmup_ms": 403.73905189335346,
+            "warmup_recorded": true
+          },
+          {
+            "first_inference_ms": 750.330857001245,
+            "session_creation_ms": 404.49735010042787,
+            "session_index": 2,
+            "steady_samples_ms": [
+              279.67227809131145,
+              278.83799420669675,
+              275.8040623739362,
+              277.07714214921,
+              276.55769092962146,
+              276.65191423147917,
+              277.632440906018,
+              276.8017752096057,
+              277.9305591247976,
+              278.28057995066047
+            ],
+            "warmup_ms": 400.1510520465672,
+            "warmup_recorded": true
+          }
+        ],
+        "steady_inference_ms": 276.9375240895897,
+        "steady_samples_ms": [
+          284.0856621041894,
+          282.1583361364901,
+          280.6502180173993,
+          276.51338931173086,
+          276.47600416094065,
+          276.4021339826286,
+          275.7527632638812,
+          275.0411252491176,
+          275.4215793684125,
+          275.41926223784685,
+          273.7058801576495,
+          275.49312030896544,
+          281.52882028371096,
+          279.63375486433506,
+          281.13733883947134,
+          279.464032035321,
+          276.3334419578314,
+          275.5513028241694,
+          277.07327296957374,
+          284.01091089472175,
+          279.67227809131145,
+          278.83799420669675,
+          275.8040623739362,
+          277.07714214921,
+          276.55769092962146,
+          276.65191423147917,
+          277.632440906018,
+          276.8017752096057,
+          277.9305591247976,
+          278.28057995066047
+        ],
+        "total_pair_ms": 53471.023780992255
+      }
+    },
+    {
+      "candidate_id": "sea-raft-m",
+      "cap_token": "mp2",
+      "category": "identity",
+      "conditioning_parameters": {},
+      "conditioning_token": "native-clamp01-v1",
+      "environment": {
+        "model_manifest_sha256": "8fa3b5deec5806b613290e7315b5af01d56139fe2534135af8797703c6de70de",
+        "provider_version": "CUDAExecutionProvider",
+        "runtime_version": "1.29.0"
+      },
+      "geometry": {
+        "analysis_height": 1060,
+        "analysis_width": 1886,
+        "canonical_height": 1080.0,
+        "canonical_width": 1920.0,
+        "effective_padded_megapixels": 2.008832,
+        "padded_height": 1064,
+        "padded_width": 1888,
+        "source_height": 1080,
+        "source_pixel_aspect_ratio": 1.0,
+        "source_width": 1920,
+        "spacing_x_source_pixels": 1.0180275715800635,
+        "spacing_y_source_pixels": 1.0188679245283019
+      },
+      "host_load": "live_flame",
+      "input_frames": [
+        {
+          "frame": 4,
+          "sha256": "b7250c77ec5fff9892061bc52aaea2ef48709421724dd6b454d4abda91f6b86f"
+        },
+        {
+          "frame": 5,
+          "sha256": "b7250c77ec5fff9892061bc52aaea2ef48709421724dd6b454d4abda91f6b86f"
+        }
+      ],
+      "metrics": {
+        "endpoint_error_px": 0.0013235897996905506,
+        "forward_backward_residual_px": 0.0026485982643789856,
+        "fraction_le_1px": 1.0,
+        "fraction_le_3px": 1.0,
+        "nonfinite_fraction": 0.0,
+        "not_applicable": [
+          "chain_drift_px",
+          "landmark_median_error_px",
+          "landmark_p95_error_px"
+        ],
+        "repeated_run_p99_delta_px": 0.0,
+        "visible_warp_residual": 0.0061622090767015966
+      },
+      "provider": "cuda",
+      "resource": {
+        "baseline_device_memory_mib": 9989.8125,
+        "cleanup_device_memory_mib": 10208.0625,
+        "nvml_samples": [
+          {
+            "stage": "baseline",
+            "used_mib": 9989.8125
+          },
+          {
+            "process_used_mib": 11492.0,
+            "stage": "session_create",
+            "used_mib": 21486.9375
+          },
+          {
+            "process_used_mib": 11492.0,
+            "stage": "steady",
+            "used_mib": 21486.9375
+          },
+          {
+            "process_used_mib": 11632.0,
+            "stage": "session_create",
+            "used_mib": 21626.9375
+          },
+          {
+            "process_used_mib": 11498.0,
+            "stage": "steady",
+            "used_mib": 21492.9375
+          },
+          {
+            "process_used_mib": 11536.0,
+            "stage": "session_create",
+            "used_mib": 21514.9375
+          },
+          {
+            "process_used_mib": 11496.0,
+            "stage": "steady",
+            "used_mib": 21490.9375
+          },
+          {
+            "process_used_mib": 214.0,
+            "stage": "cleanup",
+            "used_mib": 10208.0625
+          },
+          {
+            "stage": "process_exit",
+            "used_mib": 9988.9375
+          }
+        ],
+        "peak_device_memory_mib": 21626.9375,
+        "peak_incremental_device_memory_gib": 11.3643798828125,
+        "process_exit_device_memory_mib": 9988.9375
+      },
+      "shot_id": "syn-fhd-1920x1080-par1",
+      "status": "pass",
+      "timing": {
+        "first_inference_ms": 764.2914759926498,
+        "postprocessing_ms": 47726.65947722271,
+        "preprocessing_ms": 102748.30325506628,
+        "session_creation_ms": 872.5990750826895,
+        "sessions": [
+          {
+            "first_inference_ms": 1217.3754000104964,
+            "session_creation_ms": 1234.689453151077,
+            "session_index": 0,
+            "steady_samples_ms": [
+              277.747028041631,
+              279.375771060586,
+              277.02005580067635,
+              278.729896992445,
+              278.83001742884517,
+              278.38805690407753,
+              277.1935611963272,
+              278.46502140164375,
+              277.4037248454988,
+              287.0826469734311
+            ],
+            "warmup_ms": 284.24969362095,
+            "warmup_recorded": true
+          },
+          {
+            "first_inference_ms": 760.4032941162586,
+            "session_creation_ms": 872.5990750826895,
+            "session_index": 1,
+            "steady_samples_ms": [
+              274.55999003723264,
+              279.36376677826047,
+              278.02574587985873,
+              279.16083624586463,
+              279.1356951929629,
+              278.7135476246476,
+              277.78493892401457,
+              277.7505465783179,
+              279.5266630128026,
+              277.6298802345991
+            ],
+            "warmup_ms": 278.93408900126815,
+            "warmup_recorded": true
+          },
+          {
+            "first_inference_ms": 764.2914759926498,
+            "session_creation_ms": 843.076802790165,
+            "session_index": 2,
+            "steady_samples_ms": [
+              275.38834139704704,
+              278.80827616900206,
+              278.1526427716017,
+              279.2915441095829,
+              278.35166407749057,
+              279.7873537056148,
+              279.0026920847595,
+              278.1249890103936,
+              277.9439459554851,
+              279.2156906798482
+            ],
+            "warmup_ms": 277.9074111022055,
+            "warmup_recorded": true
+          }
+        ],
+        "steady_inference_ms": 278.42653915286064,
+        "steady_samples_ms": [
+          277.747028041631,
+          279.375771060586,
+          277.02005580067635,
+          278.729896992445,
+          278.83001742884517,
+          278.38805690407753,
+          277.1935611963272,
+          278.46502140164375,
+          277.4037248454988,
+          287.0826469734311,
+          274.55999003723264,
+          279.36376677826047,
+          278.02574587985873,
+          279.16083624586463,
+          279.1356951929629,
+          278.7135476246476,
+          277.78493892401457,
+          277.7505465783179,
+          279.5266630128026,
+          277.6298802345991,
+          275.38834139704704,
+          278.80827616900206,
+          278.1526427716017,
+          279.2915441095829,
+          278.35166407749057,
+          279.7873537056148,
+          279.0026920847595,
+          278.1249890103936,
+          277.9439459554851,
+          279.2156906798482
+        ],
+        "total_pair_ms": 150753.38927144185
+      }
+    },
+    {
+      "candidate_id": "sea-raft-m",
+      "cap_token": "mp2",
+      "category": "identity",
+      "conditioning_parameters": {},
+      "conditioning_token": "native-clamp01-v1",
+      "environment": {
+        "model_manifest_sha256": "8fa3b5deec5806b613290e7315b5af01d56139fe2534135af8797703c6de70de",
+        "provider_version": "CUDAExecutionProvider",
+        "runtime_version": "1.29.0"
+      },
+      "failure": {
+        "message": "peak_incremental_device_memory_gib=21.7999267578125 exceeds hard gate 15.0",
+        "stage": "resource",
+        "type": "quality_gate_failed"
+      },
+      "geometry": {
+        "analysis_height": 1060,
+        "analysis_width": 1886,
+        "canonical_height": 2160.0,
+        "canonical_width": 3840.0,
+        "effective_padded_megapixels": 2.008832,
+        "padded_height": 1064,
+        "padded_width": 1888,
+        "source_height": 2160,
+        "source_pixel_aspect_ratio": 1.0,
+        "source_width": 3840,
+        "spacing_x_source_pixels": 2.036055143160127,
+        "spacing_y_source_pixels": 2.0377358490566038
+      },
+      "host_load": "idle",
+      "input_frames": [
+        {
+          "frame": 4,
+          "sha256": "7132f4f6778ed2ffb1288726cd185003b3e9a855cb0d64eb15caa2c151c4781a"
+        },
+        {
+          "frame": 5,
+          "sha256": "7132f4f6778ed2ffb1288726cd185003b3e9a855cb0d64eb15caa2c151c4781a"
+        }
+      ],
+      "metrics": {
+        "endpoint_error_px": 0.013870011557455413,
+        "forward_backward_residual_px": 0.027713333107585482,
+        "fraction_le_1px": 1.0,
+        "fraction_le_3px": 1.0,
+        "nonfinite_fraction": 0.0,
+        "not_applicable": [
+          "chain_drift_px",
+          "landmark_median_error_px",
+          "landmark_p95_error_px"
+        ],
+        "repeated_run_p99_delta_px": 0.0,
+        "visible_warp_residual": 0.14083789656774062
+      },
+      "provider": "cuda",
+      "resource": {
+        "baseline_device_memory_mib": 1074.875,
+        "cleanup_device_memory_mib": 1284.0,
+        "nvml_samples": [
+          {
+            "stage": "baseline",
+            "used_mib": 1074.875
+          },
+          {
+            "process_used_mib": 11494.0,
+            "stage": "session_create",
+            "used_mib": 12574.0
+          },
+          {
+            "process_used_mib": 22244.0,
+            "stage": "steady",
+            "used_mib": 23324.0
+          },
+          {
+            "process_used_mib": 22316.0,
+            "stage": "session_create",
+            "used_mib": 23364.0
+          },
+          {
+            "process_used_mib": 22244.0,
+            "stage": "steady",
+            "used_mib": 23324.0
+          },
+          {
+            "process_used_mib": 22318.0,
+            "stage": "session_create",
+            "used_mib": 23398.0
+          },
+          {
+            "process_used_mib": 22248.0,
+            "stage": "steady",
+            "used_mib": 23328.0
+          },
+          {
+            "process_used_mib": 214.0,
+            "stage": "cleanup",
+            "used_mib": 1284.0
+          },
+          {
+            "stage": "process_exit",
+            "used_mib": 1064.875
+          }
+        ],
+        "peak_device_memory_mib": 23398.0,
+        "peak_incremental_device_memory_gib": 21.7999267578125,
+        "process_exit_device_memory_mib": 1064.875
+      },
+      "shot_id": "syn-uhd-3840x2160-par1",
+      "status": "fail",
+      "timing": {
+        "first_inference_ms": 758.912546094507,
+        "postprocessing_ms": 17856.663770973682,
+        "preprocessing_ms": 99201.67993102223,
+        "session_creation_ms": 426.646932028234,
+        "sessions": [
+          {
+            "first_inference_ms": 914.6932540461421,
+            "session_creation_ms": 660.8901233412325,
+            "session_index": 0,
+            "steady_samples_ms": [
+              276.5932991169393,
+              276.12419705837965,
+              275.2761282026768,
+              278.333046939224,
+              276.4757890254259,
+              277.7884812094271,
+              277.32763811945915,
+              277.4307359941304,
+              275.9945369325578,
+              277.9935309663415
+            ],
+            "warmup_ms": 408.9113576337695,
+            "warmup_recorded": true
+          },
+          {
+            "first_inference_ms": 758.912546094507,
+            "session_creation_ms": 426.646932028234,
+            "session_index": 1,
+            "steady_samples_ms": [
+              275.5714152008295,
+              275.9612179361284,
+              277.7132587507367,
+              277.29294914752245,
+              277.26740995422006,
+              275.6330631673336,
+              278.65085005760193,
+              276.42107801511884,
+              277.90337707847357,
+              277.45320415124297
+            ],
+            "warmup_ms": 404.3541019782424,
+            "warmup_recorded": true
+          },
+          {
+            "first_inference_ms": 746.622150298208,
+            "session_creation_ms": 421.06263479217887,
+            "session_index": 2,
+            "steady_samples_ms": [
+              276.02613577619195,
+              278.1947711482644,
+              276.4619099907577,
+              276.4633600600064,
+              276.9680628553033,
+              277.1311062388122,
+              276.63634717464447,
+              277.34781708568335,
+              276.98337100446224,
+              277.26689260452986
+            ],
+            "warmup_ms": 405.7199186645448,
+            "warmup_recorded": true
+          }
+        ],
+        "steady_inference_ms": 277.0572386216372,
+        "steady_samples_ms": [
+          276.5932991169393,
+          276.12419705837965,
+          275.2761282026768,
+          278.333046939224,
+          276.4757890254259,
+          277.7884812094271,
+          277.32763811945915,
+          277.4307359941304,
+          275.9945369325578,
+          277.9935309663415,
+          275.5714152008295,
+          275.9612179361284,
+          277.7132587507367,
+          277.29294914752245,
+          277.26740995422006,
+          275.6330631673336,
+          278.65085005760193,
+          276.42107801511884,
+          277.90337707847357,
+          277.45320415124297,
+          276.02613577619195,
+          278.1947711482644,
+          276.4619099907577,
+          276.4633600600064,
+          276.9680628553033,
+          277.1311062388122,
+          276.63634717464447,
+          277.34781708568335,
+          276.98337100446224,
+          277.26689260452986
+        ],
+        "total_pair_ms": 117335.40094061755
+      }
+    },
+    {
+      "candidate_id": "sea-raft-m",
+      "cap_token": "mp2",
+      "category": "identity",
+      "conditioning_parameters": {},
+      "conditioning_token": "native-clamp01-v1",
+      "environment": {
+        "model_manifest_sha256": "8fa3b5deec5806b613290e7315b5af01d56139fe2534135af8797703c6de70de",
+        "provider_version": "CUDAExecutionProvider",
+        "runtime_version": "1.29.0"
+      },
+      "geometry": {
+        "analysis_height": 1060,
+        "analysis_width": 1886,
+        "canonical_height": 2160.0,
+        "canonical_width": 3840.0,
+        "effective_padded_megapixels": 2.008832,
+        "padded_height": 1064,
+        "padded_width": 1888,
+        "source_height": 2160,
+        "source_pixel_aspect_ratio": 1.0,
+        "source_width": 3840,
+        "spacing_x_source_pixels": 2.036055143160127,
+        "spacing_y_source_pixels": 2.0377358490566038
+      },
+      "host_load": "live_flame",
+      "input_frames": [
+        {
+          "frame": 4,
+          "sha256": "7132f4f6778ed2ffb1288726cd185003b3e9a855cb0d64eb15caa2c151c4781a"
+        },
+        {
+          "frame": 5,
+          "sha256": "7132f4f6778ed2ffb1288726cd185003b3e9a855cb0d64eb15caa2c151c4781a"
+        }
+      ],
+      "metrics": {
+        "endpoint_error_px": 0.013870011557455413,
+        "forward_backward_residual_px": 0.027713333107585482,
+        "fraction_le_1px": 1.0,
+        "fraction_le_3px": 1.0,
+        "nonfinite_fraction": 0.0,
+        "not_applicable": [
+          "chain_drift_px",
+          "landmark_median_error_px",
+          "landmark_p95_error_px"
+        ],
+        "repeated_run_p99_delta_px": 0.0,
+        "visible_warp_residual": 0.14083789656774062
+      },
+      "provider": "cuda",
+      "resource": {
+        "baseline_device_memory_mib": 9994.0,
+        "cleanup_device_memory_mib": 10212.25,
+        "nvml_samples": [
+          {
+            "stage": "baseline",
+            "used_mib": 9994.0
+          },
+          {
+            "process_used_mib": 11492.0,
+            "stage": "session_create",
+            "used_mib": 21490.25
+          },
+          {
+            "process_used_mib": 11492.0,
+            "stage": "steady",
+            "used_mib": 21490.25
+          },
+          {
+            "process_used_mib": 11630.0,
+            "stage": "session_create",
+            "used_mib": 21628.25
+          },
+          {
+            "process_used_mib": 11496.0,
+            "stage": "steady",
+            "used_mib": 21494.25
+          },
+          {
+            "process_used_mib": 11518.0,
+            "stage": "session_create",
+            "used_mib": 21516.25
+          },
+          {
+            "process_used_mib": 11494.0,
+            "stage": "steady",
+            "used_mib": 21492.25
+          },
+          {
+            "process_used_mib": 214.0,
+            "stage": "cleanup",
+            "used_mib": 10212.25
+          },
+          {
+            "stage": "process_exit",
+            "used_mib": 9993.125
+          }
+        ],
+        "peak_device_memory_mib": 21628.25,
+        "peak_incremental_device_memory_gib": 11.361572265625,
+        "process_exit_device_memory_mib": 9993.125
+      },
+      "shot_id": "syn-uhd-3840x2160-par1",
+      "status": "pass",
+      "timing": {
+        "first_inference_ms": 767.2501630149782,
+        "postprocessing_ms": 47806.891488842666,
+        "preprocessing_ms": 280588.239221368,
+        "session_creation_ms": 873.5480941832066,
+        "sessions": [
+          {
+            "first_inference_ms": 1209.9972567521036,
+            "session_creation_ms": 1124.512315262109,
+            "session_index": 0,
+            "steady_samples_ms": [
+              276.9197728484869,
+              279.88282684236765,
+              276.7511364072561,
+              279.1539099998772,
+              278.0498620122671,
+              278.2224672846496,
+              277.29595825076103,
+              277.8491098433733,
+              277.6959352195263,
+              278.05931586772203
+            ],
+            "warmup_ms": 285.9045257791877,
+            "warmup_recorded": true
+          },
+          {
+            "first_inference_ms": 767.2501630149782,
+            "session_creation_ms": 873.5480941832066,
+            "session_index": 1,
+            "steady_samples_ms": [
+              274.21772200614214,
+              297.10625298321247,
+              277.60147117078304,
+              278.07443821802735,
+              277.46665524318814,
+              279.262222815305,
+              277.0615569315851,
+              277.46203588321805,
+              279.0195792913437,
+              277.3120463825762
+            ],
+            "warmup_ms": 277.5454227812588,
+            "warmup_recorded": true
+          },
+          {
+            "first_inference_ms": 762.6460362225771,
+            "session_creation_ms": 846.5374736115336,
+            "session_index": 2,
+            "steady_samples_ms": [
+              274.05177894979715,
+              277.3561901412904,
+              277.6298513635993,
+              278.7135988473892,
+              277.98917377367616,
+              277.9809790663421,
+              279.0210642851889,
+              278.2877557910979,
+              277.9978970065713,
+              278.90675235539675
+            ],
+            "warmup_ms": 277.8447181917727,
+            "warmup_recorded": true
+          }
+        ],
+        "steady_inference_ms": 277.98507642000914,
+        "steady_samples_ms": [
+          276.9197728484869,
+          279.88282684236765,
+          276.7511364072561,
+          279.1539099998772,
+          278.0498620122671,
+          278.2224672846496,
+          277.29595825076103,
+          277.8491098433733,
+          277.6959352195263,
+          278.05931586772203,
+          274.21772200614214,
+          297.10625298321247,
+          277.60147117078304,
+          278.07443821802735,
+          277.46665524318814,
+          279.262222815305,
+          277.0615569315851,
+          277.46203588321805,
+          279.0195792913437,
+          277.3120463825762,
+          274.05177894979715,
+          277.3561901412904,
+          277.6298513635993,
+          278.7135988473892,
+          277.98917377367616,
+          277.9809790663421,
+          279.0210642851889,
+          278.2877557910979,
+          277.9978970065713,
+          278.90675235539675
+        ],
+        "total_pair_ms": 328673.11578663066
+      }
+    }
+  ],
+  "runner": {
+    "command": "/home/flame/whitewater-p25-6/tools/bakeoff/run.py --selection inputs/selection-final.json --candidates inputs/candidate-entries.json --artifact-map inputs/artifact-map.json --corpus /home/flame/p25-6-operator-inputs/corpus.json --report-metadata /home/flame/p25-6-operator-inputs/report-metadata.json --output-dir /data/volume01/media/mti_vfx/interchange/white-water/out/final",
+    "evaluator_sha256": "1cc042656e88f535c8913d377c85e6f530c9ee8cd87f70199cdbbbd6881aa76d",
+    "name": "ww-bakeoff",
+    "runtime": "python-3.11;microsoft-onnxruntime-linux-x64-gpu_cuda12-1.29.0+whitewater-native-bridge;openexr-python+openexr+imath;pynvml;conda-pack;el8-x86_64",
+    "runtime_sha256": "48e6925df9d5a3a17b21794f64b0f3225ed4a76d3bd8c9d7751a3a14fea97068",
+    "source_commit": "5731b2de8010c74b081c0696ddc986f5a25c851d",
+    "version": "0.1.0"
+  },
+  "schema_version": 2,
+  "started_utc": "2026-09-01T21:54:32.560998+00:00",
+  "summary": {
+    "failed_cells": 2,
+    "passed_cells": 2,
+    "required_cells": 4,
+    "skipped_cells": 0
+  }
+}
