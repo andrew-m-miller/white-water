@@ -370,6 +370,34 @@ exhaustion is typed `out_of_memory` at the relevant runtime stage; generic runti
 `runtime_error`. This fixes the reporting contract without turning the stale-metadata diagnostic
 attempt into a qualified result.
 
+## Session 15 — 2026-09-01 — P25-6 final run completed, and the memory-gate baseline artifact
+
+A second 2026-09-01 run, published for review in PR #31 under
+[`measurements/2026-09-01-p25-6/`](measurements/2026-09-01-p25-6/), is the first to complete all
+four final CUDA cells with accepted NVML evidence. Its `runner.source_commit` is `5731b2d` — main
+HEAD, the #30 merge carrying the publication fix — so the runner axis no longer records the stale
+`a8e974d` that made Session 14's attempt diagnostic-only. (Formal admissibility still turns on the
+outer archive matching its qualifying dispatch; confirm that against the sidecar before treating
+these overruns as qualification evidence rather than the runner binding alone.) CPU smoke and
+screen pass 1/1 and 2/2. Both `live_flame` final cells now **pass** at ~11.4 GiB incremental
+device memory and ~278 ms steady — the Session 14 live-Flame `BFCArena` allocation failure did not
+recur — while both `idle` cells **fail** the 15 GiB resource gate at 21.837 (FHD) and 21.800 (UHD)
+GiB incremental, typed `quality_gate_failed`/`stage: resource` with full timing, metrics and NVML
+retained, exactly as the #30 taxonomy intends. Quality is excellent in every cell (endpoint error
+≈ 0.001 px, `fraction_le_1px = 1.0`).
+
+**The finding worth carrying into P25-7:** the resource gate keys on
+`peak_incremental_device_memory = peak_device − baseline_device`, and that subtraction, not the
+candidate, decides pass/fail here. Absolute peak device memory is ~21.6–23.4 GiB of the A5000's
+24 GiB in **both** host loads. Under `idle` the baseline is ~1.08 GiB, so the increment is
+~21.8 GiB and the cell fails; under `live_flame` Flame is already ~9.99 GiB resident, so the same
+workload's increment is only ~11.4 GiB and the cell passes. A heavier host therefore makes the
+candidate *look* lighter to the gate, and pass/fail flips on host load rather than on candidate
+behaviour — the candidate genuinely wants ~22 GiB of a 24 GiB card either way, i.e. near-OOM
+regardless of load. Whether P25-7 should gate on absolute peak (headroom to a device OOM) instead
+of, or alongside, baseline-subtracted increment is a ranking/selection decision, not a change to
+this evidence. No model, default, target result or OFX choice index is selected here.
+
 ---
 
 ## Decisions
@@ -563,6 +591,12 @@ is the right design.
   repository, checkpoint and backbone surfaces separately. Unknown checkpoint terms fail closed
   for shipping without automatically blocking evaluation. Before anything goes to a client, the
   exact packaged files and required notices still need human review. See `models/MODELS.md`.
+- **The resource gate is baseline-subtracted, so host load can flip a verdict.** The P25-6
+  gate keys on `peak_device − baseline_device`, not absolute peak. On the RTX A5000 (24 GiB),
+  SEA-RAFT M's ~22 GiB peak fails the 15 GiB gate from an idle ~1 GiB baseline but passes from a
+  live-Flame ~10 GiB baseline, though the absolute footprint — and the near-OOM headroom — is the
+  same. P25-7 must decide whether headroom-to-OOM (absolute peak) belongs in the gate. See
+  Session 15.
 - **No model default is chosen, deliberately.** Choice option order is API — a saved setup
   stores the index — so `inputCurve` and any multi-model `model` choice get their options at
   Phase 2.5, from the bake-off, measured on the exact exported artifact rather than on upstream

@@ -34,8 +34,13 @@ a GPL media stack; see `docs/context.md` correction 8) was built and qualified o
 `06a72bb53d2919b8d2ed03fbcf7cbd314e3c2604fa377b912f01040ce67c707a`; its runtime license inventory
 `a87694f5…` was approved by the Andrew Miller runtime legal-review in PR #24. No model/default,
 target result, or persistent OFX choice index has been selected. The P25-6 human operator
-measurement run on the airgapped box (`smoke`/`screen`/`final` per `bakeoff/p25-6/RUN-P25-6.txt`)
-is next, then P25-7 ranking/selection.
+measurement run (`smoke`/`screen`/`final` per `bakeoff/p25-6/RUN-P25-6.txt`) has been performed on
+the airgapped box; the completed 2026-09-01 evidence (`runner.source_commit 5731b2d`) is under
+review in PR #31 with CPU smoke/screen passing and all four final CUDA cells measured — both
+`live_flame` cells pass and both `idle` cells overrun the 15 GiB resource gate at ~21.8 GiB
+incremental. Read `docs/context.md` Session 15 and `docs/host-notes.md` for the results and the
+baseline-subtraction caveat on that gate. **P25-7 ranking/selection is next** (and must decide
+whether the gate keys on absolute peak device memory, not only baseline-subtracted increment).
 
 The plan was amended on 2026-08-20 after an architecture review. Read `docs/plan.md` and
 `docs/context.md` before writing code against anything you remember about it.
