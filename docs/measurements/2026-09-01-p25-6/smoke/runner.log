@@ -1,0 +1,7 @@
+2026-09-01T20:38:24.721341+00:00 run invoked
+2026-09-01T20:38:24.722839+00:00 matrix planned: 1 cells, matrix_sha256=0ad2d919922d71d5eb010d063d295311528b316a211e7dc4d1e6d60d7df42700
+2026-09-01T20:38:24.723339+00:00 validated artifacts for candidates: ['sea-raft-m']
+2026-09-01T20:38:24.726886+00:00 created new state
+2026-09-01T20:41:52.108448+00:00 cell start {"candidate": "sea-raft-m", "cap": "mp0_5", "conditioning": "native-clamp01-v1", "host_load": "not_applicable", "provider": "cpu", "shot": "prod-motion-blur"}
+2026-09-01T20:41:54.525978+00:00 cell artifact committed status=pass {"candidate": "sea-raft-m", "cap": "mp0_5", "conditioning": "native-clamp01-v1", "host_load": "not_applicable", "provider": "cpu", "shot": "prod-motion-blur"}
+2026-09-01T20:41:56.223744+00:00 run complete; report.json/summary.txt/nvml.csv/review.csv published

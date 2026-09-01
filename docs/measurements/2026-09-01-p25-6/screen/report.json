@@ -1,0 +1,270 @@
+{
+  "candidates": [
+    {
+      "artifact_sha256": "3fd6e110a7459567d2bc8f8dd30ba5e40c780e862fd0fd95809e7ad2e026fa0e",
+      "artifact_size_bytes": 78840944,
+      "candidate_id": "sea-raft-m",
+      "checkpoint_sha256": "cb8cfbf14c5e0f6734b64add383708b7ff68cc6089a0007c67165d4761346102",
+      "exclusion_reason": {
+        "message": "P25-6 is a target-measurement run only. Shipping eligibility and the OFX default selection are deferred to P25-7, so this measurable candidate is intentionally declared status=excluded here (measurement_status=measurable). The license surface below is the reviewed 2026-08-23 audit from models/sea-raft-m.json and is carried as evidence, not as a shipping authorization.",
+        "type": "other"
+      },
+      "export_environment_sha256": "8ff8de3d6df330fe73f8e382a93b8a33c15efeeb03b888135ab23153da1dd50c",
+      "license_verdicts": {
+        "backbone": "commercial_use_permitted",
+        "checkpoint": "commercial_use_permitted",
+        "code": "commercial_use_permitted"
+      },
+      "manifest_sha256": "8fa3b5deec5806b613290e7315b5af01d56139fe2534135af8797703c6de70de",
+      "measurement_providers": [
+        "cpu",
+        "cuda"
+      ],
+      "measurement_status": "measurable",
+      "redistribution_permitted": {
+        "backbone": "permitted",
+        "checkpoint": "permitted",
+        "code": "permitted"
+      },
+      "redistribution_terms_reviewed": {
+        "backbone": true,
+        "checkpoint": true,
+        "code": true
+      },
+      "source_commit": "9137517ba24e628442aec097d3afe71d03503b75",
+      "status": "excluded"
+    }
+  ],
+  "completed_utc": "2026-09-01T20:52:47.518878+00:00",
+  "corpus_id": "p25-6-flame6-20260831-v1",
+  "corpus_sha256": "48be9169948e500961145dada98f146dc773aa10a4af4eb5b09a2240f9bf2601",
+  "environment": "el8-x86_64",
+  "hardware": {
+    "architecture": "x86_64",
+    "cpu": "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz",
+    "driver": "580.95.05",
+    "gpu": "NVIDIA RTX A5000",
+    "os_release": "Rocky Linux 9.5 (Blue Onyx)",
+    "platform": "linux"
+  },
+  "matrix": {
+    "candidate_ids": [
+      "sea-raft-m"
+    ],
+    "cap_tokens": [
+      "mp0_331776"
+    ],
+    "conditioning_tokens": [
+      "native-clamp01-v1"
+    ],
+    "matrix_sha256": "0c2ea53b70c133c46252ba0e1a4fcc5ad0aa77642dd214c5cc20d2bbae90ee6e",
+    "providers": [
+      {
+        "host_loads": [
+          "not_applicable"
+        ],
+        "token": "cpu"
+      }
+    ],
+    "shot_ids": [
+      "syn-fhd-1920x1080-par1",
+      "syn-uhd-3840x2160-par1"
+    ]
+  },
+  "profile": "screen",
+  "protocol_id": "whitewater-p25-v2",
+  "report_id": "p25-6-sea-raft-m-target",
+  "results": [
+    {
+      "candidate_id": "sea-raft-m",
+      "cap_token": "mp0_331776",
+      "category": "identity",
+      "conditioning_parameters": {},
+      "conditioning_token": "native-clamp01-v1",
+      "environment": {
+        "model_manifest_sha256": "8fa3b5deec5806b613290e7315b5af01d56139fe2534135af8797703c6de70de",
+        "provider_version": "CPUExecutionProvider",
+        "runtime_version": "1.29.0"
+      },
+      "geometry": {
+        "analysis_height": 432,
+        "analysis_width": 768,
+        "canonical_height": 1080.0,
+        "canonical_width": 1920.0,
+        "effective_padded_megapixels": 0.331776,
+        "padded_height": 432,
+        "padded_width": 768,
+        "source_height": 1080,
+        "source_pixel_aspect_ratio": 1.0,
+        "source_width": 1920,
+        "spacing_x_source_pixels": 2.5,
+        "spacing_y_source_pixels": 2.5
+      },
+      "host_load": "not_applicable",
+      "input_frames": [
+        {
+          "frame": 4,
+          "sha256": "b7250c77ec5fff9892061bc52aaea2ef48709421724dd6b454d4abda91f6b86f"
+        },
+        {
+          "frame": 5,
+          "sha256": "b7250c77ec5fff9892061bc52aaea2ef48709421724dd6b454d4abda91f6b86f"
+        }
+      ],
+      "metrics": {
+        "endpoint_error_px": 0.03058551361360595,
+        "forward_backward_residual_px": 0.06118729772587244,
+        "fraction_le_1px": 1.0,
+        "fraction_le_3px": 1.0,
+        "nonfinite_fraction": 0.0,
+        "not_applicable": [
+          "chain_drift_px",
+          "landmark_median_error_px",
+          "landmark_p95_error_px"
+        ],
+        "repeated_run_p99_delta_px": 0.0,
+        "visible_warp_residual": 0.3411109755195732
+      },
+      "provider": "cpu",
+      "resource": {
+        "peak_incremental_device_memory_gib": 0.0
+      },
+      "shot_id": "syn-fhd-1920x1080-par1",
+      "status": "pass",
+      "timing": {
+        "first_inference_ms": 869.1875389777124,
+        "postprocessing_ms": 492.1868313103914,
+        "preprocessing_ms": 22788.531036116183,
+        "session_creation_ms": 532.4524436146021,
+        "sessions": [
+          {
+            "first_inference_ms": 869.1875389777124,
+            "session_creation_ms": 532.4524436146021,
+            "session_index": 0,
+            "steady_samples_ms": [
+              889.6073130890727,
+              846.5192192234099,
+              862.6573658548295,
+              858.8152257725596,
+              823.4894732013345
+            ],
+            "warmup_recorded": false
+          }
+        ],
+        "steady_inference_ms": 858.8152257725596,
+        "steady_samples_ms": [
+          889.6073130890727,
+          846.5192192234099,
+          862.6573658548295,
+          858.8152257725596,
+          823.4894732013345
+        ],
+        "total_pair_ms": 24139.533093199134
+      }
+    },
+    {
+      "candidate_id": "sea-raft-m",
+      "cap_token": "mp0_331776",
+      "category": "identity",
+      "conditioning_parameters": {},
+      "conditioning_token": "native-clamp01-v1",
+      "environment": {
+        "model_manifest_sha256": "8fa3b5deec5806b613290e7315b5af01d56139fe2534135af8797703c6de70de",
+        "provider_version": "CPUExecutionProvider",
+        "runtime_version": "1.29.0"
+      },
+      "geometry": {
+        "analysis_height": 432,
+        "analysis_width": 768,
+        "canonical_height": 2160.0,
+        "canonical_width": 3840.0,
+        "effective_padded_megapixels": 0.331776,
+        "padded_height": 432,
+        "padded_width": 768,
+        "source_height": 2160,
+        "source_pixel_aspect_ratio": 1.0,
+        "source_width": 3840,
+        "spacing_x_source_pixels": 5.0,
+        "spacing_y_source_pixels": 5.0
+      },
+      "host_load": "not_applicable",
+      "input_frames": [
+        {
+          "frame": 4,
+          "sha256": "7132f4f6778ed2ffb1288726cd185003b3e9a855cb0d64eb15caa2c151c4781a"
+        },
+        {
+          "frame": 5,
+          "sha256": "7132f4f6778ed2ffb1288726cd185003b3e9a855cb0d64eb15caa2c151c4781a"
+        }
+      ],
+      "metrics": {
+        "endpoint_error_px": 1.7494742610025416,
+        "forward_backward_residual_px": 3.5014893357514443,
+        "fraction_le_1px": 0.1372703269675926,
+        "fraction_le_3px": 0.9735152633101852,
+        "nonfinite_fraction": 0.0,
+        "not_applicable": [
+          "chain_drift_px",
+          "landmark_median_error_px",
+          "landmark_p95_error_px"
+        ],
+        "repeated_run_p99_delta_px": 0.0,
+        "visible_warp_residual": 35.48387201032231
+      },
+      "provider": "cpu",
+      "resource": {
+        "peak_incremental_device_memory_gib": 0.0
+      },
+      "shot_id": "syn-uhd-3840x2160-par1",
+      "status": "pass",
+      "timing": {
+        "first_inference_ms": 764.555434230715,
+        "postprocessing_ms": 508.7162321433425,
+        "preprocessing_ms": 85219.21475185081,
+        "session_creation_ms": 413.330330979079,
+        "sessions": [
+          {
+            "first_inference_ms": 764.555434230715,
+            "session_creation_ms": 413.330330979079,
+            "session_index": 0,
+            "steady_samples_ms": [
+              625.8603557944298,
+              591.6830971837044,
+              589.4268318079412,
+              589.0900609083474,
+              588.8123777695
+            ],
+            "warmup_recorded": false
+          }
+        ],
+        "steady_inference_ms": 589.4268318079412,
+        "steady_samples_ms": [
+          625.8603557944298,
+          591.6830971837044,
+          589.4268318079412,
+          589.0900609083474,
+          588.8123777695
+        ],
+        "total_pair_ms": 86317.3578158021
+      }
+    }
+  ],
+  "runner": {
+    "command": "/home/flame/whitewater-p25-6/tools/bakeoff/run.py --selection inputs/selection-screen.json --candidates inputs/candidate-entries.json --artifact-map inputs/artifact-map.json --corpus /home/flame/p25-6-operator-inputs/corpus.json --report-metadata /home/flame/p25-6-operator-inputs/report-metadata.json --output-dir /data/volume01/media/mti_vfx/interchange/white-water/out/screen",
+    "evaluator_sha256": "1cc042656e88f535c8913d377c85e6f530c9ee8cd87f70199cdbbbd6881aa76d",
+    "name": "ww-bakeoff",
+    "runtime": "python-3.11;microsoft-onnxruntime-linux-x64-gpu_cuda12-1.29.0+whitewater-native-bridge;openexr-python+openexr+imath;pynvml;conda-pack;el8-x86_64",
+    "runtime_sha256": "48e6925df9d5a3a17b21794f64b0f3225ed4a76d3bd8c9d7751a3a14fea97068",
+    "source_commit": "5731b2de8010c74b081c0696ddc986f5a25c851d",
+    "version": "0.1.0"
+  },
+  "schema_version": 2,
+  "started_utc": "2026-09-01T20:52:47.518862+00:00",
+  "summary": {
+    "failed_cells": 0,
+    "passed_cells": 2,
+    "required_cells": 2,
+    "skipped_cells": 0
+  }
+}
