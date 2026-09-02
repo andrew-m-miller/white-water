@@ -26,11 +26,12 @@ TEMP_ROOT=$(CDPATH= cd -P -- "$TEMP_ROOT" && pwd -P)
 trap 'rm -rf "$TEMP_ROOT"' EXIT
 
 PACKAGE="$TEMP_ROOT/package"
-mkdir -p "$PACKAGE/scripts" "$PACKAGE/tools/bakeoff" "$PACKAGE/runtime/source/bin"
+mkdir -p "$PACKAGE/scripts" "$PACKAGE/tools/bakeoff" "$PACKAGE/models" "$PACKAGE/runtime/source/bin"
 cp "$WRAPPER" "$PACKAGE/scripts/ww-bakeoff-airgap"
 chmod 0755 "$PACKAGE/scripts/ww-bakeoff-airgap"
 printf '# fake evaluator entrypoint\n' > "$PACKAGE/tools/bakeoff/evaluator.py"
 printf '# fake P25-6 profile driver entrypoint\n' > "$PACKAGE/tools/bakeoff/run.py"
+printf '# fake WAFT export/validation entrypoint\n' > "$PACKAGE/models/export_waft.py"
 
 UNPACK_LOG="$TEMP_ROOT/unpack.log"
 PYTHON_LOG="$TEMP_ROOT/python.log"
@@ -117,6 +118,24 @@ grep -F "PYTHON_ARGS=<-m><tools.bakeoff.run><--selection><selection.json><--outp
   || die "WW_BAKEOFF_ENTRYPOINT did not launch the driver as -m tools.bakeoff.run with forwarded arguments"
 grep -F "PYTHONPATH=$PACKAGE_CANONICAL" "$ENTRYPOINT_PYTHON_LOG" >/dev/null \
   || die "driver module invocation did not set PYTHONPATH to the package root"
+
+# WW_BAKEOFF_ENTRYPOINT launches the WAFT export/validation entrypoint (models/export_waft.py)
+# in SCRIPT mode -- like evaluator.py, a bare carried script path with NO PYTHONPATH, so its own
+# models/ directory lands on sys.path[0] and `import artifact_workflow` resolves.
+WAFT_ENTRYPOINT_ENV="$TEMP_ROOT/waft-entrypoint-runtime-env"
+WAFT_ENTRYPOINT_UNPACK_LOG="$TEMP_ROOT/waft-entrypoint-unpack.log"
+WAFT_ENTRYPOINT_PYTHON_LOG="$TEMP_ROOT/waft-entrypoint-python.log"
+WW_BAKEOFF_RUNTIME_ARCHIVE="$PACKAGE/runtime/runtime.tar" \
+WW_BAKEOFF_RUNTIME_ENV="$WAFT_ENTRYPOINT_ENV" \
+WW_BAKEOFF_ENTRYPOINT="models/export_waft.py" \
+WW_TEST_UNPACK_LOG="$WAFT_ENTRYPOINT_UNPACK_LOG" \
+WW_TEST_PYTHON_LOG="$WAFT_ENTRYPOINT_PYTHON_LOG" \
+"$PACKAGE/scripts/ww-bakeoff-airgap" --upstream waft-src --checkpoint zero-shot.pth --update-manifest
+[[ "$(count_lines "$WAFT_ENTRYPOINT_UNPACK_LOG")" == 1 ]] || die "WAFT entrypoint invocation did not unpack the runtime"
+grep -F "PYTHON_ARGS=<$PACKAGE_CANONICAL/models/export_waft.py><--upstream><waft-src><--checkpoint><zero-shot.pth><--update-manifest>" "$WAFT_ENTRYPOINT_PYTHON_LOG" >/dev/null \
+  || die "WW_BAKEOFF_ENTRYPOINT did not launch export_waft.py as a bare script with forwarded arguments"
+grep -F 'PYTHONPATH=UNSET' "$WAFT_ENTRYPOINT_PYTHON_LOG" >/dev/null \
+  || die "WAFT script entrypoint must not set PYTHONPATH (it relies on sys.path[0])"
 
 # An unrecognized, absolute, or symlinked entrypoint must be rejected before Python ever runs.
 if WW_BAKEOFF_RUNTIME_ARCHIVE="$PACKAGE/runtime/runtime.tar" WW_BAKEOFF_RUNTIME_ENV="$TEMP_ROOT/entrypoint-bad-env" \

@@ -1,0 +1,219 @@
+White Water WAFT export/validation runtime package
+===================================================
+
+This package runs models/export_waft.py on the airgapped Flame/EL8 box to EXPORT and VALIDATE the
+pinned WAFT/Twins candidate.  It is an evaluation runtime, not an OFX shipping bundle: it selects
+no model, assigns no OFX choice index, and authorizes no redistribution of the WAFT checkpoint.
+Do not install the extracted directory into Flame as a product plugin.
+
+The export is device-independent and runs on CPU.  This package deliberately does NOT carry the
+ONNX Runtime CUDA-12 archive or the White Water native ORT bridge; onnxruntime is the conda-forge
+CPU build and there is no CUDA setup.  (If you have run RUN-P25-6.txt: that procedure does not
+apply here -- this is a different runtime with a different purpose.)
+
+No production images and no checkpoint leave the machine.  The operator returns only:
+
+    waft-twins-opset17.onnx          # the exported linux artifact (models/ in the package)
+    waft-twins-artifact.json         # the updated manifest carrying the linux artifact identity
+
+What the package carries
+------------------------
+
+* the offline bootstrap `scripts/ww-bakeoff-airgap` (the only 0755 regular file);
+* the export entrypoint `models/export_waft.py` and its only sibling module
+  `models/artifact_workflow.py`;
+* the pinned candidate manifest `models/waft-twins-artifact.json` (its validation.* thresholds
+  are what a successful run must satisfy);
+* the pinned WAFT BSD-3-Clause source as a CLEAN git checkout under `waft-src/` (commit
+  b152ff1cad1af8c185ee7b141997c48ff3334c87, including its `.git`), so the box needs no network and
+  no separate WAFT download.  export_waft.py re-verifies this checkout's commit and cleanliness.
+  The one WAFT git submodule, `thirdparty/dinov3` (facebookresearch/dinov3, NON-COMMERCIAL), is
+  deliberately OMITTED and its directory is empty: the Twins export path never instantiates the
+  DINOv3 backbone, so it is not needed (CI proves this by constructing the real WAFTv2(twins)
+  weightless with the submodule absent).  `thirdparty/DepthAnythingV2` (Apache-2.0, vendored
+  tracked code, not a submodule) IS present because the model imports it;
+* runtime license/notice aggregates, their hash inventory, the approved runtime legal review, the
+  checked-in technical runtime-input manifest, and the CI-solved @EXPLICIT conda lock; and
+* the pinned conda-pack runtime `runtime/whitewater-waft-validation-runtime.tar.gz`.
+
+Every carried file except the wrapper is a 0644 regular file (the vendored `.git` keeps git's own
+modes).  The package is self-contained apart from (a) a writable directory for the relocated
+conda-pack environment, (b) the operator-supplied checkpoint, and (c) the box's own `/usr/bin/git`.
+Do not edit any carried file except by running export_waft.py, which rewrites the two output files
+above in place under `models/`.
+
+0. Confirm git is present (the export needs it, offline)
+--------------------------------------------------------
+
+export_waft.py shells out to `git` to re-verify the carried WAFT checkout; the wrapper's PATH is
+`runtime/bin:/usr/bin:/bin`.  Git is not bundled (it is GPLv2 and would enlarge the license
+surface), so confirm the box has it:
+
+    command -v git || { echo "install git (or add it to PATH) before running the export" >&2; }
+
+1. Verify the outer archive by SHA256 before extraction
+-------------------------------------------------------
+
+Its SHA256 is emitted by the qualifying CI dispatch (see "Qualifying dispatch" below) and printed
+in the sidecar; do not proceed on an archive whose digest does not match:
+
+    sha256sum -c whitewater-waft-validation-el8.tar.gz.sha256
+
+2. Extract without installing into Flame
+----------------------------------------
+
+    mkdir -p /path/to/whitewater-waft-validation
+    tar -xzf whitewater-waft-validation-el8.tar.gz -C /path/to/whitewater-waft-validation
+    cd /path/to/whitewater-waft-validation/whitewater-waft-validation-el8
+
+3. First contact: unpack the runtime and confirm the toolchain
+--------------------------------------------------------------
+
+`scripts/ww-bakeoff-airgap` performs the offline conda-pack extraction, runs `conda-unpack` once,
+binds the writable runtime directory to the exact runtime archive SHA256, and sanitizes network
+and Python search-path variables before exec-ing the requested entrypoint.  export_waft.py is a
+carried allowlisted entrypoint: the wrapper launches it as a bare script (no PYTHONPATH), so its
+own `models/` directory lands on `sys.path[0]` and `import artifact_workflow` resolves.  Pick a
+fresh runtime directory for a different archive.
+
+Confirm export_waft.py imports and prints its help from the relocated runtime (this touches no
+checkpoint):
+
+    WW_BAKEOFF_ENTRYPOINT=models/export_waft.py \
+    WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-waft-validation-runtime.tar.gz \
+    WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-waft-validation-runtime-env \
+    scripts/ww-bakeoff-airgap --help
+
+4. Supply the checkpoint (operator-provided, downloaded off the box)
+--------------------------------------------------------------------
+
+export_waft.py needs the extracted `zero-shot.pth` member.  DOWNLOAD IT YOURSELF on a networked
+machine -- there is no download step on the airgapped box, and CI never fetches it.  The pinned
+identity, from models/waft-twins-artifact.json, is:
+
+    size:   544230582 bytes
+    sha256: f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070
+    source: https://drive.google.com/file/d/1RA4j0GlNCy7flmc3VIY71ZV-Kz-RYDox/view
+
+Bring it onto the box on media and verify the exact bytes before use:
+
+    test "$(stat -c '%s' /path/to/zero-shot.pth)" = 544230582 || echo "WRONG SIZE" >&2
+    echo "f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070  /path/to/zero-shot.pth" \
+      | sha256sum -c -
+
+Keep the checkpoint OUTSIDE the extracted package (the package must stay checkpoint-free).  Its
+file-level licence is unknown and stays unknown regardless of any numerical pass; nothing here
+authorizes redistributing it.
+
+5. Run the export + validation
+------------------------------
+
+Run from the extracted package root so `waft-src/` and `models/` resolve.  export_waft.py verifies
+provenance (WAFT commit + clean worktree, and the checkpoint's exact size/SHA256), loads the config
+`waft-src/config/a2/twins/chairs-things.json`, constructs the twins_svt_large backbone WEIGHTLESS
+(it forces timm `pretrained=False` and makes any hub weight download fatal -- the only learned
+tensors come from your checkpoint), strictly loads the checkpoint (`strict=True`), exports an
+opset-17 ONNX graph, and qualifies it.  `--update-manifest` records the result:
+
+    WW_BAKEOFF_ENTRYPOINT=models/export_waft.py \
+    WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-waft-validation-runtime.tar.gz \
+    WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-waft-validation-runtime-env \
+    scripts/ww-bakeoff-airgap \
+      --upstream        waft-src \
+      --checkpoint      /path/to/zero-shot.pth \
+      --provider        CPUExecutionProvider \
+      --device          cpu \
+      --platform        linux-x86_64 \
+      --update-manifest
+
+`--config`, `--manifest` and `--output` default correctly for the carried layout, so leave them
+unset: the config resolves to `waft-src/config/a2/twins/chairs-things.json`, the manifest to
+`models/waft-twins-artifact.json`, and the ONNX output to `models/waft-twins-opset17.onnx`.  Point
+`--output` elsewhere ONLY if `models/` is not writable, and never write into `waft-src/` (that
+would dirty the checkout and export_waft.py would then refuse it as `upstream_worktree_dirty`).
+
+To dry-run only the byte-identity checks (commit, clean worktree, checkpoint size/SHA256) without
+loading torch or exporting, add `--verify-provenance-only`.
+
+6. What a pass records, and what a failure records
+--------------------------------------------------
+
+On success export_waft.py prints the artifact path, its SHA256, and the observed validation JSON,
+then (with --update-manifest) rewrites models/waft-twins-artifact.json so that:
+
+  * export.sha256 / export.size_bytes / export.platform_artifacts[0] carry the exact linux
+    `waft-twins-opset17.onnx` identity, and export_environment records the framework/exporter/
+    runtime versions;
+  * validation.status = "passed", with validation.identity, validation.directions (BOTH signed
+    translation directions: forward median +x, reverse median -x), validation.shapes (dynamic),
+    and validation.parity (PyTorch-vs-ONNX mean/p99/p999/max abs) all within the frozen
+    validation.* thresholds; and
+  * status stays "excluded" and checkpoint.license stays "unknown" -- a numerical pass is an
+    evaluation record, NOT shipping approval and NOT a licence resolution.
+
+On failure it prints a typed technical blocker to stderr (exit 2) and, with --update-manifest,
+records it under validation.observed.technical_blocker with validation.status="pending" WITHOUT
+publishing any ONNX hash.  The blocker codes you are most likely to see:
+
+  * strict_checkpoint_load_failure  -- the twins_svt_large architecture the pinned timm builds does
+                                       not match the checkpoint tensors.  This is the KNOWN timm
+                                       RISK (see below).  Nothing is exported.
+  * missing_export_dependency       -- an import (e.g. torch/timm/onnx/onnxruntime, or a WAFT model
+                                       dependency such as xformers) is absent from the runtime.
+  * checkpoint_identity_mismatch    -- the supplied checkpoint size/SHA256 is not the pinned member.
+  * upstream_revision_mismatch / upstream_worktree_dirty -- the carried WAFT checkout was altered.
+  * pytorch_onnx_parity_failure / direction_or_identity_failure -- the graph exported but missed a
+                                       frozen numerical threshold.
+
+Return the two output files (waft-twins-opset17.onnx and the updated waft-twins-artifact.json) from
+`models/`.  On a failure, return the updated manifest (it carries the typed blocker) plus the
+stderr blocker line.  Do not copy the checkpoint, any runtime files, or `waft-src/` into a source
+repository.
+
+Version-pin risks (READ BEFORE RUNNING)
+---------------------------------------
+
+* timm is the single biggest risk.  The pinned WAFT commit does not pin timm, and its README
+  documents a NEWER dev stack than this runtime uses (pytorch 2.7.0 / CUDA 12.8 / python 3.12
+  vs. this runtime's CPU pytorch 2.2.0 / python 3.11, mirroring the SEA-RAFT export).  This runtime
+  pins `timm==0.9.16` conservatively.  If step 5 stops with `strict_checkpoint_load_failure`, the
+  timm twins_svt_large parameter naming does not match the checkpoint: re-pin timm in
+  bakeoff/waft-validation/conda-el8-x86_64.lock (try a recent timm 1.0.x first, and if that still
+  fails, move the whole stack to WAFT's documented pytorch 2.7.x / python 3.12 and a matching timm),
+  update runtime-inputs.json conda.explicit_lock_sha256, and re-dispatch the qualifying build.
+* xformers is NOT needed for the Twins path and is intentionally absent: it does not appear in
+  waft_a2.py, twins.py, vit.py or dinov3.py at the pinned commit (its README note is for other
+  backbones).  einops IS required by the WAFT model code (it is in the pinned commit's
+  requirements.txt) and is included in the runtime.  The CI weightless WAFTv2(twins) construction
+  smoke is the gate for any OTHER missing transitive import: if it names one, add that package to
+  bakeoff/waft-validation/conda-el8-x86_64.lock and re-dispatch.
+* thirdparty/dinov3 (NON-COMMERCIAL) is omitted and not needed here (see above).  If a future WAFT
+  revision made the Twins path require it, that is a licence decision for Andrew -- do NOT vendor
+  the submodule to make the export pass.
+
+Legal record
+------------
+
+The runtime aggregates are `legal/RUNTIME-LICENSES.txt` and `legal/RUNTIME-NOTICES.txt`, covering
+the conda runtime (python, PyTorch CPU, torchvision, numpy, scipy, onnx, onnxruntime CPU,
+safetensors, timm, conda-pack, setuptools and their transitive natives).  A separate Andrew Miller
+runtime legal-review JSON (schema `whitewater-p25-runtime-legal-review-v1`, reviewer
+`Andrew Miller`, `reviewed: true`) approving the exact generated runtime inventory hash is required
+before CI packages anything; the carried `legal/runtime-legal-review.json` is that approval.  The
+WAFT source is BSD-3-Clause (see the LICENSE inside `waft-src/`).  The WAFT checkpoint is
+operator-supplied and its file-level licence is unknown; no review here resolves it.
+
+Qualifying dispatch
+-------------------
+
+This package is built and qualified by the `waft-validation` lane of the `build` workflow
+(.github/workflows/ci.yml), which runs `scripts/ci-waft-validation-qualify.sh` inside an
+`almalinux:8` container.  The first dispatch (with the runtime legal-review inputs left empty)
+solves bakeoff/waft-validation/conda-el8-x86_64.lock on EL8, emits the pinned @EXPLICIT lock,
+conda-packs the environment, runs the weightless twins_svt_large construction smoke, generates the
+runtime license inventory, and uploads it for Andrew Miller to review.  The second dispatch,
+supplied with the Andrew Miller runtime legal-review file and its SHA256, packages the archive and
+emits `whitewater-waft-validation-el8.tar.gz`, its `.sha256`, and the inventory.  The archive
+SHA256 that names this qualified package is that emitted digest.  Dispatch with lane
+`waft-validation` and a `purpose` describing the on-box test (e.g. "WAFT/Twins offline export+
+validation on the airgapped EL8 box").

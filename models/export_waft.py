@@ -315,14 +315,23 @@ def _flatten_config(value: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
-def load_model(
+def construct_weightless_model(
     manifest: Mapping[str, Any],
     upstream: Path,
-    checkpoint: Path,
     config: Mapping[str, Any],
     device: str,
-) -> tuple[Any, dict[str, Any]]:
-    """Import WAFT and strictly load the complete local checkpoint with pretraining disabled."""
+) -> Any:
+    """Construct WAFTv2 from the pinned checkout with NO learned weights.
+
+    This is the exact architecture-construction path ``load_model`` runs before it loads the
+    checkpoint: it forces timm ``pretrained=False`` and makes any hidden weight download fatal, so
+    the returned module carries only randomly-initialised parameters and the checkpoint is the only
+    later source of learned tensors.  It is factored out so a checkpoint-free construction smoke
+    (CI, or an offline import check) can exercise the real ``from model.waft_a2 import WAFTv2``
+    import chain and Twins backbone build without the checkpoint and without drifting from the
+    export path.  ``device`` is accepted for signature parity with ``load_model``; the model is
+    returned on CPU and the caller performs the checkpoint load and device placement.
+    """
 
     try:
         import torch
@@ -335,6 +344,7 @@ def load_model(
             {"missing": getattr(exc, "name", str(exc))},
         ) from exc
 
+    del device  # architecture-only construction is device-independent; parity with load_model
     flat_config = _flatten_config(config)
     expected_config = manifest["model"].get("config", {})
     args_values = dict(expected_config) if isinstance(expected_config, Mapping) else {}
@@ -403,6 +413,22 @@ def load_model(
             sys.path.remove(str(upstream))
         except ValueError:  # pragma: no cover - defensive cleanup
             pass
+    return model
+
+
+def load_model(
+    manifest: Mapping[str, Any],
+    upstream: Path,
+    checkpoint: Path,
+    config: Mapping[str, Any],
+    device: str,
+) -> tuple[Any, dict[str, Any]]:
+    """Construct the weightless WAFT architecture, then strictly load the local checkpoint."""
+
+    model = construct_weightless_model(manifest, upstream, config, device)
+    # construct_weightless_model raises the DEPENDENCY blocker if torch is unavailable, so by here
+    # the import is guaranteed to succeed (and is cached).
+    import torch
 
     try:
         # ``weights_only=True`` is intentional: accepting arbitrary pickle code would make
