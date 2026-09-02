@@ -251,8 +251,10 @@ def _test_provider_and_contract() -> None:
 
 
 def _test_gpu_mem_limit_threads_to_provider_options() -> None:
-    # P25-7: a configured CUDA arena ceiling reaches the runtime as provider_options and is
-    # surfaced back in the session contract / verify record.
+    # P25-7: a configured CUDA arena ceiling reaches the runtime in onnxruntime's official
+    # list-aligned shape -- providers with a trailing CPU fallback and a positionally-aligned
+    # provider_options list carrying the bound in bytes plus an empty dict for the CPU fallback --
+    # while the user-facing MiB selection is surfaced back on the session contract / verify record.
     with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-arena-") as temporary:
         manifest, artifact = _artifact_fixture(Path(temporary))
         validated = validate_manifest_artifact(manifest, artifact, protocol_path=V2_PROTOCOL)
@@ -262,7 +264,11 @@ def _test_gpu_mem_limit_threads_to_provider_options() -> None:
             provider_options={"cuda": {"gpu_mem_limit_mib": 22000}},
         )
         verified = evaluator.verify("cuda")
-        assert runtime.requested_options == [{"gpu_mem_limit_mib": 22000}], runtime.requested_options
+        assert runtime.requested == [["CUDAExecutionProvider", "CPUExecutionProvider"]], runtime.requested
+        assert runtime.requested_options == [[
+            {"gpu_mem_limit": 22000 * 1024 * 1024, "arena_extend_strategy": "kSameAsRequested"},
+            {},
+        ]], runtime.requested_options
         assert verified["provider_options"] == {"gpu_mem_limit_mib": 22000}, verified["provider_options"]
 
 
@@ -286,6 +292,38 @@ def _test_default_open_omits_provider_options() -> None:
             )
             scoped.verify("cpu")
             assert runtime.requested_options == [_UNSET], runtime.requested_options
+
+
+def _test_provider_options_normalization_rejects_bad_selections() -> None:
+    # The evaluator normalizes the user-facing selection, so a misplaced or malformed arena
+    # ceiling fails as a typed evaluator failure rather than reaching the runtime.
+    with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-arena-bad-") as temporary:
+        manifest, artifact = _artifact_fixture(Path(temporary))
+        validated = validate_manifest_artifact(manifest, artifact, protocol_path=V2_PROTOCOL)
+
+        # A ceiling on a non-CUDA provider is rejected.
+        cpu_bound = Evaluator(
+            validated, _FakeRuntime(), _FakeArrays(), clock=_Clock(),
+            provider_options={"cpu": {"gpu_mem_limit_mib": 4096}},
+        )
+        _expect("provider_unavailable", lambda: cpu_bound.verify("cpu"))
+
+        # An unknown option key is rejected.
+        cuda_runtime = _FakeRuntime(["CUDAExecutionProvider", "CPUExecutionProvider"])
+        unknown_option = Evaluator(
+            validated, cuda_runtime, _FakeArrays(), clock=_Clock(),
+            provider_options={"cuda": {"gpu_mem_limit_mib": 4096, "unexpected": 1}},
+        )
+        _expect("provider_unavailable", lambda: unknown_option.verify("cuda"))
+
+        # A non-positive / non-integer ceiling is rejected.
+        for bad in (0, -1, 4096.0, True):
+            bad_value = Evaluator(
+                validated, _FakeRuntime(["CUDAExecutionProvider", "CPUExecutionProvider"]),
+                _FakeArrays(), clock=_Clock(),
+                provider_options={"cuda": {"gpu_mem_limit_mib": bad}},
+            )
+            _expect("provider_unavailable", lambda evaluator=bad_value: evaluator.verify("cuda"))
 
 
 def _test_numpy_float32_dtype_token() -> None:
@@ -486,6 +524,7 @@ def main() -> int:
     _test_provider_and_contract()
     _test_gpu_mem_limit_threads_to_provider_options()
     _test_default_open_omits_provider_options()
+    _test_provider_options_normalization_rejects_bad_selections()
     _test_numpy_float32_dtype_token()
     _test_resize_geometry()
     _test_verify_does_not_load_numpy()

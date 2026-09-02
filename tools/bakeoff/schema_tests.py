@@ -94,6 +94,102 @@ def main() -> int:
         shared_lattice_report, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
     )
 
+    # P25-7: the CUDA arena ceiling (gpu_mem_limit_mib) is declared once on the matrix provider
+    # selector and echoed by each CUDA result's resource evidence.  The two must agree exactly,
+    # the option is CUDA-only, and a result may neither invent a ceiling the selector never
+    # declared nor omit/disagree with the one it did.  A bounded-CUDA report is otherwise a
+    # verbatim copy of the positive screen fixture (both share the frozen el8-x86_64 environment).
+    pv2_matrix = positive_report_v2["matrix"]
+    base_candidate_ids = list(pv2_matrix["candidate_ids"])
+    base_shot_ids = list(pv2_matrix["shot_ids"])
+    base_conditioning = list(pv2_matrix["conditioning_tokens"])
+    base_caps = list(pv2_matrix["cap_tokens"])
+
+    arena_base = copy.deepcopy(positive_report_v2)
+    arena_base["candidates"][0]["measurement_providers"] = ["cpu", "cuda"]
+    set_matrix(
+        arena_base,
+        candidate_ids=base_candidate_ids,
+        shot_ids=base_shot_ids,
+        conditioning_tokens=base_conditioning,
+        cap_tokens=base_caps,
+        providers=[{"token": "cuda", "host_loads": ["idle"], "gpu_mem_limit_mib": 22000}],
+    )
+    arena_base["results"][0].update({"provider": "cuda", "host_load": "idle"})
+    arena_base["results"][0]["resource"]["gpu_mem_limit_mib"] = 22000
+    validate_report_consistency(
+        arena_base, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+    )
+
+    # (a) A ceiling on a non-CUDA provider selector is rejected.
+    cpu_matrix_ceiling = copy.deepcopy(positive_report_v2)
+    set_matrix(
+        cpu_matrix_ceiling,
+        candidate_ids=base_candidate_ids,
+        shot_ids=base_shot_ids,
+        conditioning_tokens=base_conditioning,
+        cap_tokens=base_caps,
+        providers=[{"token": "cpu", "host_loads": ["not_applicable"], "gpu_mem_limit_mib": 4096}],
+    )
+    expect_error_path(
+        "CPU matrix selector may not carry a gpu_mem_limit_mib ceiling",
+        lambda: validate_report_consistency(
+            cpu_matrix_ceiling, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+        "$.matrix.providers[0].gpu_mem_limit_mib",
+    )
+
+    # (a) A ceiling in a non-CUDA result's resource evidence is rejected.
+    cpu_result_ceiling = copy.deepcopy(positive_report_v2)
+    cpu_result_ceiling["results"][0]["resource"]["gpu_mem_limit_mib"] = 4096
+    expect_error_path(
+        "CPU result may not record a gpu_mem_limit_mib ceiling",
+        lambda: validate_report_consistency(
+            cpu_result_ceiling, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+        "$.results[0].resource.gpu_mem_limit_mib",
+    )
+
+    # (b) A CUDA result whose recorded ceiling disagrees with the selector is rejected.
+    arena_mismatch = copy.deepcopy(arena_base)
+    arena_mismatch["results"][0]["resource"]["gpu_mem_limit_mib"] = 4096
+    expect_error_path(
+        "CUDA result ceiling must equal the selector's ceiling",
+        lambda: validate_report_consistency(
+            arena_mismatch, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+        "$.results[0].resource.gpu_mem_limit_mib",
+    )
+
+    # (b) A CUDA result that omits the ceiling the selector declared is rejected.
+    arena_missing = copy.deepcopy(arena_base)
+    del arena_missing["results"][0]["resource"]["gpu_mem_limit_mib"]
+    expect_error_path(
+        "CUDA result must echo the selector's ceiling",
+        lambda: validate_report_consistency(
+            arena_missing, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+        "$.results[0].resource.gpu_mem_limit_mib",
+    )
+
+    # (c) A CUDA result carrying a ceiling the selector never declared is rejected.
+    arena_stray = copy.deepcopy(arena_base)
+    set_matrix(
+        arena_stray,
+        candidate_ids=base_candidate_ids,
+        shot_ids=base_shot_ids,
+        conditioning_tokens=base_conditioning,
+        cap_tokens=base_caps,
+        providers=[{"token": "cuda", "host_loads": ["idle"]}],
+    )
+    expect_error_path(
+        "CUDA result may not invent a ceiling the selector omits",
+        lambda: validate_report_consistency(
+            arena_stray, protocol_v2, report_schema_v2, positive_corpus, corpus_schema,
+        ),
+        "$.results[0].resource.gpu_mem_limit_mib",
+    )
+
     neuflow_wrong_geometry = copy.deepcopy(shared_lattice_report)
     neuflow_candidate = copy.deepcopy(neuflow_wrong_geometry["candidates"][0])
     neuflow_candidate.update({

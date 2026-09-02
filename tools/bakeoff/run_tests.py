@@ -876,10 +876,16 @@ def test_cuda_gpu_mem_limit_is_recorded_in_resource_evidence() -> None:
             "providers": [{"token": "cuda", "host_loads": ["idle"], "gpu_mem_limit_mib": 22000}],
         }
         result = run_bakeoff(config)
-        # The ceiling reached the runtime as provider_options on every session this cell opened.
+        # The ceiling reached the runtime in onnxruntime's official list-aligned shape on every
+        # session this cell opened: the CUDA arena bound in bytes plus an empty dict for the CPU
+        # fallback provider (see native_ort/evaluator unit tests).
+        expected_options = [
+            {"gpu_mem_limit": 22000 * 1024 * 1024, "arena_extend_strategy": "kSameAsRequested"},
+            {},
+        ]
         assert runtime.provider_options_seen, runtime.provider_options_seen
         assert all(
-            options == {"gpu_mem_limit_mib": 22000} for options in runtime.provider_options_seen
+            options == expected_options for options in runtime.provider_options_seen
         ), runtime.provider_options_seen
         assert not result.incomplete
         # The schema validator accepts the added optional resource/matrix field.

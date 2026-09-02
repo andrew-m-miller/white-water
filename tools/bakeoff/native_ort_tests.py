@@ -137,13 +137,21 @@ class NativeOrtTests(unittest.TestCase):
         bridge = _FakeBridge()
         runtime = object.__new__(native_ort.NativeRuntime)
         runtime._bridge = bridge
+        # The evaluator hands the adapter onnxruntime's official contract: a providers list with a
+        # trailing CPU fallback and a positionally-aligned provider_options list -- the CUDA arena
+        # bound in bytes plus an empty dict for the CPU fallback provider.
         runtime.InferenceSession(
             "model.onnx",
-            providers=["CUDAExecutionProvider"],
-            provider_options={"gpu_mem_limit_mib": 22000},
+            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            provider_options=[
+                {"gpu_mem_limit": 22000 * 1024 * 1024, "arena_extend_strategy": "kSameAsRequested"},
+                {},
+            ],
         )
-        # 22000 MiB expressed in bytes is exactly what OrtCUDAProviderOptions::gpu_mem_limit wants.
+        # The bytes value is exactly what OrtCUDAProviderOptions::gpu_mem_limit wants, and the
+        # bridge session runs the primary CUDA provider.
         self.assertEqual(bridge.library.requested_gpu_mem_limit_bytes, 22000 * 1024 * 1024)
+        self.assertEqual(bridge.library.requested_provider, b"cuda")
 
     def test_absent_provider_options_leaves_arena_unbounded(self) -> None:
         bridge = _FakeBridge()
@@ -152,8 +160,11 @@ class NativeOrtTests(unittest.TestCase):
         runtime.InferenceSession("model.onnx", providers=["CUDAExecutionProvider"])
         # A cell that requested no ceiling passes 0 (unbounded), preserving historical behaviour.
         self.assertEqual(bridge.library.requested_gpu_mem_limit_bytes, 0)
+        # An aligned but all-empty options list is likewise unbounded.
         runtime.InferenceSession(
-            "model.onnx", providers=["CUDAExecutionProvider"], provider_options={}
+            "model.onnx",
+            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            provider_options=[{}, {}],
         )
         self.assertEqual(bridge.library.requested_gpu_mem_limit_bytes, 0)
 
@@ -161,11 +172,13 @@ class NativeOrtTests(unittest.TestCase):
         bridge = _FakeBridge()
         runtime = object.__new__(native_ort.NativeRuntime)
         runtime._bridge = bridge
-        with self.assertRaisesRegex(RuntimeError, "only supported by the CUDA provider"):
+        with self.assertRaisesRegex(RuntimeError, "only accepts CUDA provider options"):
             runtime.InferenceSession(
                 "model.onnx",
                 providers=["CPUExecutionProvider"],
-                provider_options={"gpu_mem_limit_mib": 4096},
+                provider_options=[
+                    {"gpu_mem_limit": 4096 * 1024 * 1024, "arena_extend_strategy": "kSameAsRequested"},
+                ],
             )
 
     def test_unknown_provider_option_is_rejected(self) -> None:
@@ -176,7 +189,55 @@ class NativeOrtTests(unittest.TestCase):
             runtime.InferenceSession(
                 "model.onnx",
                 providers=["CUDAExecutionProvider"],
-                provider_options={"gpu_mem_limit_mib": 4096, "unexpected": 1},
+                provider_options=[
+                    {
+                        "gpu_mem_limit": 4096 * 1024 * 1024,
+                        "arena_extend_strategy": "kSameAsRequested",
+                        "unexpected": 1,
+                    },
+                ],
+            )
+
+    def test_arena_extend_strategy_must_match_probe(self) -> None:
+        bridge = _FakeBridge()
+        runtime = object.__new__(native_ort.NativeRuntime)
+        runtime._bridge = bridge
+        with self.assertRaisesRegex(RuntimeError, "arena_extend_strategy"):
+            runtime.InferenceSession(
+                "model.onnx",
+                providers=["CUDAExecutionProvider"],
+                provider_options=[
+                    {"gpu_mem_limit": 4096 * 1024 * 1024, "arena_extend_strategy": "kNextPowerOfTwo"},
+                ],
+            )
+
+    def test_provider_options_must_align_with_providers(self) -> None:
+        bridge = _FakeBridge()
+        runtime = object.__new__(native_ort.NativeRuntime)
+        runtime._bridge = bridge
+        with self.assertRaisesRegex(RuntimeError, "align 1:1 with providers"):
+            runtime.InferenceSession(
+                "model.onnx",
+                providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+                provider_options=[
+                    {"gpu_mem_limit": 4096 * 1024 * 1024, "arena_extend_strategy": "kSameAsRequested"},
+                ],
+            )
+        with self.assertRaisesRegex(RuntimeError, "must be a list aligned with providers"):
+            runtime.InferenceSession(
+                "model.onnx",
+                providers=["CUDAExecutionProvider"],
+                provider_options={"gpu_mem_limit": 4096 * 1024 * 1024},
+            )
+
+    def test_trailing_non_cpu_provider_is_rejected(self) -> None:
+        bridge = _FakeBridge()
+        runtime = object.__new__(native_ort.NativeRuntime)
+        runtime._bridge = bridge
+        with self.assertRaisesRegex(RuntimeError, "trailing CPU fallback"):
+            runtime.InferenceSession(
+                "model.onnx",
+                providers=["CUDAExecutionProvider", "CoreMLExecutionProvider"],
             )
 
     def test_non_positive_gpu_mem_limit_is_rejected(self) -> None:
@@ -184,11 +245,11 @@ class NativeOrtTests(unittest.TestCase):
         runtime = object.__new__(native_ort.NativeRuntime)
         runtime._bridge = bridge
         for bad in (0, -1, 4096.0, True):
-            with self.assertRaisesRegex(RuntimeError, "positive integer number of MiB"):
+            with self.assertRaisesRegex(RuntimeError, "positive integer number of bytes"):
                 runtime.InferenceSession(
                     "model.onnx",
                     providers=["CUDAExecutionProvider"],
-                    provider_options={"gpu_mem_limit_mib": bad},
+                    provider_options=[{"gpu_mem_limit": bad, "arena_extend_strategy": "kSameAsRequested"}],
                 )
 
 

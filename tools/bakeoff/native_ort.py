@@ -26,35 +26,53 @@ class NativeRuntimeUnavailable(RuntimeError):
     """The checked-in/native P25-5 bridge cannot be loaded."""
 
 
-_MIB_BYTES = 1024 * 1024
+_ARENA_EXTEND_STRATEGY = "kSameAsRequested"
 
 
-def _gpu_mem_limit_bytes(provider_name: str, provider_options: Mapping[str, Any] | None) -> int:
-    """Translate the evaluator's ``provider_options`` into the bridge's byte ceiling.
+def _gpu_mem_limit_bytes(
+    providers: Sequence[str],
+    provider_options: Sequence[Mapping[str, Any]] | None,
+) -> int:
+    """Extract the CUDA arena byte ceiling from ORT's official ``provider_options`` list.
 
-    ``provider_options`` mirrors the CUDA arena configuration a cell requested (see P25-7): the
-    only key this native CUDA-12 bridge understands is ``gpu_mem_limit_mib``, a positive integer
-    number of MiB, which is converted to the byte ceiling ``ww_ort_session_create`` forwards to
-    ``OrtCUDAProviderOptions::gpu_mem_limit``.  ``None``/absent means an unbounded arena (0), which
-    is the historical behaviour.  A limit is CUDA-only and rejected for any other provider so a
-    misplaced option fails loudly rather than being silently dropped.
+    ``provider_options`` follows onnxruntime's public ``InferenceSession`` contract (see P25-7):
+    a list positionally aligned with ``providers``, each entry a mapping of that provider's
+    options.  The only option this native CUDA-12 bridge honours is the CUDA provider's
+    ``gpu_mem_limit`` -- a positive integer number of *bytes* -- paired with
+    ``arena_extend_strategy == "kSameAsRequested"``, which is forwarded to
+    ``OrtCUDAProviderOptions::gpu_mem_limit``.  ``None``/absent (or all-empty) means an unbounded
+    arena (0), the historical behaviour.  A ceiling is CUDA-only and must sit on the primary
+    provider entry, so a misplaced option fails loudly rather than being silently dropped.
     """
 
     if not provider_options:
         return 0
-    if not isinstance(provider_options, Mapping):
-        raise RuntimeError("native ORT bridge provider_options must be a mapping")
-    unknown = sorted(set(provider_options) - {"gpu_mem_limit_mib"})
-    if unknown:
-        raise RuntimeError(f"native ORT bridge does not support provider options: {unknown!r}")
-    limit_mib = provider_options.get("gpu_mem_limit_mib")
-    if limit_mib is None:
-        return 0
-    if type(limit_mib) is not int or limit_mib <= 0:
-        raise RuntimeError("gpu_mem_limit_mib must be a positive integer number of MiB")
-    if provider_name != "cuda":
-        raise RuntimeError("gpu_mem_limit_mib is only supported by the CUDA provider")
-    return limit_mib * _MIB_BYTES
+    if isinstance(provider_options, (str, bytes, Mapping)) or not isinstance(provider_options, Sequence):
+        raise RuntimeError("native ORT bridge provider_options must be a list aligned with providers")
+    if len(provider_options) != len(providers):
+        raise RuntimeError("native ORT bridge provider_options must align 1:1 with providers")
+    limit_bytes = 0
+    for index, (provider, options) in enumerate(zip(providers, provider_options)):
+        if not isinstance(options, Mapping):
+            raise RuntimeError("native ORT bridge provider_options entries must be mappings")
+        if not options:
+            continue
+        if provider != "CUDAExecutionProvider":
+            raise RuntimeError(f"native ORT bridge only accepts CUDA provider options; got {provider!r}")
+        if index != 0:
+            raise RuntimeError("native ORT bridge only bounds the primary provider entry")
+        unknown = sorted(set(options) - {"gpu_mem_limit", "arena_extend_strategy"})
+        if unknown:
+            raise RuntimeError(f"native ORT bridge does not support provider options: {unknown!r}")
+        if options.get("arena_extend_strategy") != _ARENA_EXTEND_STRATEGY:
+            raise RuntimeError(
+                f"native ORT bridge requires arena_extend_strategy == {_ARENA_EXTEND_STRATEGY!r}"
+            )
+        limit = options.get("gpu_mem_limit")
+        if type(limit) is not int or limit <= 0:
+            raise RuntimeError("gpu_mem_limit must be a positive integer number of bytes")
+        limit_bytes = limit
+    return limit_bytes
 
 
 @dataclass(frozen=True)
@@ -279,10 +297,17 @@ class NativeRuntime:
         unknown = sorted(kwargs)
         if unknown:
             raise RuntimeError(f"native ORT bridge does not support session options: {unknown!r}")
-        if len(providers) != 1 or providers[0] not in {"CPUExecutionProvider", "CUDAExecutionProvider"}:
-            raise RuntimeError(f"native ORT bridge only accepts one CPU/CUDA provider: {providers!r}")
+        providers = list(providers)
+        if not providers or providers[0] not in {"CPUExecutionProvider", "CUDAExecutionProvider"}:
+            raise RuntimeError(f"native ORT bridge requires a CPU/CUDA primary provider: {providers!r}")
+        # onnxruntime's official contract lists the CPU implementation as the trailing fallback
+        # (see the aligned ``provider_options`` below).  The bridge itself runs the primary
+        # provider; any additional entry may only be that standard CPU fallback.
+        for extra in providers[1:]:
+            if extra != "CPUExecutionProvider":
+                raise RuntimeError(f"native ORT bridge only accepts a trailing CPU fallback: {providers!r}")
         provider_name = "cpu" if providers[0] == "CPUExecutionProvider" else "cuda"
-        gpu_mem_limit_bytes = _gpu_mem_limit_bytes(provider_name, provider_options)
+        gpu_mem_limit_bytes = _gpu_mem_limit_bytes(providers, provider_options)
         # The declared c_uint64 argtype converts this Python int for the real CDLL; passing the
         # plain int keeps the ctypes-mock test seam simple.
         handle = self._bridge.library.ww_ort_session_create(
