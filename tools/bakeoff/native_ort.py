@@ -26,6 +26,37 @@ class NativeRuntimeUnavailable(RuntimeError):
     """The checked-in/native P25-5 bridge cannot be loaded."""
 
 
+_MIB_BYTES = 1024 * 1024
+
+
+def _gpu_mem_limit_bytes(provider_name: str, provider_options: Mapping[str, Any] | None) -> int:
+    """Translate the evaluator's ``provider_options`` into the bridge's byte ceiling.
+
+    ``provider_options`` mirrors the CUDA arena configuration a cell requested (see P25-7): the
+    only key this native CUDA-12 bridge understands is ``gpu_mem_limit_mib``, a positive integer
+    number of MiB, which is converted to the byte ceiling ``ww_ort_session_create`` forwards to
+    ``OrtCUDAProviderOptions::gpu_mem_limit``.  ``None``/absent means an unbounded arena (0), which
+    is the historical behaviour.  A limit is CUDA-only and rejected for any other provider so a
+    misplaced option fails loudly rather than being silently dropped.
+    """
+
+    if not provider_options:
+        return 0
+    if not isinstance(provider_options, Mapping):
+        raise RuntimeError("native ORT bridge provider_options must be a mapping")
+    unknown = sorted(set(provider_options) - {"gpu_mem_limit_mib"})
+    if unknown:
+        raise RuntimeError(f"native ORT bridge does not support provider options: {unknown!r}")
+    limit_mib = provider_options.get("gpu_mem_limit_mib")
+    if limit_mib is None:
+        return 0
+    if type(limit_mib) is not int or limit_mib <= 0:
+        raise RuntimeError("gpu_mem_limit_mib must be a positive integer number of MiB")
+    if provider_name != "cuda":
+        raise RuntimeError("gpu_mem_limit_mib is only supported by the CUDA provider")
+    return limit_mib * _MIB_BYTES
+
+
 @dataclass(frozen=True)
 class TensorMeta:
     name: str
@@ -62,7 +93,7 @@ class _Bridge:
         self.library.ww_ort_version.restype = ctypes.c_char_p
         self.library.ww_ort_available_providers.argtypes = []
         self.library.ww_ort_available_providers.restype = ctypes.c_char_p
-        self.library.ww_ort_session_create.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+        self.library.ww_ort_session_create.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint64]
         self.library.ww_ort_session_create.restype = ctypes.c_void_p
         self.library.ww_ort_session_release.argtypes = [ctypes.c_void_p]
         self.library.ww_ort_session_release.restype = None
@@ -242,6 +273,7 @@ class NativeRuntime:
         path: str,
         *,
         providers: Sequence[str],
+        provider_options: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> NativeSession:
         unknown = sorted(kwargs)
@@ -250,8 +282,11 @@ class NativeRuntime:
         if len(providers) != 1 or providers[0] not in {"CPUExecutionProvider", "CUDAExecutionProvider"}:
             raise RuntimeError(f"native ORT bridge only accepts one CPU/CUDA provider: {providers!r}")
         provider_name = "cpu" if providers[0] == "CPUExecutionProvider" else "cuda"
+        gpu_mem_limit_bytes = _gpu_mem_limit_bytes(provider_name, provider_options)
+        # The declared c_uint64 argtype converts this Python int for the real CDLL; passing the
+        # plain int keeps the ctypes-mock test seam simple.
         handle = self._bridge.library.ww_ort_session_create(
-            os.fsencode(path), os.fsencode(provider_name)
+            os.fsencode(path), os.fsencode(provider_name), gpu_mem_limit_bytes
         )
         if not handle:
             raise RuntimeError(self._bridge.error("native ORT session creation failed"))

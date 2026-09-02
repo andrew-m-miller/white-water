@@ -144,12 +144,18 @@ class _FakeRuntime:
         # replaced: a small hash-mod-N range gave two random temp-dir paths a non-negligible
         # chance of landing on the same bucket across different test runs).
         self._path_flow_values: dict[str, tuple[float, float]] = {}
+        # P25-7: the provider_options each InferenceSession call received, so a driver test can
+        # confirm a configured CUDA arena ceiling was threaded all the way to the runtime.
+        self.provider_options_seen: list[Mapping[str, Any] | None] = []
 
     def get_available_providers(self) -> list[str]:
         return ["CPUExecutionProvider", "CUDAExecutionProvider"]
 
-    def InferenceSession(self, path: str, *, providers: list[str]) -> _FakeSession:
+    def InferenceSession(
+        self, path: str, *, providers: list[str], provider_options: Mapping[str, Any] | None = None,
+    ) -> _FakeSession:
         self.sessions_created += 1
+        self.provider_options_seen.append(provider_options)
         if self._path_dependent:
             if path not in self._path_flow_values:
                 index = len(self._path_flow_values) + 1
@@ -851,6 +857,62 @@ def test_cuda_cell_writes_nvml_csv_with_required_stages_and_resource() -> None:
 
         # Fix B: the CUDA host_load boundary was confirmed before the cell ran.
         assert config.host_load_checkpoint.calls == ["idle"]
+
+
+def test_cuda_gpu_mem_limit_is_recorded_in_resource_evidence() -> None:
+    # P25-7: a selection that bounds the CUDA arena must (a) reach OrtCUDAProviderOptions via the
+    # evaluator's provider_options (asserted by native_ort/evaluator unit tests) and (b) record
+    # the ceiling as resource evidence in report.json, next to the peak/baseline numbers, without
+    # disturbing the frozen incremental-memory gate.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-cuda-arena-") as tmp:
+        runtime = _FakeRuntime(["CUDAExecutionProvider", "CPUExecutionProvider"])
+        config = _config(
+            Path(tmp), shot_ids=["syn-identity"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(), runtime_module=runtime,
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        config.selection = {
+            **config.selection,
+            "providers": [{"token": "cuda", "host_loads": ["idle"], "gpu_mem_limit_mib": 22000}],
+        }
+        result = run_bakeoff(config)
+        # The ceiling reached the runtime as provider_options on every session this cell opened.
+        assert runtime.provider_options_seen, runtime.provider_options_seen
+        assert all(
+            options == {"gpu_mem_limit_mib": 22000} for options in runtime.provider_options_seen
+        ), runtime.provider_options_seen
+        assert not result.incomplete
+        # The schema validator accepts the added optional resource/matrix field.
+        validate_report_consistency(
+            result.report, config.protocol, config.report_schema, config.corpus, config.corpus_schema,
+        )
+        cell_result = result.report["results"][0]
+        resource = cell_result["resource"]
+        assert resource["gpu_mem_limit_mib"] == 22000, resource
+        # The ceiling is descriptive provenance only: the frozen gate metric is still present and
+        # is not the ceiling value.
+        assert "peak_incremental_device_memory_gib" in resource
+        assert resource["peak_incremental_device_memory_gib"] != 22000
+        # The matrix selector in the report also records which provider was bounded and to what.
+        assert result.report["matrix"]["providers"] == [
+            {"token": "cuda", "host_loads": ["idle"], "gpu_mem_limit_mib": 22000}
+        ]
+
+
+def test_cuda_cell_without_arena_limit_records_no_ceiling() -> None:
+    # Back-compat: a CUDA selection that omits gpu_mem_limit_mib produces a resource block with no
+    # gpu_mem_limit_mib field, exactly as before P25-7.
+    with tempfile.TemporaryDirectory(prefix="whitewater-run-cuda-noarena-") as tmp:
+        config = _config(
+            Path(tmp), shot_ids=["syn-identity"], provider="cuda", host_loads=["idle"],
+            nvml_backend_factory=lambda: _FakeNvmlBackend(),
+            hardware={"gpu": "fixture-gpu", "driver": "fixture-driver"},
+        )
+        result = run_bakeoff(config)
+        assert not result.incomplete
+        resource = result.report["results"][0]["resource"]
+        assert "gpu_mem_limit_mib" not in resource, resource
+        assert "gpu_mem_limit_mib" not in result.report["matrix"]["providers"][0]
 
 
 def test_validator_rejects_each_pass_only_hard_gate() -> None:
@@ -3540,6 +3602,8 @@ def main() -> int:
     test_production_partition_uses_injected_exr_decoder_and_emits_review_row()
     test_chain_shot_computes_chain_drift_px()
     test_cuda_cell_writes_nvml_csv_with_required_stages_and_resource()
+    test_cuda_gpu_mem_limit_is_recorded_in_resource_evidence()
+    test_cuda_cell_without_arena_limit_records_no_ceiling()
     test_validator_rejects_each_pass_only_hard_gate()
     test_execution_classifies_metric_hard_gate_overruns()
     test_cuda_memory_gate_becomes_failed_cell_with_evidence_and_publishes_package()

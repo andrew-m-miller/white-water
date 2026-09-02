@@ -26,13 +26,15 @@ class _FakeLibrary:
     def __init__(self):
         self._output = (ctypes.c_float * 4)(1.0, 2.0, 3.0, 4.0)
         self.requested_provider = b"cpu"
+        self.requested_gpu_mem_limit_bytes = 0
         self.ww_ort_last_error = _Function(lambda: b"")
         self.ww_ort_version = _Function(lambda: b"1.29.0")
         self.ww_ort_available_providers = _Function(
             lambda: b'["CUDAExecutionProvider","CPUExecutionProvider"]'
         )
-        def create_session(path, provider):
+        def create_session(path, provider, gpu_mem_limit_bytes):
             self.requested_provider = provider
+            self.requested_gpu_mem_limit_bytes = int(gpu_mem_limit_bytes)
             return 17
 
         self.ww_ort_session_create = _Function(create_session)
@@ -130,6 +132,64 @@ class NativeOrtTests(unittest.TestCase):
             runtime.InferenceSession(
                 "model.onnx", providers=["CUDAExecutionProvider"], sess_options=object()
             )
+
+    def test_cuda_gpu_mem_limit_is_forwarded_as_bytes(self) -> None:
+        bridge = _FakeBridge()
+        runtime = object.__new__(native_ort.NativeRuntime)
+        runtime._bridge = bridge
+        runtime.InferenceSession(
+            "model.onnx",
+            providers=["CUDAExecutionProvider"],
+            provider_options={"gpu_mem_limit_mib": 22000},
+        )
+        # 22000 MiB expressed in bytes is exactly what OrtCUDAProviderOptions::gpu_mem_limit wants.
+        self.assertEqual(bridge.library.requested_gpu_mem_limit_bytes, 22000 * 1024 * 1024)
+
+    def test_absent_provider_options_leaves_arena_unbounded(self) -> None:
+        bridge = _FakeBridge()
+        runtime = object.__new__(native_ort.NativeRuntime)
+        runtime._bridge = bridge
+        runtime.InferenceSession("model.onnx", providers=["CUDAExecutionProvider"])
+        # A cell that requested no ceiling passes 0 (unbounded), preserving historical behaviour.
+        self.assertEqual(bridge.library.requested_gpu_mem_limit_bytes, 0)
+        runtime.InferenceSession(
+            "model.onnx", providers=["CUDAExecutionProvider"], provider_options={}
+        )
+        self.assertEqual(bridge.library.requested_gpu_mem_limit_bytes, 0)
+
+    def test_gpu_mem_limit_rejected_for_cpu_provider(self) -> None:
+        bridge = _FakeBridge()
+        runtime = object.__new__(native_ort.NativeRuntime)
+        runtime._bridge = bridge
+        with self.assertRaisesRegex(RuntimeError, "only supported by the CUDA provider"):
+            runtime.InferenceSession(
+                "model.onnx",
+                providers=["CPUExecutionProvider"],
+                provider_options={"gpu_mem_limit_mib": 4096},
+            )
+
+    def test_unknown_provider_option_is_rejected(self) -> None:
+        bridge = _FakeBridge()
+        runtime = object.__new__(native_ort.NativeRuntime)
+        runtime._bridge = bridge
+        with self.assertRaisesRegex(RuntimeError, "does not support provider options"):
+            runtime.InferenceSession(
+                "model.onnx",
+                providers=["CUDAExecutionProvider"],
+                provider_options={"gpu_mem_limit_mib": 4096, "unexpected": 1},
+            )
+
+    def test_non_positive_gpu_mem_limit_is_rejected(self) -> None:
+        bridge = _FakeBridge()
+        runtime = object.__new__(native_ort.NativeRuntime)
+        runtime._bridge = bridge
+        for bad in (0, -1, 4096.0, True):
+            with self.assertRaisesRegex(RuntimeError, "positive integer number of MiB"):
+                runtime.InferenceSession(
+                    "model.onnx",
+                    providers=["CUDAExecutionProvider"],
+                    provider_options={"gpu_mem_limit_mib": bad},
+                )
 
 
 if __name__ == "__main__":

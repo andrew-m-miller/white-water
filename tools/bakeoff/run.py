@@ -1211,6 +1211,9 @@ class _RunnerContext:
     review_enabled: bool
     host_load_checkpoint: HostLoadCheckpoint
     cuda_measurement_runner: CudaMeasurementRunner
+    # Per-provider-token CUDA arena ceilings in MiB (P25-7); empty means every cell keeps ORT's
+    # historical unbounded arena.  Sourced from the matrix selector's providers block.
+    provider_gpu_mem_limits: Mapping[str, int] = field(default_factory=dict)
     confirmed_host_load: str | None = field(default=None, init=False)
     measured_cell: _MeasuredCell | None = field(default=None, init=False)
 
@@ -1333,7 +1336,16 @@ def _perform_cell_inference(
     """
 
     cap_megapixels = _cap_megapixels(ctx.protocol, cell.cap)
-    evaluator_instance = Evaluator(artifact, ctx.runtime_module, ctx.array_module)
+    # P25-7: if this cell's provider carries a configured CUDA arena ceiling, hand it to the
+    # evaluator as provider options so the session bounds ORT's BFCArena.  Absent a ceiling the
+    # evaluator opens the session exactly as before.
+    provider_options: dict[str, dict[str, Any]] = {}
+    limit_mib = ctx.provider_gpu_mem_limits.get(cell.provider)
+    if limit_mib is not None:
+        provider_options[cell.provider] = {"gpu_mem_limit_mib": limit_mib}
+    evaluator_instance = Evaluator(
+        artifact, ctx.runtime_module, ctx.array_module, provider_options=provider_options,
+    )
     reference_frame = int(shot_ctx.shot["reference_frame"])
     log_messages: list[str] = []
 
@@ -1503,6 +1515,13 @@ def _run_cell(cell: CellKey, ctx: _RunnerContext) -> CellBundle:
                 stage=exc.stage or "inference",
             )) from exc
         resource = {"peak_incremental_device_memory_gib": 0.0}
+
+    # P25-7: record the CUDA arena ceiling this cell ran under as resource evidence, so a reader
+    # of report.json sees that the arena was bounded and to exactly what MiB.  This is descriptive
+    # provenance only and never touches the frozen incremental-memory gate metric.
+    cell_limit_mib = ctx.provider_gpu_mem_limits.get(cell.provider)
+    if cell_limit_mib is not None:
+        resource["gpu_mem_limit_mib"] = cell_limit_mib
 
     log_messages.extend(payload.get("log_messages", []))
     # From here on: PURE scoring and preview rendering from `payload`'s already-returned data.
@@ -1686,6 +1705,25 @@ _RESULT_FAILURE_TYPES = {
 }
 
 
+def _provider_gpu_mem_limits(plan: MatrixPlan) -> dict[str, int]:
+    """Extract ``{provider_token: gpu_mem_limit_mib}`` from a matrix plan's selector (P25-7).
+
+    Only providers whose selection carried an explicit ceiling appear here; every other provider
+    keeps ORT's historical unbounded arena.  The selector is already validated by ``build_matrix``
+    (``matrix._provider_selection`` restricts the key to positive-integer MiB on the cuda token),
+    so this is a plain, defensive read.
+    """
+
+    limits: dict[str, int] = {}
+    for provider in plan.selector.get("providers", []):
+        if isinstance(provider, Mapping) and "gpu_mem_limit_mib" in provider:
+            token = provider.get("token")
+            limit = provider.get("gpu_mem_limit_mib")
+            if isinstance(token, str) and type(limit) is int and not isinstance(limit, bool) and limit > 0:
+                limits[token] = limit
+    return limits
+
+
 def build_executor(
     *,
     protocol: Mapping[str, Any],
@@ -1702,6 +1740,7 @@ def build_executor(
     review_enabled: bool,
     host_load_checkpoint: HostLoadCheckpoint,
     cuda_measurement_runner: CudaMeasurementRunner,
+    provider_gpu_mem_limits: Mapping[str, int] | None = None,
 ) -> tuple[Callable[[CellKey], CellBundle], _RunnerContext]:
     """Build the executor callback plus the mutable context RunCoordinator will drive."""
 
@@ -1726,6 +1765,7 @@ def build_executor(
         review_enabled=review_enabled,
         host_load_checkpoint=host_load_checkpoint,
         cuda_measurement_runner=cuda_measurement_runner,
+        provider_gpu_mem_limits=dict(provider_gpu_mem_limits or {}),
     )
 
     def executor(cell: CellKey) -> CellBundle:
@@ -3285,6 +3325,7 @@ def _run_bakeoff(config: RunConfig, runner_log: RunnerLog) -> RunResult:
             review_enabled=True,
             host_load_checkpoint=config.host_load_checkpoint,
             cuda_measurement_runner=config.cuda_measurement_runner,
+            provider_gpu_mem_limits=_provider_gpu_mem_limits(plan),
         )
 
         def committed_executor(cell: CellKey) -> CommittedExecution:

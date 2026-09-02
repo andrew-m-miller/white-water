@@ -310,7 +310,7 @@ WW_ORT_EXPORT const char* ww_ort_available_providers() noexcept {
 }
 
 WW_ORT_EXPORT ww_ort_session* ww_ort_session_create(
-    const char* model_path, const char* provider) noexcept {
+    const char* model_path, const char* provider, uint64_t gpu_mem_limit_bytes) noexcept {
   return guarded([&]() -> ww_ort_session* {
     if (!check_api()) {
       return nullptr;
@@ -321,6 +321,13 @@ WW_ORT_EXPORT ww_ort_session* ww_ort_session_create(
     }
     if (provider == nullptr || (std::strcmp(provider, "cpu") != 0 && std::strcmp(provider, "cuda") != 0)) {
       fail("provider must be 'cpu' or 'cuda'");
+      return nullptr;
+    }
+    // A gpu_mem_limit ceiling is a CUDA-only arena bound; a positive value on the CPU provider is
+    // a caller error rather than something to silently ignore.  Zero means "unbounded" and
+    // reproduces the historical behaviour exactly.
+    if (gpu_mem_limit_bytes != 0 && std::strcmp(provider, "cuda") != 0) {
+      fail("gpu_mem_limit is only supported by the CUDA provider");
       return nullptr;
     }
     OrtEnv* env = get_env();
@@ -341,6 +348,17 @@ WW_ORT_EXPORT ww_ort_session* ww_ort_session_create(
     // while appending CUDA first keeps it the requested execution provider.
       OrtCUDAProviderOptions cuda_options{};
       cuda_options.device_id = 0;
+      // P25-7: optionally bound ORT's CUDA BFCArena.  Left unbounded (gpu_mem_limit_bytes == 0)
+      // the arena keeps its historical greedy behaviour of growing to consume free VRAM, so an
+      // idle-device measurement over-reports the true working set (see docs/context.md Session
+      // 15).  A positive ceiling reproduces the Phase 0B host-probe configuration exactly: cap
+      // the arena and stop it rounding growth upward (kSameAsRequested == arena_extend_strategy 1)
+      // so the measured peak reflects the real working set rather than free device memory.  This
+      // bounds only ORT's arena, not every CUDA/cuDNN allocation in the process.
+      if (gpu_mem_limit_bytes != 0) {
+        cuda_options.gpu_mem_limit = static_cast<size_t>(gpu_mem_limit_bytes);
+        cuda_options.arena_extend_strategy = 1;  // kSameAsRequested: do not round growth upward.
+      }
       if (!check_status(api->SessionOptionsAppendExecutionProvider_CUDA(options, &cuda_options),
                         "SessionOptionsAppendExecutionProvider_CUDA")) {
         api->ReleaseSessionOptions(options);
