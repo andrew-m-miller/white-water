@@ -2124,7 +2124,7 @@ jobs:
       NEUFLOW_CONDA_INSTALLER_URL: https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh
       NEUFLOW_CONDA_INSTALLER_SHA256: 848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c
       NEUFLOW_CONDA_LOCK_FILE: bakeoff/neuflow-validation/conda-el8-x86_64.lock
-      NEUFLOW_CONDA_LOCK_SHA256: 47231f50e7f7c1408965f95d41cff262675647745ec12475807559b6ae44e0d7
+      NEUFLOW_CONDA_LOCK_SHA256: f99260ae125a5750eab662166aa0f96696ddda34e80e97fffc39a371cdf32db0
       NEUFLOW_RUNTIME_INPUTS_FILE: bakeoff/neuflow-validation/runtime-inputs.json
       NEUFLOW_SOURCE_REPO: https://github.com/neufieldrobotics/NeuFlow_v2.git
       NEUFLOW_SOURCE_COMMIT: 204b5e3744461d90303b9ff82caa7a1bb56a2ca2
@@ -2215,25 +2215,48 @@ jobs:
           # checkout is never staged into the package (ci-neuflow-validation-qualify.sh fails closed
           # if any NeuFlow/ tree, .git, or checkpoint reaches the staged tree). The operator supplies
           # their own clean checkout on the box.
+          #
+          # LICENCE BOUNDARY: runtime-inputs.json states "The checkpoint is NEVER downloaded by CI"
+          # (and the whole reason NeuFlow is kept off CI is its unknown-licence 36MB in-repo
+          # checkpoint). A plain `git fetch` of the pinned commit would materialize EVERY tracked
+          # blob -- including neuflow_mixed.pth -- and silently break that claim. So this is a
+          # BLOBLESS partial clone (--filter=blob:none) with a sparse-checkout that includes every
+          # tracked path EXCEPT *.pth: the promisor remote lazily supplies only the blobs the
+          # weightless import chain (`from NeuFlow.neuflow import NeuFlow`) actually checks out, and
+          # the checkpoint blob is never fetched. A fail-closed guard below proves no *.pth exists on
+          # the runner after checkout.
           src="$RUNNER_TEMP/neuflow-src"
           git init "$src"
           git -C "$src" remote add origin "$NEUFLOW_SOURCE_REPO"
-          git -C "$src" fetch --depth=1 origin "$NEUFLOW_SOURCE_COMMIT"
+          git -C "$src" fetch --depth=1 --filter=blob:none origin "$NEUFLOW_SOURCE_COMMIT"
+          # Non-cone sparse patterns (gitignore-style, negation-capable): include everything, then
+          # exclude the checkpoint blobs so their blobs are never lazily fetched at checkout. Cone
+          # mode cannot express the `!*.pth` exclusion, hence --no-cone.
+          git -C "$src" sparse-checkout set --no-cone '/*' '!*.pth'
           git -C "$src" checkout --detach FETCH_HEAD
           head=$(git -C "$src" rev-parse HEAD)
           test "$head" = "$NEUFLOW_SOURCE_COMMIT" || { echo "cloned NeuFlow is not the pinned commit: $head" >&2; exit 1; }
           test -f "$src/NeuFlow/neuflow.py" || { echo "NeuFlow package is absent from the checkout" >&2; exit 1; }
           test -f "$src/LICENSE" || { echo "NeuFlow LICENSE is absent from the checkout" >&2; exit 1; }
           # NeuFlow v2 has NO git submodules at the pinned commit (unlike WAFT's non-commercial
-          # thirdparty/dinov3). Assert the absence so a future submodule cannot enter unnoticed.
-          if [ -f "$src/.gitmodules" ]; then
+          # thirdparty/dinov3). Assert the absence so a future submodule cannot enter unnoticed
+          # (checked against the fetched tree, not the sparse worktree, so it is filter-independent).
+          if git -C "$src" ls-tree -r --name-only HEAD | grep -qx '.gitmodules'; then
             echo ".gitmodules present; NeuFlow v2 was expected to have no submodules -- investigate before packaging" >&2
             exit 1
           fi
-          # Positive genuineness check: the in-repo checkpoint must be the exact pinned member. It is
-          # NOT carried into the package; this only proves the cloned tree is the audited one.
-          test "$(stat -c '%s' "$src/neuflow_mixed.pth")" = 36195519 || {
-            echo "in-repo neuflow_mixed.pth is not the pinned size" >&2; exit 1; }
+          # Positive genuineness check WITHOUT fetching the blob: the audited tree must still TRACK
+          # the pinned checkpoint member. Reads tree objects only (ls-tree needs no blob), so it
+          # proves we are on the audited tree while honouring the never-download boundary.
+          git -C "$src" ls-tree -r --name-only HEAD | grep -qx 'neuflow_mixed.pth' || {
+            echo "audited NeuFlow tree does not track neuflow_mixed.pth -- not the pinned source" >&2; exit 1; }
+          # Fail closed: the never-download boundary means NO *.pth may exist on the runner. If the
+          # blob filter ever regressed (e.g. a git that ignored the sparse exclusion), a checkpoint
+          # blob would be materialized here and this stops the run before it can be packaged.
+          if find "$src" -type f -name '*.pth' -print -quit | grep -q .; then
+            echo "a *.pth checkpoint was materialized in CI; the never-download licence boundary was violated" >&2
+            exit 1
+          fi
           echo "NEUFLOW_SRC_CHECKOUT=$src" >> "$GITHUB_ENV"
 
       - name: Solve the requested conda spec and smoke the weightless NeuFlow model
@@ -2313,6 +2336,29 @@ jobs:
             > "$NEUFLOW_OUTPUT_DIR/whitewater-neuflow-validation-runtime.inventory"
           "$RUNNER_TEMP/miniforge/bin/conda" list --prefix "$NEUFLOW_CONDA_ENV" --json \
             > "$NEUFLOW_OUTPUT_DIR/whitewater-neuflow-validation-runtime.inventory.json"
+          # The emitted @EXPLICIT inventory is the pinned reproducible SOLVE. Its digest is recorded
+          # under runtime-inputs.json conda.solved_lock_sha256 -- a field DISTINCT from
+          # explicit_lock_sha256 (which the preflight binds to the REQUESTED spec conda-el8-x86_64.lock
+          # and must not be overwritten with a solved digest). Emit the solved digest for review and,
+          # when the field is already pinned (non-empty), fail closed if the solve drifted from it.
+          solved_lock_sha=$(sha256sum -- "$NEUFLOW_OUTPUT_DIR/whitewater-neuflow-validation-runtime.inventory" | awk '{print $1}')
+          echo "NeuFlow-validation solved @EXPLICIT lock SHA256: $solved_lock_sha" >&2
+          python3.11 - "$GITHUB_WORKSPACE/$NEUFLOW_RUNTIME_INPUTS_FILE" "$solved_lock_sha" <<'PY'
+          import json, sys
+          from pathlib import Path
+          runtime_inputs, solved = Path(sys.argv[1]), sys.argv[2]
+          conda = json.loads(runtime_inputs.read_text(encoding="utf-8"))["conda"]
+          pinned = conda.get("solved_lock_sha256", "")
+          if pinned:
+              if pinned != solved:
+                  raise SystemExit(
+                      f"solved @EXPLICIT lock drifted from runtime-inputs.json conda.solved_lock_sha256: "
+                      f"pinned {pinned}, got {solved}"
+                  )
+              print("NeuFlow-validation solved @EXPLICIT lock matches pinned solved_lock_sha256: PASS")
+          else:
+              print(f"NeuFlow-validation solved_lock_sha256 is unset; emitted for review: {solved}")
+          PY
           tar --extract --gzip --file "$runtime_archive" --directory "$RUNNER_TEMP/neuflow-runtime-extracted"
           test -x "$RUNNER_TEMP/neuflow-runtime-extracted/bin/conda-unpack"
           env PATH="$RUNNER_TEMP/neuflow-runtime-extracted/bin:$PATH" \

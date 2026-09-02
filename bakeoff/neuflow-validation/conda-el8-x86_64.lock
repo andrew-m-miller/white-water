@@ -8,9 +8,11 @@
 # and do NOT hand-edit build/hash pins into it; a pinned @EXPLICIT lock is produced only by a real
 # solve, which cannot run on the macOS/arm64 development host.
 #
-# When CI regenerates the pinned lock, update
-# bakeoff/neuflow-validation/runtime-inputs.json conda.explicit_lock_sha256 to the CI-solved lock's
-# SHA256 (never hand-computed here) and re-run the qualifying dispatch.
+# runtime-inputs.json conda.explicit_lock_sha256 is the SHA256 of THIS checked-in requested spec
+# and CI's preflight validates it against this file, so it must always track this file -- do NOT
+# overwrite it with a solved digest.  When CI emits the pinned @EXPLICIT lock, record ITS SHA256
+# (never hand-computed here) under the DISTINCT field conda.solved_lock_sha256 and re-run the
+# qualifying dispatch.
 #
 # PURPOSE.  This environment runs models/export_neuflow_v2.py offline on the airgapped box: it
 # strictly loads the pinned NeuFlow v2 mixed checkpoint into the weightless upstream NeuFlow module,
@@ -20,9 +22,12 @@
 # produces the linux-x86_64 ONNX artifact and re-validates it on the box.  The export is
 # device-independent, so this is a CPU-only stack: like bakeoff/waft-validation and unlike the
 # P25-5/P25-6 measurement runtimes it does NOT add the ONNX Runtime CUDA-12 archive or the native
-# ORT bridge.  onnxruntime is taken directly from conda-forge (CPU build).  The operator may still
-# request --provider CUDAExecutionProvider for a later EL8/CUDA run by pointing LD_LIBRARY_PATH at
-# the host Flame CUDA libraries, exactly as the P25-6 runtime documents.
+# ORT bridge.  onnxruntime is taken directly from conda-forge (CPU build), so this runtime advertises
+# CPUExecutionProvider ONLY: it has no CUDA execution provider compiled in, and pointing
+# LD_LIBRARY_PATH at host CUDA libraries cannot add one.  --provider CUDAExecutionProvider fails here
+# with "requested ONNX Runtime provider is unavailable" (RUN-NEUFLOW-VALIDATION.txt says the same);
+# CUDA qualification would need a separate CUDA-enabled onnxruntime build in its own env and is out of
+# scope for this CPU-only pack.
 #
 # WHY THESE PINS.  The export dependency versions are exactly models/requirements-neuflow-export.txt
 # (torch==2.0.1, torchvision==0.15.2, numpy==1.24.4, onnx==1.14.1, onnxruntime==1.16.3), which in

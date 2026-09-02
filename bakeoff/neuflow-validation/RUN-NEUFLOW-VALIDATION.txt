@@ -226,10 +226,15 @@ Qualifying dispatch
 This package is built and qualified by the `neuflow-validation` lane of the `build` workflow
 (.github/workflows/ci.yml), which runs `scripts/ci-neuflow-validation-qualify.sh` inside an
 `almalinux:8` container.  The first dispatch (with the runtime legal-review inputs left empty) solves
-bakeoff/neuflow-validation/conda-el8-x86_64.lock on EL8, emits the pinned @EXPLICIT lock,
-conda-packs the environment, clones NeuFlow_v2 at the pinned commit ONLY to run the weightless
-NeuFlow construction smoke (never packaging it), generates the runtime license inventory, and uploads
-it for Andrew Miller to review.  The second dispatch, supplied with the Andrew Miller runtime
+bakeoff/neuflow-validation/conda-el8-x86_64.lock on EL8, emits the pinned @EXPLICIT lock and prints
+its SHA256, conda-packs the environment, blobless-clones NeuFlow_v2 at the pinned commit ONLY to run
+the weightless NeuFlow construction smoke (the checkpoint blob is never fetched and never packaged),
+generates the runtime license inventory, and uploads it for Andrew Miller to review.  runtime-inputs.json
+carries two DISTINCT conda digests: conda.explicit_lock_sha256 pins the REQUESTED spec
+(conda-el8-x86_64.lock, which the preflight validates) and must never be overwritten with a solved
+digest; conda.solved_lock_sha256 pins the emitted @EXPLICIT lock -- leave it "" for the first solve,
+then copy the digest CI prints into it so the reproducible solve is pinned for the qualifying
+re-dispatch (CI then fails closed if the solve ever drifts from it).  The second dispatch, supplied with the Andrew Miller runtime
 legal-review file and its SHA256, packages the archive and emits
 `whitewater-neuflow-validation-el8.tar.gz`, its `.sha256`, and the inventory.  The archive SHA256 that
 names this qualified package is that emitted digest.  Dispatch with lane `neuflow-validation` and a
