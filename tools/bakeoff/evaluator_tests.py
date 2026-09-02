@@ -126,6 +126,9 @@ class _FakeSession:
         return [_zeros_flow(height, width, float("nan") if self._nonfinite else 0.0)]
 
 
+_UNSET = object()
+
+
 class _FakeRuntime:
     __version__ = "fake-ort-1"
 
@@ -134,12 +137,16 @@ class _FakeRuntime:
         self.bad_output_name = bad_output_name
         self.nonfinite = nonfinite
         self.requested: list[list[str]] = []
+        # One entry per InferenceSession call: the provider_options kwarg it received, or _UNSET
+        # when the evaluator omitted the kwarg entirely (the historical unbounded path).
+        self.requested_options: list[Any] = []
 
     def get_available_providers(self) -> list[str]:
         return ["CPUExecutionProvider", "CUDAExecutionProvider"]
 
-    def InferenceSession(self, path: str, *, providers: list[str]) -> _FakeSession:
+    def InferenceSession(self, path: str, *, providers: list[str], provider_options: Any = _UNSET) -> _FakeSession:
         self.requested.append(list(providers))
+        self.requested_options.append(provider_options)
         return _FakeSession(self.selected, bad_output_name=self.bad_output_name, nonfinite=self.nonfinite)
 
 
@@ -241,6 +248,82 @@ def _test_provider_and_contract() -> None:
 
         bad_io = _evaluator(Path(temporary), _FakeRuntime(bad_output_name=True))
         _expect("unsupported_tensor_contract", lambda: bad_io.verify("cpu"))
+
+
+def _test_gpu_mem_limit_threads_to_provider_options() -> None:
+    # P25-7: a configured CUDA arena ceiling reaches the runtime in onnxruntime's official
+    # list-aligned shape -- providers with a trailing CPU fallback and a positionally-aligned
+    # provider_options list carrying the bound in bytes plus an empty dict for the CPU fallback --
+    # while the user-facing MiB selection is surfaced back on the session contract / verify record.
+    with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-arena-") as temporary:
+        manifest, artifact = _artifact_fixture(Path(temporary))
+        validated = validate_manifest_artifact(manifest, artifact, protocol_path=V2_PROTOCOL)
+        runtime = _FakeRuntime(["CUDAExecutionProvider", "CPUExecutionProvider"])
+        evaluator = Evaluator(
+            validated, runtime, _FakeArrays(), clock=_Clock(),
+            provider_options={"cuda": {"gpu_mem_limit_mib": 22000}},
+        )
+        verified = evaluator.verify("cuda")
+        assert runtime.requested == [["CUDAExecutionProvider", "CPUExecutionProvider"]], runtime.requested
+        assert runtime.requested_options == [[
+            {"gpu_mem_limit": 22000 * 1024 * 1024, "arena_extend_strategy": "kSameAsRequested"},
+            {},
+        ]], runtime.requested_options
+        assert verified["provider_options"] == {"gpu_mem_limit_mib": 22000}, verified["provider_options"]
+
+
+def _test_default_open_omits_provider_options() -> None:
+    # A cell that requested no ceiling must call InferenceSession exactly as before: no
+    # provider_options kwarg, and an empty provider_options record.
+    with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-arena-default-") as temporary:
+        evaluator = _evaluator(Path(temporary))
+        verified = evaluator.verify("cpu")
+        assert evaluator.runtime.requested_options == [_UNSET], evaluator.runtime.requested_options
+        assert verified["provider_options"] == {}, verified["provider_options"]
+
+        # A provider_options map that has no entry for the opened provider is also the default path.
+        with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-arena-other-") as other:
+            manifest, artifact = _artifact_fixture(Path(other))
+            validated = validate_manifest_artifact(manifest, artifact, protocol_path=V2_PROTOCOL)
+            runtime = _FakeRuntime()
+            scoped = Evaluator(
+                validated, runtime, _FakeArrays(), clock=_Clock(),
+                provider_options={"cuda": {"gpu_mem_limit_mib": 4096}},
+            )
+            scoped.verify("cpu")
+            assert runtime.requested_options == [_UNSET], runtime.requested_options
+
+
+def _test_provider_options_normalization_rejects_bad_selections() -> None:
+    # The evaluator normalizes the user-facing selection, so a misplaced or malformed arena
+    # ceiling fails as a typed evaluator failure rather than reaching the runtime.
+    with tempfile.TemporaryDirectory(prefix="whitewater-evaluator-arena-bad-") as temporary:
+        manifest, artifact = _artifact_fixture(Path(temporary))
+        validated = validate_manifest_artifact(manifest, artifact, protocol_path=V2_PROTOCOL)
+
+        # A ceiling on a non-CUDA provider is rejected.
+        cpu_bound = Evaluator(
+            validated, _FakeRuntime(), _FakeArrays(), clock=_Clock(),
+            provider_options={"cpu": {"gpu_mem_limit_mib": 4096}},
+        )
+        _expect("provider_unavailable", lambda: cpu_bound.verify("cpu"))
+
+        # An unknown option key is rejected.
+        cuda_runtime = _FakeRuntime(["CUDAExecutionProvider", "CPUExecutionProvider"])
+        unknown_option = Evaluator(
+            validated, cuda_runtime, _FakeArrays(), clock=_Clock(),
+            provider_options={"cuda": {"gpu_mem_limit_mib": 4096, "unexpected": 1}},
+        )
+        _expect("provider_unavailable", lambda: unknown_option.verify("cuda"))
+
+        # A non-positive / non-integer ceiling is rejected.
+        for bad in (0, -1, 4096.0, True):
+            bad_value = Evaluator(
+                validated, _FakeRuntime(["CUDAExecutionProvider", "CPUExecutionProvider"]),
+                _FakeArrays(), clock=_Clock(),
+                provider_options={"cuda": {"gpu_mem_limit_mib": bad}},
+            )
+            _expect("provider_unavailable", lambda evaluator=bad_value: evaluator.verify("cuda"))
 
 
 def _test_numpy_float32_dtype_token() -> None:
@@ -439,6 +522,9 @@ def _test_atomic_json_output() -> None:
 def main() -> int:
     _test_artifact_identity()
     _test_provider_and_contract()
+    _test_gpu_mem_limit_threads_to_provider_options()
+    _test_default_open_omits_provider_options()
+    _test_provider_options_normalization_rejects_bad_selections()
     _test_numpy_float32_dtype_token()
     _test_resize_geometry()
     _test_verify_does_not_load_numpy()

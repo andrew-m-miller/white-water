@@ -20,6 +20,7 @@ on:
           - standard
           - p25-5
           - p25-6
+          - waft-validation
           - neuflow-validation
       p25_5_admission_file:
         description: Optional repository-relative SEA-RAFT-only candidate plan/template; admission is generated after export
@@ -59,6 +60,14 @@ on:
         type: string
       p25_6_runtime_legal_review_sha256:
         description: SHA256 of the exact Andrew Miller P25-6 runtime legal-review JSON (required before packaging)
+        required: false
+        type: string
+      waft_validation_runtime_legal_review_file:
+        description: Repository-relative Andrew Miller approval of the generated WAFT-validation runtime license/notice inventory (required before packaging; first run generates the inventory for review)
+        required: false
+        type: string
+      waft_validation_runtime_legal_review_sha256:
+        description: SHA256 of the exact Andrew Miller WAFT-validation runtime legal-review JSON (required before packaging)
         required: false
         type: string
       # --- begin neuflow-validation lane inputs (bakeoff/neuflow-validation) ---
@@ -2094,6 +2103,438 @@ jobs:
         with:
           name: whitewater-p25-6-el8-${{ github.sha }}
           path: p25-6-output
+          if-no-files-found: error
+
+  # WAFT-validation is an explicitly selected lane. It builds the SOURCE runtime that lets the
+  # operator run models/export_waft.py OFFLINE on the airgapped box to export and qualify the
+  # pinned WAFT/Twins candidate. Unlike p25-5/p25-6 it carries NO CUDA ORT archive and NO native
+  # bridge (the export is device-independent and CPU-only), and it admits no candidate: the WAFT
+  # source is BSD-3-Clause and the checkpoint is operator-supplied with unresolved terms, so there
+  # is nothing to admit. It carries the pinned WAFT source instead, and never carries the
+  # checkpoint. Manual-only because the target box is airgapped and the runtime legal-review input
+  # is supplied by the operator for that concrete test.
+  waft_validation:
+    if: ${{ inputs.lane == 'waft-validation' }}
+    name: waft-validation qualification (EL8 / glibc 2.28)
+    runs-on: ubuntu-latest
+    container:
+      image: almalinux:8
+    env:
+      # Per-run operator input (dispatch-time). Everything else is a fixed repo constant; each
+      # conda/source SHA is the source of truth in bakeoff/waft-validation/runtime-inputs.json.
+      WAFT_VALIDATION_RUNTIME_LEGAL_REVIEW_FILE: ${{ inputs.waft_validation_runtime_legal_review_file }}
+      WAFT_VALIDATION_RUNTIME_LEGAL_REVIEW_SHA256: ${{ inputs.waft_validation_runtime_legal_review_sha256 }}
+      WAFT_RUNTIME_LICENSE_SUPPLEMENT: bakeoff/waft-validation/runtime-license-supplement.json
+      WAFT_CONDA_INSTALLER_URL: https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh
+      WAFT_CONDA_INSTALLER_SHA256: 848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c
+      # Two-digest conda scheme (see bakeoff/waft-validation/runtime-inputs.json conda.note):
+      #   REQUESTED_SPEC     is the authored match-spec (NOT @EXPLICIT); its digest pins the input.
+      #   SOLVED_LOCK        is the CI-solved fully-pinned @EXPLICIT lock. It is absent on the first
+      #                      (review) dispatch and, once its inventory is approved, is committed here
+      #                      so the qualifying dispatch INSTALLS it verbatim instead of re-solving
+      #                      (an unpinned re-solve, e.g. einops, could otherwise diverge from the
+      #                      inventory the legal review approved). The two digests are kept SEPARATE
+      #                      in runtime-inputs.json; neither overwrites the other.
+      WAFT_REQUESTED_SPEC_FILE: bakeoff/waft-validation/conda-el8-x86_64.lock
+      WAFT_REQUESTED_SPEC_SHA256: 6d9336c2f92d1cb3ad672c480b8091551c6ac114feeaf9ac2471dcb7e12546ad
+      WAFT_SOLVED_LOCK_FILE: bakeoff/waft-validation/conda-el8-x86_64.solved.lock
+      WAFT_RUNTIME_INPUTS_FILE: bakeoff/waft-validation/runtime-inputs.json
+      WAFT_SOURCE_REPO: https://github.com/princeton-vl/WAFT.git
+      WAFT_SOURCE_COMMIT: b152ff1cad1af8c185ee7b141997c48ff3334c87
+      WAFT_SOURCE_LEGAL_RECORD: bakeoff/waft-validation/source-legal-record.json
+      WAFT_DEPTHANYTHINGV2_LICENSE: bakeoff/waft-validation/legal/DepthAnythingV2-LICENSE.txt
+      WAFT_EXPORT_ENTRYPOINT: models/export_waft.py
+      WAFT_ARTIFACT_WORKFLOW: models/artifact_workflow.py
+      WAFT_MANIFEST: models/waft-twins-artifact.json
+      WAFT_WRAPPER: scripts/ww-bakeoff-airgap
+      WAFT_RUN_INSTRUCTIONS: bakeoff/waft-validation/RUN-WAFT-VALIDATION.txt
+      WAFT_OUTPUT_DIR: waft-validation-output
+      WAFT_RUNTIME_LEGAL_DIR: waft-validation-output/legal-runtime
+    steps:
+      - name: Install EL8 runtime prerequisites
+        run: |
+          dnf -y install git tar gzip curl bzip2 xz file findutils
+          dnf -y install python3.11 python3.11-pip
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Fail closed on missing WAFT-validation inputs
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64 || {
+            echo "WAFT-validation runtime must be built on EL8 x86_64 (got $(uname -m))" >&2; exit 1; }
+          [[ "$WAFT_CONDA_INSTALLER_URL" =~ ^https?:// ]] || {
+            echo "conda installer URL must be explicit HTTPS/HTTP" >&2; exit 1; }
+          [[ "$WAFT_CONDA_INSTALLER_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "conda installer SHA256 must be lowercase 64-hex" >&2; exit 1; }
+          [[ "$WAFT_REQUESTED_SPEC_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "requested conda spec SHA256 must be lowercase 64-hex" >&2; exit 1; }
+          spec_file="$GITHUB_WORKSPACE/$WAFT_REQUESTED_SPEC_FILE"
+          test -f "$spec_file" || { echo "requested conda spec is missing: $WAFT_REQUESTED_SPEC_FILE" >&2; exit 1; }
+          test ! -L "$spec_file" || { echo "requested conda spec must not be a symlink" >&2; exit 1; }
+          runtime_inputs="$GITHUB_WORKSPACE/$WAFT_RUNTIME_INPUTS_FILE"
+          test -f "$runtime_inputs" || { echo "runtime-inputs.json is missing" >&2; exit 1; }
+          test ! -L "$runtime_inputs" || { echo "runtime-inputs.json must not be a symlink" >&2; exit 1; }
+          test "$(stat -c '%a' "$runtime_inputs")" = 644 || { echo "runtime-inputs.json must be mode 0644" >&2; exit 1; }
+          for carried in "$WAFT_EXPORT_ENTRYPOINT" "$WAFT_ARTIFACT_WORKFLOW" "$WAFT_MANIFEST" "$WAFT_WRAPPER" \
+            "$WAFT_RUN_INSTRUCTIONS" "$WAFT_SOURCE_LEGAL_RECORD" "$WAFT_DEPTHANYTHINGV2_LICENSE"; do
+            test -f "$GITHUB_WORKSPACE/$carried" || { echo "carried source is missing: $carried" >&2; exit 1; }
+            test ! -L "$GITHUB_WORKSPACE/$carried" || { echo "carried source must not be a symlink: $carried" >&2; exit 1; }
+          done
+          # Two-digest reconciliation. runtime-inputs.json keeps the REQUESTED match-spec digest
+          # (conda.requested_spec_sha256) and the CI-solved @EXPLICIT lock digest
+          # (conda.solved_lock_sha256) as SEPARATE fields; neither overwrites the other. The
+          # requested spec's SHA256 must equal requested_spec_sha256, and the manifest must pin the
+          # exact WAFT source commit (never invented here). If a solved @EXPLICIT lock is committed,
+          # it is validated here and the qualifying dispatch installs it verbatim (no re-solve).
+          python3.11 - "$runtime_inputs" "$WAFT_CONDA_INSTALLER_URL" "$WAFT_CONDA_INSTALLER_SHA256" \
+            "$WAFT_REQUESTED_SPEC_FILE" "$WAFT_REQUESTED_SPEC_SHA256" "$WAFT_SOURCE_COMMIT" "$GITHUB_WORKSPACE" \
+            "$WAFT_SOLVED_LOCK_FILE" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          manifest_path = Path(sys.argv[1])
+          installer_url, installer_sha, spec_file, spec_sha, source_commit = sys.argv[2:7]
+          workspace = Path(sys.argv[7]).resolve()
+          solved_lock_env = sys.argv[8]
+          document = json.loads(manifest_path.read_text(encoding="utf-8"))
+          if document.get("schema_id") != "whitewater-waft-validation-runtime-inputs-v1":
+              raise SystemExit("runtime-inputs.json has the wrong schema_id")
+          conda = document["conda"]
+          supplied = (installer_url, installer_sha, spec_file, spec_sha)
+          expected = (conda["installer_url"], conda["installer_sha256"],
+                      conda["requested_spec"], conda["requested_spec_sha256"])
+          if supplied != expected:
+              raise SystemExit(f"conda inputs must match runtime-inputs.json: {supplied!r} != {expected!r}")
+          spec = workspace / conda["requested_spec"]
+          if not spec.is_file() or spec.is_symlink():
+              raise SystemExit(f"runtime-inputs.json requested_spec is not a local regular file: {spec}")
+          actual_spec = hashlib.sha256(spec.read_bytes()).hexdigest()
+          if actual_spec != conda["requested_spec_sha256"]:
+              raise SystemExit(f"requested conda spec hash mismatch: expected {conda['requested_spec_sha256']}, got {actual_spec}")
+          # Solved @EXPLICIT lock reconciliation (the SEPARATE second digest).
+          solved_lock = conda.get("solved_lock")
+          solved_sha = conda.get("solved_lock_sha256")
+          solved_path = workspace / solved_lock_env
+          if solved_lock is None and solved_sha is None:
+              if solved_path.exists():
+                  raise SystemExit(f"solved_lock is null in runtime-inputs.json but {solved_lock_env} exists; record its digest or remove the file")
+              print("WAFT-validation checked-in conda/source inputs: PASS (review dispatch; no solved @EXPLICIT lock yet -- CI will solve and emit one)")
+          else:
+              if solved_lock != solved_lock_env:
+                  raise SystemExit(f"conda.solved_lock must be {solved_lock_env!r}, got {solved_lock!r}")
+              if not (isinstance(solved_sha, str) and len(solved_sha) == 64 and all(c in '0123456789abcdef' for c in solved_sha)):
+                  raise SystemExit("conda.solved_lock_sha256 must be a lowercase 64-hex digest")
+              if solved_sha == conda["requested_spec_sha256"]:
+                  raise SystemExit("conda.solved_lock_sha256 must not equal requested_spec_sha256 (the solved lock is a different artifact from the requested spec)")
+              if not solved_path.is_file() or solved_path.is_symlink():
+                  raise SystemExit(f"conda.solved_lock is recorded but {solved_lock_env} is not a local regular file")
+              actual_solved = hashlib.sha256(solved_path.read_bytes()).hexdigest()
+              if actual_solved != solved_sha:
+                  raise SystemExit(f"solved @EXPLICIT lock hash mismatch: expected {solved_sha}, got {actual_solved}")
+              if "@EXPLICIT" not in solved_path.read_text(encoding="utf-8").splitlines():
+                  raise SystemExit("conda.solved_lock is not a CI-solved @EXPLICIT lock")
+              print(f"WAFT-validation checked-in conda/source inputs: PASS (qualifying dispatch; solved @EXPLICIT lock {actual_solved} will be installed verbatim)")
+          if document["waft_source"]["commit"] != source_commit:
+              raise SystemExit("runtime-inputs.json waft_source.commit does not match the job's pinned commit")
+          # The carried candidate manifest must agree on the same pinned WAFT commit.
+          waft_manifest = json.loads((workspace / "models/waft-twins-artifact.json").read_text(encoding="utf-8"))
+          if waft_manifest["upstream"]["commit"] != source_commit:
+              raise SystemExit("models/waft-twins-artifact.json pins a different WAFT commit")
+          PY
+          if [ -n "${WAFT_RUNTIME_LICENSE_SUPPLEMENT:-}" ]; then
+            supplement_file="$GITHUB_WORKSPACE/$WAFT_RUNTIME_LICENSE_SUPPLEMENT"
+            test -f "$supplement_file" || { echo "runtime license supplement is missing" >&2; exit 1; }
+            test ! -L "$supplement_file" || { echo "runtime license supplement must not be a symlink" >&2; exit 1; }
+            test "$(stat -c '%a' "$supplement_file")" = 644 || { echo "runtime license supplement must be mode 0644" >&2; exit 1; }
+          fi
+
+      - name: Vendor the pinned WAFT source as a clean git checkout
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/waft-src"
+          # Empty --template so the runner's git template does NOT populate .git/hooks/*.sample
+          # (and other template files) into the checkout. The package carries .git wholesale and
+          # exempts it from the structure gate, so any template files would silently enter the
+          # archive though the runbook says only the pinned WAFT history is bundled and they are
+          # absent from every inventory. An empty template creates none.
+          git init --template= "$src"
+          git -C "$src" remote add origin "$WAFT_SOURCE_REPO"
+          git -C "$src" fetch --depth=1 origin "$WAFT_SOURCE_COMMIT"
+          git -C "$src" checkout --detach FETCH_HEAD
+          head=$(git -C "$src" rev-parse HEAD)
+          test "$head" = "$WAFT_SOURCE_COMMIT" || { echo "vendored WAFT is not the pinned commit: $head" >&2; exit 1; }
+          test -z "$(git -C "$src" status --porcelain=v1 --untracked-files=all)" || {
+            echo "vendored WAFT checkout is not clean" >&2; exit 1; }
+          test -f "$src/config/a2/twins/chairs-things.json" || {
+            echo "pinned WAFT Twins config is absent from the checkout" >&2; exit 1; }
+          test -f "$src/LICENSE" || { echo "WAFT LICENSE is absent from the checkout" >&2; exit 1; }
+          # WAFT's only submodule is thirdparty/dinov3 (facebookresearch/dinov3, NON-COMMERCIAL).
+          # A shallow fetch+checkout does NOT init submodules, so its tree stays empty; assert that
+          # so the non-commercial code never enters the pack. thirdparty/DepthAnythingV2 is vendored
+          # tracked code (Apache-2.0, NOT a submodule) that vit.py imports, so it must be present.
+          if [ -n "$(find "$src/thirdparty/dinov3" -type f 2>/dev/null)" ]; then
+            echo "thirdparty/dinov3 submodule content is present; refusing to carry non-commercial DINOv3" >&2
+            exit 1
+          fi
+          test -d "$src/thirdparty/DepthAnythingV2" || {
+            echo "vendored thirdparty/DepthAnythingV2 (needed by vit.py) is absent from the checkout" >&2; exit 1; }
+          echo "WAFT_SRC_CHECKOUT=$src" >> "$GITHUB_ENV"
+
+      - name: Solve the requested conda spec and smoke the weightless twins backbone
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/waft-inputs"
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/waft-inputs/conda-bootstrap.sh" "$WAFT_CONDA_INSTALLER_URL"
+          printf '%s  %s\n' "$WAFT_CONDA_INSTALLER_SHA256" \
+            "$RUNNER_TEMP/waft-inputs/conda-bootstrap.sh" | sha256sum --check --status
+          bash "$RUNNER_TEMP/waft-inputs/conda-bootstrap.sh" -b -p "$RUNNER_TEMP/miniforge"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/miniforge/etc/profile.d/conda.sh"
+          conda config --system --set always_yes true
+          conda --version
+          # Two-digest install. If a reviewed, CI-solved @EXPLICIT lock is committed
+          # (WAFT_SOLVED_LOCK_FILE), the qualifying dispatch INSTALLS IT VERBATIM so the environment
+          # is byte-for-byte the one whose licence inventory was approved -- no re-solve, which with
+          # unpinned transitive builds (e.g. einops) could otherwise diverge from the approved
+          # inventory. Otherwise (first/review dispatch) solve the REQUESTED match-spec; the pinned
+          # @EXPLICIT lock CI emits below is what gets reviewed and then committed for the next run.
+          solved_lock="$GITHUB_WORKSPACE/$WAFT_SOLVED_LOCK_FILE"
+          if [ -f "$solved_lock" ]; then
+            printf '%s  %s\n' "$WAFT_REQUESTED_SPEC_SHA256" \
+              "$GITHUB_WORKSPACE/$WAFT_REQUESTED_SPEC_FILE" | sha256sum --check --status
+            grep -qx '@EXPLICIT' "$solved_lock" || { echo "committed solved lock is not @EXPLICIT" >&2; exit 1; }
+            echo "WAFT-validation: installing the reviewed CI-solved @EXPLICIT lock verbatim (no re-solve)"
+            cp -- "$solved_lock" "$RUNNER_TEMP/waft-inputs/environment.lock"
+            conda create --override-channels -c conda-forge \
+              --prefix "$RUNNER_TEMP/waft-conda-env" \
+              --file "$RUNNER_TEMP/waft-inputs/environment.lock"
+          else
+            echo "WAFT-validation: no committed solved @EXPLICIT lock; solving the REQUESTED match-spec (review dispatch)"
+            cp -- "$GITHUB_WORKSPACE/$WAFT_REQUESTED_SPEC_FILE" "$RUNNER_TEMP/waft-inputs/environment.lock"
+            printf '%s  %s\n' "$WAFT_REQUESTED_SPEC_SHA256" \
+              "$RUNNER_TEMP/waft-inputs/environment.lock" | sha256sum --check --status
+            conda create --override-channels -c conda-forge \
+              --prefix "$RUNNER_TEMP/waft-conda-env" \
+              --file "$RUNNER_TEMP/waft-inputs/environment.lock"
+          fi
+          env_py="$RUNNER_TEMP/waft-conda-env/bin/python"
+          test -x "$env_py"
+          test -x "$RUNNER_TEMP/waft-conda-env/bin/conda-pack" || {
+            echo "the solved environment must carry conda-pack" >&2; exit 1; }
+          echo "WAFT_CONDA_ENV=$RUNNER_TEMP/waft-conda-env" >> "$GITHUB_ENV"
+          # The single most valuable de-risk: construct the REAL WAFTv2(feature_encoder='twins')
+          # WEIGHTLESS and checkpoint-free, through export_waft.py's OWN construction path
+          # (load_pinned_config + construct_weightless_model), so the smoke cannot drift from the
+          # export the operator runs. This exercises the full `from model.waft_a2 import WAFTv2`
+          # import chain (vit.py -> vendored thirdparty/DepthAnythingV2; twins backbone; the dinov3
+          # module imports but is never instantiated) with the NON-COMMERCIAL thirdparty/dinov3
+          # submodule ABSENT -- empirically proving the twins path does not need it. A wrong timm,
+          # a missing transitive import (e.g. einops), or a broken import chain fails HERE rather
+          # than on the airgapped box after the operator has carried and loaded the checkpoint.
+          "$env_py" - "$GITHUB_WORKSPACE" "$WAFT_SRC_CHECKOUT" <<'PY'
+          import sys
+          from pathlib import Path
+
+          workspace, upstream = Path(sys.argv[1]), Path(sys.argv[2])
+          if sys.version_info[:2] != (3, 11):
+              raise SystemExit(f"expected pinned Python 3.11, got {sys.version}")
+          import numpy, scipy, onnx, onnxruntime, safetensors, einops  # noqa: F401
+          import torch, timm
+          if not torch.__version__.startswith("2.2.0"):
+              raise SystemExit(f"expected torch 2.2.0, got {torch.__version__}")
+          if onnxruntime.__version__ != "1.29.0":
+              raise SystemExit(f"expected onnxruntime 1.29.0, got {onnxruntime.__version__}")
+          sys.path.insert(0, str(workspace / "models"))
+          import export_waft
+          manifest = export_waft.load_manifest(workspace / "models" / "waft-twins-artifact.json")
+          # Same config gate the export runs: verifies the vendored config's exact SHA256/identity.
+          config, _config_path = export_waft.load_pinned_config(manifest, upstream, None)
+          model = export_waft.construct_weightless_model(manifest, upstream, config, "cpu")
+          n = sum(p.numel() for p in model.parameters())
+          if n <= 0:
+              raise SystemExit("weightless WAFTv2(twins) has no parameters")
+          print(f"weightless WAFTv2(twins) construction via export_waft.construct_weightless_model: "
+                f"PASS (timm {timm.__version__}, {n} params; dinov3 submodule absent)")
+          PY
+          # export_waft.py's argparse must also build as a bare script (imports artifact_workflow
+          # via sys.path[0]; --help exits before importing torch).
+          ( cd "$GITHUB_WORKSPACE" && "$env_py" models/export_waft.py --help >/dev/null )
+          echo "export_waft.py --help: PASS"
+
+      - name: Pack and relocate the qualified conda runtime
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/waft-runtime-extracted" "$WAFT_OUTPUT_DIR"
+          runtime_archive="$RUNNER_TEMP/whitewater-waft-validation-runtime.tar.gz"
+          "$WAFT_CONDA_ENV/bin/conda-pack" --prefix "$WAFT_CONDA_ENV" --format tar.gz --output "$runtime_archive"
+          chmod 0644 "$runtime_archive"
+          runtime_sha=$(sha256sum -- "$runtime_archive" | awk '{print $1}')
+          printf '%s  %s\n' "$runtime_sha" "$(basename "$runtime_archive")" \
+            > "$WAFT_OUTPUT_DIR/whitewater-waft-validation-runtime.tar.gz.sha256"
+          chmod 0644 "$WAFT_OUTPUT_DIR/whitewater-waft-validation-runtime.tar.gz.sha256"
+          "$RUNNER_TEMP/miniforge/bin/conda" list --prefix "$WAFT_CONDA_ENV" --explicit \
+            > "$WAFT_OUTPUT_DIR/whitewater-waft-validation-runtime.inventory"
+          "$RUNNER_TEMP/miniforge/bin/conda" list --prefix "$WAFT_CONDA_ENV" --json \
+            > "$WAFT_OUTPUT_DIR/whitewater-waft-validation-runtime.inventory.json"
+          tar --extract --gzip --file "$runtime_archive" --directory "$RUNNER_TEMP/waft-runtime-extracted"
+          test -x "$RUNNER_TEMP/waft-runtime-extracted/bin/conda-unpack"
+          env PATH="$RUNNER_TEMP/waft-runtime-extracted/bin:$PATH" \
+            "$RUNNER_TEMP/waft-runtime-extracted/bin/conda-unpack"
+          test -x "$RUNNER_TEMP/waft-runtime-extracted/bin/python"
+          # Catch a broken relocation: re-run the REAL WAFTv2(twins) weightless construction from
+          # the RELOCATED runtime, again through export_waft.py's own path and with the dinov3
+          # submodule absent -- the exact model build the operator will run on the box.
+          "$RUNNER_TEMP/waft-runtime-extracted/bin/python" - "$GITHUB_WORKSPACE" "$WAFT_SRC_CHECKOUT" <<'PY'
+          import sys
+          from pathlib import Path
+
+          workspace, upstream = Path(sys.argv[1]), Path(sys.argv[2])
+          import einops  # noqa: F401  (must survive relocation too)
+          import torch, timm  # noqa: F401
+          sys.path.insert(0, str(workspace / "models"))
+          import export_waft
+          manifest = export_waft.load_manifest(workspace / "models" / "waft-twins-artifact.json")
+          config, _config_path = export_waft.load_pinned_config(manifest, upstream, None)
+          model = export_waft.construct_weightless_model(manifest, upstream, config, "cpu")
+          if sum(p.numel() for p in model.parameters()) <= 0:
+              raise SystemExit("relocated runtime cannot build WAFTv2(twins)")
+          print(f"relocated weightless WAFTv2(twins) construction smoke: PASS (timm {timm.__version__})")
+          PY
+          echo "WAFT_RUNTIME_ROOT=$RUNNER_TEMP/waft-runtime-extracted" >> "$GITHUB_ENV"
+          echo "WAFT_RUNTIME_ARCHIVE=$runtime_archive" >> "$GITHUB_ENV"
+          echo "WAFT_RUNTIME_SHA256=$runtime_sha" >> "$GITHUB_ENV"
+          echo "WAFT_RUNTIME_SHA256_FILE=$WAFT_OUTPUT_DIR/whitewater-waft-validation-runtime.tar.gz.sha256" >> "$GITHUB_ENV"
+          echo "WAFT_RUNTIME_INVENTORY=$WAFT_OUTPUT_DIR/whitewater-waft-validation-runtime.inventory" >> "$GITHUB_ENV"
+
+      - name: Generate hash-bound runtime license and notice inventory
+        run: |
+          set -euo pipefail
+          # The requested spec is a match-spec, not @EXPLICIT; licenses.py needs the CI-SOLVED
+          # @EXPLICIT lock (conda list --explicit, emitted above) whose package URLs match the
+          # installed prefix. Materialize its SHA256 here (never hardcode a solved SHA).
+          explicit_lock="$WAFT_OUTPUT_DIR/whitewater-waft-validation-runtime.inventory"
+          test -f "$explicit_lock" || { echo "CI-solved explicit lock is missing" >&2; exit 1; }
+          grep -qx '@EXPLICIT' "$explicit_lock" || { echo "conda list --explicit did not emit @EXPLICIT" >&2; exit 1; }
+          explicit_lock_sha=$(sha256sum -- "$explicit_lock" | awk '{print $1}')
+          generated_runtime_input="$RUNNER_TEMP/waft-runtime-license-input.json"
+          supplement_args=()
+          if [ -n "${WAFT_RUNTIME_LICENSE_SUPPLEMENT:-}" ]; then
+            supplement_args=(--supplement "$GITHUB_WORKSPACE/$WAFT_RUNTIME_LICENSE_SUPPLEMENT")
+          fi
+          python3.11 tools/p25_5/licenses.py generate-runtime-input \
+            --prefix "$RUNNER_TEMP/waft-runtime-extracted" \
+            --lock "$explicit_lock" \
+            --package-cache "$RUNNER_TEMP/miniforge/pkgs" \
+            --lock-sha256 "$explicit_lock_sha" \
+            "${supplement_args[@]}" \
+            --output "$generated_runtime_input"
+          mkdir -p "$WAFT_RUNTIME_LEGAL_DIR"
+          python3.11 tools/p25_5/licenses.py runtime \
+            --prefix "$RUNNER_TEMP/waft-runtime-extracted" \
+            --lock "$explicit_lock" \
+            --input "$generated_runtime_input" \
+            --lock-sha256 "$explicit_lock_sha" \
+            --output-dir "$WAFT_RUNTIME_LEGAL_DIR" \
+            --license-name RUNTIME-LICENSES.txt \
+            --notice-name RUNTIME-NOTICES.txt
+          inventory="$WAFT_RUNTIME_LEGAL_DIR/runtime-license-inventory.json"
+          inventory_sha=$(sha256sum -- "$inventory" | awk '{print $1}')
+          echo "WAFT_RUNTIME_LEGAL_INVENTORY=$inventory" >> "$GITHUB_ENV"
+          echo "WAFT_RUNTIME_LEGAL_INVENTORY_SHA256=$inventory_sha" >> "$GITHUB_ENV"
+          echo "Generated runtime legal inventory for human review: $inventory"
+          echo "Approve this exact inventory SHA256 in an Andrew Miller runtime legal-review JSON before rerunning packaging: $inventory_sha"
+          echo "Solved @EXPLICIT lock SHA256 (commit this lock as bakeoff/waft-validation/conda-el8-x86_64.solved.lock and record this digest in runtime-inputs.json conda.solved_lock_sha256 so the qualifying dispatch installs it verbatim instead of re-solving): $explicit_lock_sha"
+
+      - name: Upload CI-solved runtime explicit lock (safety net + solved_lock source)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          # Download this @EXPLICIT lock, commit it as bakeoff/waft-validation/conda-el8-x86_64.solved.lock,
+          # and record its SHA256 in runtime-inputs.json conda.solved_lock_sha256 before the qualifying
+          # dispatch. The qualifying dispatch then installs the committed lock verbatim (no re-solve), so
+          # the packaged runtime is byte-identical to the one whose licence inventory was approved.
+          name: waft-validation-runtime-explicit-lock-${{ github.run_id }}
+          path: waft-validation-output/whitewater-waft-validation-runtime.inventory
+          if-no-files-found: warn
+
+      - name: Upload generated runtime legal inventory for review
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: whitewater-waft-validation-runtime-legal-${{ github.run_id }}
+          path: waft-validation-output/legal-runtime
+          if-no-files-found: error
+
+      - name: Require Andrew Miller runtime legal approval
+        run: |
+          set -euo pipefail
+          inventory="$WAFT_RUNTIME_LEGAL_INVENTORY"
+          inventory_sha="$WAFT_RUNTIME_LEGAL_INVENTORY_SHA256"
+          if [ -z "${WAFT_VALIDATION_RUNTIME_LEGAL_REVIEW_FILE:-}" ] || [ -z "${WAFT_VALIDATION_RUNTIME_LEGAL_REVIEW_SHA256:-}" ]; then
+            echo "WAFT-validation runtime legal inventory is ready for review: $inventory" >&2
+            echo "WAFT-validation runtime legal inventory SHA256: $inventory_sha" >&2
+            echo "Supply an Andrew Miller runtime legal-review JSON whose inventory_sha256 equals that digest, plus its file SHA256, then rerun; final packaging is blocked." >&2
+            exit 1
+          fi
+          case "$WAFT_VALIDATION_RUNTIME_LEGAL_REVIEW_FILE" in
+            /*|*..*|*//*|"")
+              echo "runtime legal-review file must be a repository-relative path without traversal" >&2
+              exit 1 ;;
+          esac
+          review_file="$GITHUB_WORKSPACE/$WAFT_VALIDATION_RUNTIME_LEGAL_REVIEW_FILE"
+          test -f "$review_file" || { echo "runtime legal-review file is missing" >&2; exit 1; }
+          test ! -L "$review_file" || { echo "runtime legal-review file must not be a symlink" >&2; exit 1; }
+          test "$(stat -c '%a' "$review_file")" = 644 || { echo "runtime legal-review file must be mode 0644" >&2; exit 1; }
+          [[ "$WAFT_VALIDATION_RUNTIME_LEGAL_REVIEW_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "runtime legal-review SHA256 must be lowercase 64-hex" >&2; exit 1; }
+          actual_review_sha=$(sha256sum -- "$review_file" | awk '{print $1}')
+          test "$actual_review_sha" = "$WAFT_VALIDATION_RUNTIME_LEGAL_REVIEW_SHA256" || {
+            echo "runtime legal-review SHA256 mismatch: expected $WAFT_VALIDATION_RUNTIME_LEGAL_REVIEW_SHA256, got $actual_review_sha" >&2
+            exit 1; }
+          python3.11 tools/p25_5/licenses.py validate-runtime-review \
+            --input "$review_file" \
+            --sha256 "$WAFT_VALIDATION_RUNTIME_LEGAL_REVIEW_SHA256" \
+            --inventory-sha256 "$inventory_sha"
+          python3.11 tools/p25_5/licenses.py verify-runtime-content \
+            --prefix "$WAFT_RUNTIME_ROOT" \
+            --inventory "$inventory" \
+            --inventory-sha256 "$inventory_sha"
+          echo "WAFT_RUNTIME_LEGAL_REVIEW_FILE=$review_file" >> "$GITHUB_ENV"
+          echo "WAFT_RUNTIME_LEGAL_REVIEW_SHA256=$WAFT_VALIDATION_RUNTIME_LEGAL_REVIEW_SHA256" >> "$GITHUB_ENV"
+
+      - name: Check glibc 2.28 baseline for runtime and export ELFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_tree() {
+            local tree="$1"
+            [ -e "$tree" ] || return 0
+            local candidates=()
+            if [ -f "$tree" ]; then
+              candidates=("$tree")
+            else
+              mapfile -d '' candidates < <(find "$tree" -type f -print0)
+            fi
+            for candidate in "${candidates[@]}"; do
+              if file -b -- "$candidate" | grep -q 'ELF'; then
+                scripts/check-glibc-baseline.sh "$candidate" 2.28
+              fi
+            done
+          }
+          check_tree "$WAFT_RUNTIME_ROOT"
+
+      - name: Run WAFT export/validation packaging
+        run: scripts/ci-waft-validation-qualify.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: whitewater-waft-validation-el8-${{ github.sha }}
+          path: waft-validation-output
           if-no-files-found: error
 
   # --- begin neuflow-validation lane (bakeoff/neuflow-validation) ---

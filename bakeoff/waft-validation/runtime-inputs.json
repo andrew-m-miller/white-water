@@ -1,0 +1,57 @@
+{
+  "schema_id": "whitewater-waft-validation-runtime-inputs-v1",
+  "target": "el8-x86_64-glibc-2.28",
+  "python": "3.11",
+  "purpose": "Offline WAFT/Twins export+validation runtime for models/export_waft.py. CPU-only and device-independent: unlike bakeoff/p25-6/runtime-inputs.json this runtime carries NO ONNX Runtime CUDA-12 archive and NO native ORT bridge -- onnxruntime is a conda-forge CPU package. It carries the pinned WAFT BSD-3-Clause source instead.",
+  "conda": {
+    "installer_url": "https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh",
+    "installer_sha256": "848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c",
+    "requested_spec": "bakeoff/waft-validation/conda-el8-x86_64.lock",
+    "requested_spec_sha256": "6d9336c2f92d1cb3ad672c480b8091551c6ac114feeaf9ac2471dcb7e12546ad",
+    "solved_lock": null,
+    "solved_lock_sha256": null,
+    "note": "TWO-DIGEST scheme, kept as SEPARATE fields so neither overwrites the other. `requested_spec` is the AUTHORED conda match-spec (NOT @EXPLICIT) and `requested_spec_sha256` pins its exact bytes. `solved_lock`/`solved_lock_sha256` are the CI-SOLVED fully-pinned @EXPLICIT lock and its digest -- both null until the first (review) dispatch solves the requested spec on EL8 x86_64 and emits the pinned lock (conda list --explicit -> whitewater-waft-validation-runtime.inventory, also uploaded as the `waft-validation-runtime-explicit-lock` artifact). WORKFLOW: (1) first dispatch with solved_lock null solves the requested spec, emits the @EXPLICIT lock, and generates the runtime license inventory for Andrew Miller review; (2) after that inventory is approved, commit the emitted @EXPLICIT lock to bakeoff/waft-validation/conda-el8-x86_64.solved.lock and record its SHA256 in solved_lock_sha256 (and its repo path in solved_lock); (3) the qualifying dispatch then INSTALLS that exact @EXPLICIT lock verbatim (no re-solve, so an unpinned transitive re-solve -- e.g. einops -- cannot diverge from the approved inventory), packages, and emits the archive. solved_lock_sha256 must never equal requested_spec_sha256; if the requested spec is ever re-authored, update requested_spec_sha256 and re-run the review dispatch."
+  },
+  "export_dependencies": {
+    "note": "The numeric export stack requested by the conda spec, mirroring models/requirements-searaft-export.txt so WAFT is validated on the same framework as the SEA-RAFT candidate. These are REQUESTED versions; the CI-solved @EXPLICIT lock is the reproducible identity.",
+    "python": "3.11",
+    "pytorch": "2.2.0 (cpu build variant)",
+    "torchvision": "0.17.0 (cpu build variant)",
+    "numpy": "1.26.4",
+    "scipy": "1.12.0",
+    "onnx": "1.15.0",
+    "onnxruntime": "1.29.0 (conda-forge CPU build; CPUExecutionProvider only)",
+    "safetensors": "0.4.2",
+    "timm": "0.9.16",
+    "einops": "(unpinned; required by WAFT model code per the pinned commit's requirements.txt)",
+    "conda_pack": "0.8.1",
+    "setuptools": "<81"
+  },
+  "timm_pin_risk": {
+    "pinned": "0.9.16",
+    "confidence": "low-to-moderate",
+    "reason": "The pinned WAFT commit b152ff1cad1af8c185ee7b141997c48ff3334c87 does not pin timm (requirements.txt lists a bare `timm`; the README documents pytorch 2.7.0 / CUDA 12.8 / python 3.12 with no timm version). 0.9.16 is a conservative choice contemporaneous with torch 2.2.0. twins_svt_large parameter naming has been stable across recent timm, but the exact timm that produced the checkpoint is unknown. A mismatch fails export_waft.py's strict=True checkpoint load (technical blocker strict_checkpoint_load_failure). CI's weightless twins_svt_large construction smoke and the on-box strict load are the proof.",
+    "remediation": "If the smoke or strict load fails on timm, re-pin timm in conda-el8-x86_64.lock (try a recent timm 1.0.x, and if needed bump torch to WAFT's documented 2.7.x / python 3.12), update conda.requested_spec_sha256 to the edited spec's SHA256, clear conda.solved_lock/solved_lock_sha256 back to null, and re-run the review dispatch so a fresh @EXPLICIT lock is solved and re-approved."
+  },
+  "waft_source": {
+    "repository": "https://github.com/princeton-vl/WAFT.git",
+    "commit": "b152ff1cad1af8c185ee7b141997c48ff3334c87",
+    "license": "BSD-3-Clause",
+    "staging": "ci-vendored-clean-git-checkout",
+    "payload_root": "waft-src",
+    "note": "export_waft.py re-verifies source identity with `git rev-parse HEAD` and a clean-worktree check, which a plain source tree without .git cannot satisfy. CI therefore vendors the BSD-3-Clause source as a CLEAN shallow git checkout at the pinned commit into waft-src/ (including .git), so the airgapped box needs no network and no separate WAFT download. The operator supplies ONLY the checkpoint. `git` is resolved from the box's /usr/bin (the airgap wrapper's PATH is runtime/bin:/usr/bin:/bin); it is deliberately NOT bundled to keep the conda license inventory permissive (git is GPLv2).",
+    "submodules": {
+      "omitted": ["thirdparty/dinov3"],
+      "reason": "WAFT's ONLY git submodule is thirdparty/dinov3 (facebookresearch/dinov3), which carries a NON-COMMERCIAL licence. The shallow checkout does not init submodules, so its contents are deliberately absent from the pack. The Twins export path does not need it: model/backbone/dinov3.py defines REPO_DIR='thirdparty/dinov3' and only loads it via torch.hub.load inside DinoV3Feature.__init__, and WAFTv2(feature_encoder='twins') instantiates TwinsFeatureEncoder, never DinoV3Feature -- so importing WAFTv2 and constructing the twins model reach neither the submodule nor its torch.hub.load. The CI weightless WAFTv2(twins) construction smoke proves this empirically (it constructs the real model with the submodule absent). thirdparty/DepthAnythingV2 is vendored tracked code (Apache-2.0, NOT a submodule) and IS present -- model/backbone/vit.py imports it at module scope. If CI's smoke ever shows the twins path needs thirdparty/dinov3, STOP: do not vendor the non-commercial submodule; escalate to Andrew."
+    }
+  },
+  "checkpoint": {
+    "operator_supplied": true,
+    "url": "https://drive.google.com/file/d/1RA4j0GlNCy7flmc3VIY71ZV-Kz-RYDox/view",
+    "member": "zero-shot.pth",
+    "size_bytes": 544230582,
+    "sha256": "f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070",
+    "license": "unknown",
+    "note": "The checkpoint is NEVER downloaded by CI or embedded in the package. The operator downloads zero-shot.pth themselves, verifies these exact bytes, and brings it onto the box on media. Its file-level licence remains unknown regardless of any numerical validation pass (see models/waft-twins-artifact.json checkpoint.license)."
+  }
+}

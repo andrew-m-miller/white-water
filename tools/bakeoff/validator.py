@@ -1224,6 +1224,10 @@ def validate_report_consistency(
     matrix_provider_tokens = [entry["token"] for entry in matrix_provider_entries]
     _unique(matrix_provider_tokens, "$.matrix.providers", "provider tokens")
     matrix_provider_loads: list[tuple[str, str]] = []
+    # P25-7: the CUDA arena ceiling (``gpu_mem_limit_mib``) is declared on the matrix provider
+    # selector and frozen into the matrix identity.  Capture each selector's ceiling here so the
+    # per-result resource evidence can be cross-checked against it below.
+    matrix_provider_ceilings: dict[str, Any] = {}
     for provider_index, entry in enumerate(matrix_provider_entries):
         provider_path = f"$.matrix.providers[{provider_index}]"
         provider_token = entry["token"]
@@ -1234,9 +1238,15 @@ def validate_report_consistency(
         if provider_token != "cuda":
             _require(host_loads == ["not_applicable"], f"{provider_path}.host_loads",
                      "CPU/support providers must select not_applicable")
+            _require(
+                "gpu_mem_limit_mib" not in entry,
+                f"{provider_path}.gpu_mem_limit_mib",
+                "only the CUDA provider selector may carry a gpu_mem_limit_mib arena ceiling",
+            )
         elif profile == "final":
             _require(set(host_loads) == {"idle", "live_flame"}, f"{provider_path}.host_loads",
                      "final CUDA selectors must include idle and live_flame")
+        matrix_provider_ceilings[provider_token] = entry.get("gpu_mem_limit_mib")
         for cap_index, cap_token in enumerate(matrix_cap_tokens):
             _require(cap_token in provider["cap_tokens"],
                      f"$.matrix.cap_tokens[{cap_index}]",
@@ -1366,6 +1376,36 @@ def validate_report_consistency(
         provider = provider_map.get(result["provider"])
         _require(provider is not None, f"{path}.provider", "unknown provider")
         _require(result["cap_token"] in provider["cap_tokens"], f"{path}", "provider does not support cap token")
+        # P25-7 arena-ceiling consistency: the CUDA arena ceiling lives on the matrix provider
+        # selector, and a result's resource evidence may only echo that exact ceiling.  A ceiling
+        # is CUDA-only; a result may neither carry one on a non-CUDA provider, nor invent one the
+        # selector never declared, nor disagree with the value frozen into the matrix identity.
+        resource_section = result.get("resource")
+        resource_ceiling = (
+            resource_section.get("gpu_mem_limit_mib")
+            if isinstance(resource_section, Mapping)
+            else None
+        )
+        if result["provider"] != "cuda":
+            _require(
+                resource_ceiling is None,
+                f"{path}.resource.gpu_mem_limit_mib",
+                "only the CUDA provider may record a gpu_mem_limit_mib arena ceiling",
+            )
+        else:
+            selector_ceiling = matrix_provider_ceilings.get("cuda")
+            if selector_ceiling is None:
+                _require(
+                    resource_ceiling is None,
+                    f"{path}.resource.gpu_mem_limit_mib",
+                    "result records a CUDA arena ceiling the matrix provider selector does not declare",
+                )
+            elif isinstance(resource_section, Mapping):
+                _require(
+                    resource_ceiling == selector_ceiling,
+                    f"{path}.resource.gpu_mem_limit_mib",
+                    "CUDA result arena ceiling must equal the matrix provider selector's gpu_mem_limit_mib",
+                )
         shot: Mapping[str, Any] | None = None
         if corpus_shots:
             _require(result["shot_id"] in corpus_shots, f"{path}.shot_id", "result shot is absent from corpus")

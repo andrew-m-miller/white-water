@@ -367,8 +367,16 @@ def _provider_selection(
     if not _is_sequence(requested) or not requested:
         _fail("empty_selection", "selections.providers must be a non-empty sequence")
     requested_map: dict[str, Any] = {}
+    requested_limits: dict[str, int] = {}
     for index, entry in enumerate(requested):
-        if not isinstance(entry, Mapping) or set(entry) != {"token", "host_loads"}:
+        # ``gpu_mem_limit_mib`` (P25-7) is an OPTIONAL extra key that bounds ORT's CUDA arena for
+        # that provider's cells; token+host_loads remain the only required keys, so a selection
+        # that omits it is unchanged and yields the identical matrix identity as before.
+        if (
+            not isinstance(entry, Mapping)
+            or not {"token", "host_loads"} <= set(entry)
+            or set(entry) - {"token", "host_loads", "gpu_mem_limit_mib"}
+        ):
             _fail("provider_selection", f"selections.providers[{index}] must contain token and host_loads only")
         token = _nonempty_string(entry.get("token"), f"selections.providers[{index}].token")
         if token in requested_map:
@@ -376,6 +384,13 @@ def _provider_selection(
         if token not in provider_map:
             _fail("unknown_selection", f"selections.providers contains unknown provider {token!r}")
         requested_map[token] = entry.get("host_loads")
+        if "gpu_mem_limit_mib" in entry:
+            limit = entry["gpu_mem_limit_mib"]
+            if type(limit) is not int or isinstance(limit, bool) or limit <= 0:
+                _fail("gpu_mem_limit", f"selections.providers[{index}].gpu_mem_limit_mib must be a positive integer")
+            if token != "cuda":
+                _fail("gpu_mem_limit", f"gpu_mem_limit_mib is only supported for the cuda provider, not {token!r}")
+            requested_limits[token] = limit
     normalized: list[dict[str, Any]] = []
     flattened: list[tuple[str, str]] = []
     selected_environments = set()
@@ -402,7 +417,10 @@ def _provider_selection(
             if profile == "final" and set(host_loads) != {"idle", "live_flame"}:
                 _fail("host_load", "final CUDA selection requires idle and live_flame")
             ordered_hosts = sorted(host_loads, key=lambda host: _HOST_ORDER[host])
-        normalized.append({"token": token, "host_loads": ordered_hosts})
+        normalized_entry: dict[str, Any] = {"token": token, "host_loads": ordered_hosts}
+        if token in requested_limits:
+            normalized_entry["gpu_mem_limit_mib"] = requested_limits[token]
+        normalized.append(normalized_entry)
         flattened.extend((token, host) for host in ordered_hosts)
     if not normalized:
         _fail("empty_selection", "selections.providers selects no providers")

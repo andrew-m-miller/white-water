@@ -261,7 +261,8 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": {"enum": ["idle", "live_flame", "not_applicable"]}
-        }
+        },
+        "gpu_mem_limit_mib": {"type": "integer", "minimum": 1}
       }
     },
     "result": {
@@ -471,6 +472,7 @@
         "peak_device_memory_mib": {"$ref": "#/$defs/nonnegative_number"},
         "cleanup_device_memory_mib": {"$ref": "#/$defs/nonnegative_number"},
         "process_exit_device_memory_mib": {"$ref": "#/$defs/nonnegative_number"},
+        "gpu_mem_limit_mib": {"type": "integer", "minimum": 1},
         "nvml_samples": {"type": "array", "items": {"$ref": "#/$defs/nvml_sample"}}
       }
     },

@@ -324,6 +324,67 @@ def test_v2_neuflow_fixed_lattice_and_provider_admission() -> None:
     )
 
 
+def test_provider_gpu_mem_limit_selection() -> None:
+    # P25-7: an optional per-provider gpu_mem_limit_mib is accepted, carried into the normalized
+    # selector (so it becomes part of the matrix identity), and validated.
+    bounded = build_matrix(
+        _protocol(), _corpus(), _candidates(),
+        _selections(
+            candidate_ids=["candidate-a"], shot_ids=["fhd", "uhd"],
+            providers=[{"token": "cuda", "host_loads": ["idle", "live_flame"], "gpu_mem_limit_mib": 22000}],
+        ),
+        "final", "el8-x86_64",
+    )
+    assert bounded.selector["providers"] == [
+        {"token": "cuda", "host_loads": ["idle", "live_flame"], "gpu_mem_limit_mib": 22000}
+    ], bounded.selector["providers"]
+    # The ceiling is part of identity: omitting it yields a different matrix_sha256.
+    unbounded = build_matrix(
+        _protocol(), _corpus(), _candidates(),
+        _selections(candidate_ids=["candidate-a"], shot_ids=["fhd", "uhd"]),
+        "final", "el8-x86_64",
+    )
+    assert "gpu_mem_limit_mib" not in unbounded.selector["providers"][0]
+    assert bounded.selector["matrix_sha256"] != unbounded.selector["matrix_sha256"]
+    # The cells themselves are unchanged; the ceiling is provider-level, not a cell axis.
+    assert bounded.cells == unbounded.cells
+
+    # Validation: positive-integer MiB, cuda-only.
+    _failure("gpu_mem_limit", lambda: build_matrix(
+        _protocol(), _corpus(), _candidates(),
+        _selections(
+            candidate_ids=["candidate-a"], shot_ids=["fhd", "uhd"],
+            providers=[{"token": "cuda", "host_loads": ["idle", "live_flame"], "gpu_mem_limit_mib": 0}],
+        ),
+        "final", "el8-x86_64",
+    ))
+    _failure("gpu_mem_limit", lambda: build_matrix(
+        _protocol(), _corpus(), _candidates(),
+        _selections(
+            candidate_ids=["candidate-a"], shot_ids=["fhd", "uhd"],
+            providers=[{"token": "cuda", "host_loads": ["idle", "live_flame"], "gpu_mem_limit_mib": 4096.0}],
+        ),
+        "final", "el8-x86_64",
+    ))
+    _failure("gpu_mem_limit", lambda: build_matrix(
+        _protocol(), _corpus(), _candidates(),
+        _selections(
+            shot_ids=["identity"], conditioning_tokens=["cond-a"], cap_tokens=["mp0_5"],
+            providers=[{"token": "cpu", "host_loads": ["not_applicable"], "gpu_mem_limit_mib": 4096}],
+        ),
+        "smoke", "el8-x86_64",
+    ))
+    # An unknown extra key is still rejected as before.
+    _failure("provider_selection", lambda: build_matrix(
+        _protocol(), _corpus(), _candidates(),
+        _selections(
+            candidate_ids=["candidate-a"], shot_ids=["fhd", "uhd"],
+            providers=[{"token": "cuda", "host_loads": ["idle", "live_flame"], "bogus": 1}],
+        ),
+        "final", "el8-x86_64",
+    ))
+
+
 def main() -> int:
     test_smoke_and_final()
     test_reordered_selections_normalize_to_one_plan()
@@ -331,6 +392,7 @@ def main() -> int:
     test_duplicate_candidate_entries_and_exclusion()
     test_v2_measurement_admission_is_independent_of_shipping_status()
     test_v2_neuflow_fixed_lattice_and_provider_admission()
+    test_provider_gpu_mem_limit_selection()
     print("P25-4 matrix tests passed")
     return 0
 
