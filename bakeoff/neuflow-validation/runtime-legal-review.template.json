@@ -1,0 +1,10 @@
+{
+  "_template": "NOT AN APPROVAL. This documents the exact runtime legal-review document Andrew Miller must produce for the NeuFlow-validation runtime. The first neuflow-validation CI dispatch (runtime legal-review inputs left empty) generates legal-runtime/runtime-license-inventory.json and uploads it; Andrew reviews that exact inventory, then produces a real review JSON (drop the _template/_instructions keys, set reviewed:true, and set inventory_sha256 to the emitted inventory's SHA256). CI refuses to package while the review is absent, mismatched, reviewed!=true, or bound to a different inventory hash.",
+  "_instructions": "Fields consumed by tools/p25_5/licenses.py validate-runtime-review: schema_id, inventory_sha256, reviewed, reviewer, reviewed_at, statement.",
+  "schema_id": "whitewater-p25-runtime-legal-review-v1",
+  "inventory_sha256": "<64-hex SHA256 of legal-runtime/runtime-license-inventory.json emitted by the first neuflow-validation CI dispatch>",
+  "reviewed": false,
+  "reviewer": "Andrew Miller",
+  "reviewed_at": "<ISO-8601 UTC timestamp with explicit timezone, e.g. 2026-09-01T00:00:00Z>",
+  "statement": "I, Andrew Miller, reviewed the generated NeuFlow-validation runtime license and notice inventory with SHA256 <hash>, including its conda packages (python, PyTorch CPU, torchvision, numpy, onnx, onnxruntime CPU, conda-pack, setuptools and their transitive natives). I approve this exact runtime inventory for the NeuFlow v2 export/validation run. The pinned NeuFlow v2 source is Apache-2.0; the NeuFlow v2 checkpoint is operator-supplied and its file-level licence remains unknown -- this approval covers the packed runtime only, not the checkpoint, and no upstream source or checkpoint is carried in the package."
+}

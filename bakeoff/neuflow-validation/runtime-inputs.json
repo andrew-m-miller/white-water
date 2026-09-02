@@ -1,0 +1,54 @@
+{
+  "schema_id": "whitewater-neuflow-validation-runtime-inputs-v1",
+  "target": "el8-x86_64-glibc-2.28",
+  "python": "3.8",
+  "purpose": "Offline NeuFlow v2 export+validation runtime for models/export_neuflow_v2.py. CPU-only and device-independent: like bakeoff/waft-validation and unlike bakeoff/p25-6/runtime-inputs.json this runtime carries NO ONNX Runtime CUDA-12 archive and NO native ORT bridge -- onnxruntime is a conda-forge CPU package. UNLIKE bakeoff/waft-validation it also carries NO vendored upstream source: NeuFlow v2's checkpoints are 36MB real git blobs tracked IN the upstream repo, so a clean vendored checkout cannot exclude the unknown-licence checkpoint without dirtying the worktree export_neuflow_v2.py requires clean. The operator therefore supplies their own clean NeuFlow_v2 checkout (which inherently contains neuflow_mixed.pth) plus the verified checkpoint; the pack carries only the runtime, entrypoint closure, manifest and instructions.",
+  "conda": {
+    "installer_url": "https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh",
+    "installer_sha256": "848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c",
+    "explicit_lock": "bakeoff/neuflow-validation/conda-el8-x86_64.lock",
+    "explicit_lock_sha256": "47231f50e7f7c1408965f95d41cff262675647745ec12475807559b6ae44e0d7",
+    "explicit_lock_is_requested_spec": true,
+    "note": "explicit_lock is a REQUESTED match-spec (not @EXPLICIT); CI solves it on EL8 x86_64 and emits the pinned lock as evidence (conda list --explicit -> whitewater-neuflow-validation-runtime.inventory). If CI re-pins the lock, update explicit_lock_sha256 to the pinned lock SHA256 before the qualifying dispatch."
+  },
+  "export_dependencies": {
+    "note": "The numeric export stack requested by the conda spec is exactly models/requirements-neuflow-export.txt, which mirrors the pinned upstream README (python==3.8, pytorch==2.0.1, torchvision==0.15.2). These are REQUESTED versions; the CI-solved @EXPLICIT lock is the reproducible identity. NeuFlow's model construction imports only torch and huggingface_hub (the latter stubbed inert by export_neuflow_v2.py), so -- unlike WAFT which needed einops -- there is no scipy/safetensors/timm/einops dependency to add.",
+    "python": "3.8",
+    "pytorch": "2.0.1 (cpu build variant)",
+    "torchvision": "0.15.2 (cpu build variant; carried for stack parity, not imported by the NeuFlow model/export path)",
+    "numpy": "1.24.4",
+    "onnx": "1.14.1",
+    "onnxruntime": "1.16.3 (conda-forge CPU build; CPUExecutionProvider only)",
+    "conda_pack": "0.8.1",
+    "setuptools": "<81"
+  },
+  "python38_torch201_risk": {
+    "pinned": "python 3.8 + pytorch 2.0.1 (cpu) + numpy 1.24.4 + onnx 1.14.1 + onnxruntime 1.16.3, all conda-forge",
+    "confidence": "low-to-moderate",
+    "reason": "Python 3.8 reached upstream end-of-life on 2024-10 and conda-forge has stopped building new packages for it; whether a mutually-solvable py38 set of torch 2.0.1 (cpu), numpy 1.24.4, onnx 1.14.1 and onnxruntime 1.16.3 still exists on conda-forge for linux-64 could NOT be confirmed from the macOS/arm64 dev host (conda cannot solve an EL8 x86_64 env there, and anaconda.org's version filter is not queryable). torch 2.0.1 predates conda-forge's py38 drop, so the pieces very likely exist individually, but the SOLVE is the only proof they co-resolve. This is the single biggest risk in this runtime, analogous to WAFT's timm risk.",
+    "remediation": "If the EL8 solve fails closed on an unsatisfiable py38 graph, do NOT hand-pin build hashes here. First try raising only Python to the lowest conda-forge-built version that still carries torch 2.0.1 / onnxruntime 1.16.3 (updating conda-el8-x86_64.lock and models/requirements-neuflow-export.txt in step), re-solve, and re-run the weightless NeuFlow construction smoke (the checkpoint's strict load is the on-box proof the framework still matches the tensors). If torch 2.0.1 is not co-installable with any conda-forge-built Python, escalate the framework bump to Andrew rather than silently drifting the numeric stack the manifest thresholds were frozen against; then update conda.explicit_lock_sha256 and re-dispatch."
+  },
+  "neuflow_source": {
+    "repository": "https://github.com/neufieldrobotics/NeuFlow_v2.git",
+    "commit": "204b5e3744461d90303b9ff82caa7a1bb56a2ca2",
+    "license": "Apache-2.0",
+    "staging": "operator-supplied-clean-git-checkout",
+    "payload_root": null,
+    "vendored_in_package": false,
+    "note": "export_neuflow_v2.py verifies source identity with `git rev-parse HEAD` and a clean-worktree check, so --upstream must be a clean git checkout at the pinned commit. UNLIKE bakeoff/waft-validation, this pack does NOT vendor that checkout: NeuFlow v2 tracks its checkpoints (neuflow_mixed.pth, neuflow_sintel.pth, neuflow_things.pth -- 36MB real git blobs each, NOT git-lfs pointers; the repo has no .gitattributes) directly in the source tree, so a clean vendored checkout would redistribute the unknown-licence neuflow_mixed.pth, while stripping the .pth files would dirty the worktree export_neuflow_v2.py refuses (upstream_worktree_dirty). The licence-safe, provable choice is to carry no upstream tree at all. The operator clones NeuFlow_v2 at the pinned commit themselves on a networked machine (that clone inherently contains neuflow_mixed.pth) and brings the clean checkout onto the box on media; CI clones the same commit only to run the weightless construction smoke and never packages it. `git` is resolved from the box's /usr/bin (the airgap wrapper's PATH is runtime/bin:/usr/bin:/bin); it is deliberately NOT bundled (GPLv2).",
+    "submodules": {
+      "present": [],
+      "reason": "NeuFlow_v2 at the pinned commit has NO .gitmodules and no git submodules (verified against the repository tree). There is nothing to exclude for submodule-licence reasons, unlike WAFT's non-commercial thirdparty/dinov3. CI asserts the absence of .gitmodules so a future submodule cannot enter unnoticed."
+    }
+  },
+  "checkpoint": {
+    "operator_supplied": true,
+    "in_upstream_repository": true,
+    "url": "https://raw.githubusercontent.com/neufieldrobotics/NeuFlow_v2/204b5e3744461d90303b9ff82caa7a1bb56a2ca2/neuflow_mixed.pth",
+    "member": "neuflow_mixed.pth",
+    "size_bytes": 36195519,
+    "sha256": "76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e20f7995fcc019f",
+    "license": "unknown",
+    "note": "The checkpoint is NEVER downloaded by CI or embedded in the package. It is a tracked file in the pinned upstream repo, so the operator's own clean checkout already contains it; the operator verifies these exact bytes off-box and may point --checkpoint at the in-tree neuflow_mixed.pth or a separately-verified copy. Its file-level licence remains unknown regardless of any numerical validation pass (see models/neuflow-v2.json checkpoint.license and exclusion.reason_code checkpoint_license_terms_unknown); nothing here authorizes redistributing it, which is exactly why the pack carries no upstream tree."
+  }
+}

@@ -1,0 +1,237 @@
+White Water NeuFlow v2 export/validation runtime package
+========================================================
+
+This package runs models/export_neuflow_v2.py on the airgapped Flame/EL8 box to RE-EXPORT and
+RE-VALIDATE the pinned NeuFlow v2 candidate as a linux-x86_64 ONNX artifact.  It is an evaluation
+runtime, not an OFX shipping bundle: it selects no model, assigns no OFX choice index, and
+authorizes no redistribution of the NeuFlow checkpoint.  Do not install the extracted directory
+into Flame as a product plugin.
+
+NeuFlow v2 is ALREADY numerically validation-passed on macOS-arm64 (see models/neuflow-v2.json
+validation.status="passed"); its export is FIXED-shape 1x3x432x768 with no dynamic-axis support.
+This run produces the linux ONNX artifact and re-qualifies it against the same frozen thresholds.
+
+The export is device-independent and runs on CPU.  This package deliberately does NOT carry the
+ONNX Runtime CUDA-12 archive or the White Water native ORT bridge; onnxruntime is the conda-forge
+CPU build and only CPUExecutionProvider is available in this runtime.  (If you have run RUN-P25-6.txt
+or RUN-WAFT-VALIDATION.txt: those are different runtimes with different purposes.)
+
+No production images and no checkpoint leave the machine.  The operator returns only:
+
+    neuflow-v2-mixed-opset17-432x768.onnx   # the exported linux artifact (models/ in the package)
+    neuflow-v2.json                         # the updated manifest carrying the linux artifact identity
+
+What the package carries -- and what it does NOT
+------------------------------------------------
+
+CARRIES:
+
+* the offline bootstrap `scripts/ww-bakeoff-airgap` (the only 0755 regular file);
+* the export entrypoint `models/export_neuflow_v2.py` and its two sibling modules
+  `models/artifact_workflow.py` and `models/exclusion_contract.py` (both imported via sys.path[0]);
+* the pinned candidate manifest `models/neuflow-v2.json` (its validation.* thresholds are what a
+  successful run must satisfy);
+* runtime license/notice aggregates, their hash inventory, the approved runtime legal review, the
+  checked-in technical runtime-input manifest, and the CI-solved @EXPLICIT conda lock; and
+* the pinned conda-pack runtime `runtime/whitewater-neuflow-validation-runtime.tar.gz`.
+
+DOES NOT CARRY (and why -- read this before you start):
+
+* NO upstream NeuFlow_v2 source.  Unlike the WAFT-validation package, this pack vendors no source
+  checkout.  NeuFlow v2 tracks its checkpoints (neuflow_mixed.pth and its sintel/things siblings --
+  36MB REAL git blobs each, not git-lfs pointers) directly in the source tree, so a clean vendored
+  checkout would redistribute the unknown-licence neuflow_mixed.pth, while deleting the .pth files
+  would dirty the worktree export_neuflow_v2.py refuses.  YOU therefore supply the upstream checkout
+  (step 4).
+* NO checkpoint.  The checkpoint is operator-supplied and its file-level licence is unknown; nothing
+  here authorizes redistributing it.
+
+Every carried file except the wrapper is a 0644 regular file.  The package is self-contained apart
+from (a) a writable directory for the relocated conda-pack environment, (b) the operator-supplied
+NeuFlow_v2 checkout, (c) the operator-supplied/in-tree checkpoint, and (d) the box's own
+`/usr/bin/git`.  Do not edit any carried file except by running export_neuflow_v2.py, which rewrites
+the two output files above in place under `models/`.
+
+0. Confirm git is present (the export needs it, offline)
+--------------------------------------------------------
+
+export_neuflow_v2.py shells out to `git` to verify your NeuFlow_v2 checkout; the wrapper's PATH is
+`runtime/bin:/usr/bin:/bin`.  Git is not bundled (GPLv2), so confirm the box has it:
+
+    command -v git || { echo "install git (or add it to PATH) before running the export" >&2; }
+
+1. Verify the outer archive by SHA256 before extraction
+-------------------------------------------------------
+
+Its SHA256 is emitted by the qualifying CI dispatch (see "Qualifying dispatch" below) and printed
+in the sidecar; do not proceed on an archive whose digest does not match:
+
+    sha256sum -c whitewater-neuflow-validation-el8.tar.gz.sha256
+
+2. Extract without installing into Flame
+----------------------------------------
+
+    mkdir -p /path/to/whitewater-neuflow-validation
+    tar -xzf whitewater-neuflow-validation-el8.tar.gz -C /path/to/whitewater-neuflow-validation
+    cd /path/to/whitewater-neuflow-validation/whitewater-neuflow-validation-el8
+
+3. First contact: unpack the runtime and confirm the toolchain
+--------------------------------------------------------------
+
+`scripts/ww-bakeoff-airgap` performs the offline conda-pack extraction, runs `conda-unpack` once,
+binds the writable runtime directory to the exact runtime archive SHA256, and sanitizes network and
+Python search-path variables before exec-ing the requested entrypoint.  export_neuflow_v2.py is a
+carried allowlisted entrypoint: the wrapper launches it as a bare script (no PYTHONPATH), so its own
+`models/` directory lands on `sys.path[0]` and `import artifact_workflow` / `import
+exclusion_contract` resolve.  Pick a fresh runtime directory for a different archive.
+
+Confirm export_neuflow_v2.py imports and prints its help from the relocated runtime (this touches no
+checkpoint and no upstream):
+
+    WW_BAKEOFF_ENTRYPOINT=models/export_neuflow_v2.py \
+    WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-neuflow-validation-runtime.tar.gz \
+    WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-neuflow-validation-runtime-env \
+    scripts/ww-bakeoff-airgap --help
+
+4. Supply the upstream checkout AND the checkpoint (both operator-provided, off the box)
+---------------------------------------------------------------------------------------
+
+export_neuflow_v2.py needs a CLEAN git checkout of NeuFlow_v2 at the pinned commit for `--upstream`,
+and the neuflow_mixed.pth checkpoint for `--checkpoint`.  Because NeuFlow v2 tracks the checkpoint IN
+its repo, a single clone on a NETWORKED machine gives you both:
+
+    git clone https://github.com/neufieldrobotics/NeuFlow_v2.git
+    git -C NeuFlow_v2 checkout 204b5e3744461d90303b9ff82caa7a1bb56a2ca2
+
+Do NOT modify anything inside the checkout: export_neuflow_v2.py runs `git rev-parse HEAD` and a
+`git status --porcelain` clean check and refuses a dirty or wrong-commit tree.  Verify the checkpoint
+bytes (from models/neuflow-v2.json checkpoint.*) before use -- the in-tree copy is
+NeuFlow_v2/neuflow_mixed.pth:
+
+    test "$(stat -c '%s' NeuFlow_v2/neuflow_mixed.pth)" = 36195519 || echo "WRONG SIZE" >&2
+    echo "76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e20f7995fcc019f  NeuFlow_v2/neuflow_mixed.pth" \
+      | sha256sum -c -
+
+Bring the whole clean NeuFlow_v2 directory onto the box on media.  Keep it OUTSIDE the extracted
+package (the package must stay source-free and checkpoint-free).  The checkpoint's file-level licence
+is unknown and stays unknown regardless of any numerical pass; nothing here authorizes redistributing
+it or the upstream tree that carries it.
+
+5. Run the export + validation
+------------------------------
+
+Run from the extracted package root so `models/` resolves.  export_neuflow_v2.py verifies provenance
+(the NeuFlow commit + clean worktree, and the checkpoint's exact size/SHA256), strictly loads the
+checkpoint (`strict=True`) into the weightless upstream NeuFlow module, initializes the fixed 432x768
+`init_bhwd` state, exports an opset-17 ONNX graph with the official iteration counts baked in
+(iters_s16=1, iters_s8=8) and no dynamic axes, and qualifies it.  `--update-manifest` records the
+result:
+
+    WW_BAKEOFF_ENTRYPOINT=models/export_neuflow_v2.py \
+    WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-neuflow-validation-runtime.tar.gz \
+    WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-neuflow-validation-runtime-env \
+    scripts/ww-bakeoff-airgap \
+      --upstream        /path/to/NeuFlow_v2 \
+      --checkpoint      /path/to/NeuFlow_v2/neuflow_mixed.pth \
+      --provider        CPUExecutionProvider \
+      --device          cpu \
+      --platform        linux-x86_64 \
+      --update-manifest
+
+`--manifest` and `--output` default correctly for the carried layout, so leave them unset: the
+manifest resolves to `models/neuflow-v2.json` and the ONNX output to
+`models/neuflow-v2-mixed-opset17-432x768.onnx`.  Point `--output` elsewhere ONLY if `models/` is not
+writable.
+
+This CPU-only runtime advertises CPUExecutionProvider only.  `--provider CUDAExecutionProvider` will
+fail here with "requested ONNX Runtime provider is unavailable": CUDA qualification needs a separate
+CUDA runtime and is out of scope for this pack.
+
+To dry-run only the byte-identity checks (commit, clean worktree, checkpoint size/SHA256) without
+loading torch or exporting, add `--verify-provenance-only`.
+
+6. What a pass records, and what a failure records
+--------------------------------------------------
+
+On success export_neuflow_v2.py prints the artifact path, its SHA256, and the observed validation
+JSON, then (with --update-manifest) rewrites models/neuflow-v2.json so that:
+
+  * export.platform_artifacts gains the exact linux-x86_64 `neuflow-v2-mixed-opset17-432x768.onnx`
+    identity (sha256/size/mode) and its export_environment records the framework/exporter/runtime
+    versions; and
+  * validation stays "passed" with the identity, both signed translation directions (forward median
+    +x, reverse median -x), the fixed 432x768 shapes, and PyTorch-vs-ONNX parity all within the
+    frozen validation.* thresholds.
+
+Because the checkpoint licence terms are unknown, status stays "excluded" with
+exclusion.reason_code="checkpoint_license_terms_unknown" -- a numerical pass is an evaluation record,
+NOT shipping approval and NOT a licence resolution.
+
+On failure export_neuflow_v2.py prints the error to stderr (nonzero exit) and, with
+`--record-failure`, records a typed excluded manifest (validation.status="failed", a failure_stage/
+failure_type note) WITHOUT publishing any ONNX hash.  The failure stages you are most likely to see:
+
+  * provenance                          -- wrong NeuFlow commit, a dirty checkout, or a checkpoint
+                                           whose size/SHA256 is not the pinned member.  Nothing is
+                                           exported.
+  * model_load                          -- the checkpoint did not load strictly into the pinned
+                                           NeuFlow architecture (a framework/stack mismatch: this is
+                                           the python-3.8/torch-2.0.1 RISK below), or a missing import
+                                           (torch/onnx/onnxruntime).
+  * onnx_export                         -- the graph could not be exported/checked at the fixed shape.
+  * CPUExecutionProvider_runtime_validation -- the graph exported but missed a frozen numerical
+                                           threshold or an ONNX Runtime session/inference failed.
+
+Return the two output files (neuflow-v2-mixed-opset17-432x768.onnx and the updated neuflow-v2.json)
+from `models/`.  On a failure, return the updated manifest (it carries the typed failure) plus the
+stderr line.  Do not copy the checkpoint, any runtime files, or the NeuFlow_v2 checkout into a source
+repository.
+
+Version-pin risks (READ BEFORE RUNNING)
+---------------------------------------
+
+* Python 3.8 + torch 2.0.1 is the single biggest risk.  Python 3.8 is end-of-life and conda-forge no
+  longer builds new packages for it; the exact CPU stack (torch 2.0.1 / numpy 1.24.4 / onnx 1.14.1 /
+  onnxruntime 1.16.3) co-solving on conda-forge linux-64 is proven only by CI's EL8 solve, never on
+  the dev host.  If the qualifying dispatch fails to solve, see
+  bakeoff/neuflow-validation/runtime-inputs.json (python38_torch201_risk) for the remediation: raise
+  only Python to the lowest conda-forge-built version that still carries torch 2.0.1, re-solve, and
+  re-run the weightless NeuFlow construction smoke; escalate a framework bump to Andrew rather than
+  drifting the numeric stack the manifest thresholds were frozen against.
+* NeuFlow's model construction imports only torch and huggingface_hub, and export_neuflow_v2.py stubs
+  huggingface_hub with an inert mixin BEFORE importing NeuFlow.neuflow, so no hub/network import
+  happens and huggingface_hub is intentionally NOT in the runtime.  There is no einops/timm/scipy/
+  safetensors dependency (verified against every NeuFlow/*.py module).  The CI weightless NeuFlow
+  construction smoke is the gate for any OTHER missing transitive import: if it names one, add that
+  package to bakeoff/neuflow-validation/conda-el8-x86_64.lock and re-dispatch.
+* NeuFlow_v2 has no git submodules at the pinned commit (unlike WAFT's non-commercial thirdparty/
+  dinov3), so there is no submodule-licence exclusion to make.  The licence exposure here is the
+  in-repo checkpoint, which is why no upstream tree is carried.
+
+Legal record
+------------
+
+The runtime aggregates are `legal/RUNTIME-LICENSES.txt` and `legal/RUNTIME-NOTICES.txt`, covering
+the conda runtime (python, PyTorch CPU, torchvision, numpy, onnx, onnxruntime CPU, conda-pack,
+setuptools and their transitive natives).  A separate Andrew Miller runtime legal-review JSON (schema
+`whitewater-p25-runtime-legal-review-v1`, reviewer `Andrew Miller`, `reviewed: true`) approving the
+exact generated runtime inventory hash is required before CI packages anything; the carried
+`legal/runtime-legal-review.json` is that approval.  The NeuFlow v2 source is Apache-2.0 but is NOT
+carried; the NeuFlow v2 checkpoint is operator-supplied and its file-level licence is unknown; no
+review here resolves it.
+
+Qualifying dispatch
+-------------------
+
+This package is built and qualified by the `neuflow-validation` lane of the `build` workflow
+(.github/workflows/ci.yml), which runs `scripts/ci-neuflow-validation-qualify.sh` inside an
+`almalinux:8` container.  The first dispatch (with the runtime legal-review inputs left empty) solves
+bakeoff/neuflow-validation/conda-el8-x86_64.lock on EL8, emits the pinned @EXPLICIT lock,
+conda-packs the environment, clones NeuFlow_v2 at the pinned commit ONLY to run the weightless
+NeuFlow construction smoke (never packaging it), generates the runtime license inventory, and uploads
+it for Andrew Miller to review.  The second dispatch, supplied with the Andrew Miller runtime
+legal-review file and its SHA256, packages the archive and emits
+`whitewater-neuflow-validation-el8.tar.gz`, its `.sha256`, and the inventory.  The archive SHA256 that
+names this qualified package is that emitted digest.  Dispatch with lane `neuflow-validation` and a
+`purpose` describing the on-box test (e.g. "NeuFlow v2 offline linux export+validation on the
+airgapped EL8 box").
