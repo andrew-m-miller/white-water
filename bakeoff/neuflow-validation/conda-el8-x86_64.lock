@@ -1,0 +1,92 @@
+# White Water NeuFlow v2 export/validation EL8 x86_64 conda REQUESTED environment spec.
+#
+# THIS IS A REQUESTED SPEC (match specs), NOT A FULLY-PINNED @EXPLICIT SOLVE.
+# It is the authored input consumed by `conda create --override-channels -c conda-forge
+# --file <this file>` on an EL8 x86_64 host.  CI MUST solve it on EL8 x86_64 and emit the
+# fully-pinned reproducible lock as evidence (`conda list --explicit` ->
+# whitewater-neuflow-validation-runtime.inventory).  Do NOT treat this file as a reproducible lock
+# and do NOT hand-edit build/hash pins into it; a pinned @EXPLICIT lock is produced only by a real
+# solve, which cannot run on the macOS/arm64 development host.
+#
+# runtime-inputs.json conda.explicit_lock_sha256 is the SHA256 of THIS checked-in requested spec
+# and CI's preflight validates it against this file, so it must always track this file -- do NOT
+# overwrite it with a solved digest.  When CI emits the pinned @EXPLICIT lock, record ITS SHA256
+# (never hand-computed here) under the DISTINCT field conda.solved_lock_sha256 and re-run the
+# qualifying dispatch.
+#
+# PURPOSE.  This environment runs models/export_neuflow_v2.py offline on the airgapped box: it
+# strictly loads the pinned NeuFlow v2 mixed checkpoint into the weightless upstream NeuFlow module,
+# re-exports the FIXED-shape (1x3x432x768) opset-17 ONNX graph, and re-qualifies it (identity +
+# both signed translation directions + PyTorch-vs-ONNX parity) against the models/neuflow-v2.json
+# validation.* thresholds.  NeuFlow is ALREADY validation-passed on macOS-arm64; this runtime
+# produces the linux-x86_64 ONNX artifact and re-validates it on the box.  The export is
+# device-independent, so this is a CPU-only stack: like bakeoff/waft-validation and unlike the
+# P25-5/P25-6 measurement runtimes it does NOT add the ONNX Runtime CUDA-12 archive or the native
+# ORT bridge.  onnxruntime is taken directly from conda-forge (CPU build), so this runtime advertises
+# CPUExecutionProvider ONLY: it has no CUDA execution provider compiled in, and pointing
+# LD_LIBRARY_PATH at host CUDA libraries cannot add one.  --provider CUDAExecutionProvider fails here
+# with "requested ONNX Runtime provider is unavailable" (RUN-NEUFLOW-VALIDATION.txt says the same);
+# CUDA qualification would need a separate CUDA-enabled onnxruntime build in its own env and is out of
+# scope for this CPU-only pack.
+#
+# WHY THESE PINS.  The export dependency versions are exactly models/requirements-neuflow-export.txt
+# (torch==2.0.1, torchvision==0.15.2, numpy==1.24.4, onnx==1.14.1, onnxruntime==1.16.3), which in
+# turn mirror the pinned upstream README (NeuFlow_v2 @ 204b5e37: "python==3.8 ... pytorch==2.0.1
+# torchvision==0.15.2").  These are INCOMPATIBLE with the WAFT/SEA-RAFT stack (python 3.11 /
+# torch 2.2.0 / onnxruntime 1.29.0), which is exactly why NeuFlow needs its own pack.  See
+# runtime-inputs.json and RUN-NEUFLOW-VALIDATION.txt for the python-3.8/torch-2.0.1 conda-forge
+# availability RISK note -- python 3.8 is EOL and this exact CPU stack is proven only by CI's EL8
+# solve.
+
+# Python 3.8 is what the pinned NeuFlow README and models/requirements-neuflow-export.txt target.
+# It is END-OF-LIFE (upstream Python EOL 2024-10) and conda-forge has stopped building new packages
+# for it, so the SOLVE (not this file) is where a py38-compatible set of torch 2.0.1 / numpy 1.24.4
+# / onnx 1.14.1 / onnxruntime 1.16.3 is proven to still exist on conda-forge for linux-64.  This is
+# the single biggest risk in this runtime (analogous to WAFT's timm risk); if the EL8 solve fails
+# closed on an unsatisfiable py38 graph, see RUN-NEUFLOW-VALIDATION.txt for the remediation (the
+# most likely being to move the whole stack forward to a still-built Python, keeping torch 2.0.1 if
+# conda-forge still carries it there, and otherwise escalating the framework bump to Andrew).
+python 3.8.*
+
+# CPU-only PyTorch/torchvision.  conda-forge encodes the CPU vs CUDA choice in the BUILD STRING
+# (there is no `cpuonly` package on conda-forge), so the build glob `=cpu*` requests the CPU
+# variant and keeps the CUDA runtime, cuDNN and cuBLAS out of the pack.  The export never touches
+# a GPU (torch.onnx.export and the parity check run on CPU), so a CPU build is correct and much
+# smaller.  CI's EL8 solve is authoritative: if conda-forge's exact CPU build string for this
+# torch differs, read the emitted @EXPLICIT lock (or the solver error) for the real build and, if
+# ever needed, tighten this glob to it -- do not guess a build hash here.  torchvision is carried
+# for stack parity with the upstream install line and requirements-neuflow-export.txt even though
+# the NeuFlow model/export path does not import it.
+pytorch ==2.0.1=cpu*
+torchvision ==0.15.2=cpu*
+
+numpy ==1.24.4
+onnx ==1.14.1
+# onnxruntime here is the conda-forge CPU build (CPUExecutionProvider only); the CUDA provider is
+# irrelevant to a device-independent export/validation run.  1.16.3 matches
+# models/requirements-neuflow-export.txt and the macOS export environment already recorded in
+# models/neuflow-v2.json.  If conda-forge lacks exactly 1.16.3 for this Python, CI's solve fails
+# closed and names what it does have -- decide the nearest acceptable ORT then, in review, rather
+# than silently drifting.
+onnxruntime ==1.16.3
+
+# NeuFlow's model construction imports ONLY torch and huggingface_hub, and export_neuflow_v2.py
+# stubs huggingface_hub with an inert PyTorchModelHubMixin BEFORE importing NeuFlow.neuflow (so no
+# hub/network import happens and huggingface_hub is deliberately NOT in this pack).  There is no
+# einops/timm/scipy/safetensors dependency in the NeuFlow construction or export path (verified
+# against every NeuFlow/*.py module imported at the pinned commit), so -- unlike WAFT, which needed
+# einops -- nothing extra is added here.  The CI weightless NeuFlow construction smoke is the gate
+# that would name any OTHER missing transitive import if a future revision introduced one.
+
+# conda-pack is pinned to 0.8.1 (matching the P25-5/P25-6/WAFT locks): conda-forge's conda-pack
+# 0.9.2 installs dist-info with `Version: 0.0.0` and no License field, so licenses.py cannot derive
+# its licence and fails closed.  0.8.1 carries usable metadata and needs no supplement.  conda-pack
+# is a pure-python leaf tool (shipped only so the airgap wrapper can run conda-unpack), so pinning
+# it does not perturb the rest of the solve.
+conda-pack ==0.8.1
+
+# setuptools is held <81 because conda-pack 0.8.1 imports `pkg_resources`, which setuptools removed
+# from its bundle in v81+; without this the solve pulls setuptools 84 and conda-pack fails at
+# import with ModuleNotFoundError: No module named 'pkg_resources'.  setuptools carries its own
+# embedded MIT licence, so no supplement is needed.
+setuptools <81

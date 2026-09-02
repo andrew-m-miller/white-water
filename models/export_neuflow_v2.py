@@ -171,25 +171,19 @@ def _import_upstream(upstream: Path):
     return NeuFlow
 
 
-def load_model(
-    manifest: dict[str, Any], upstream: Path, checkpoint: Path, device: str
-):
-    import torch
+def _instantiate_weightless(upstream: Path):
+    """Import the pinned NeuFlow class and instantiate it with random weights only."""
 
     NeuFlow = _import_upstream(upstream)
-    model = NeuFlow()
-    checkpoint_data = torch.load(str(checkpoint), map_location="cpu")
-    require(
-        isinstance(checkpoint_data, dict) and "model" in checkpoint_data,
-        "checkpoint has no official 'model' state key",
-    )
-    state_dict = checkpoint_data["model"]
-    require(isinstance(state_dict, dict), "checkpoint model state is not a mapping")
-    incompatible = model.load_state_dict(state_dict, strict=True)
-    require(
-        not incompatible.missing_keys and not incompatible.unexpected_keys,
-        "checkpoint state did not load strictly",
-    )
+    return NeuFlow()
+
+
+def _initialize_fixed_shape_state(
+    model, manifest: dict[str, Any], device: str
+):
+    """Apply the fixed-shape ``init_bhwd`` state that is part of the export identity."""
+
+    import torch
 
     shape = manifest["export"]["example_shape"]
     require(shape[0] == 1 and shape[1] == 3, f"unsupported example shape: {shape}")
@@ -202,6 +196,46 @@ def load_model(
     # buffers. Initializing them before tracing is therefore part of the export identity.
     model.init_bhwd(1, shape[2], shape[3], device, amp=False)
     return model
+
+
+def construct_weightless_model(
+    manifest: dict[str, Any], upstream: Path, device: str
+):
+    """Construct the pinned NeuFlow module WEIGHTLESS and checkpoint-free.
+
+    This is the exact import + construction path ``load_model`` runs before it loads the
+    checkpoint, minus the checkpoint load itself.  ``_import_upstream`` stubs
+    ``huggingface_hub`` inert (no hub/network import), and no learned tensors are loaded, so the
+    returned module carries only randomly-initialised parameters and the checkpoint is the only
+    later source of learned weights.  It is factored out so a checkpoint-free construction smoke
+    (CI, or an offline import check) can exercise the real ``from NeuFlow.neuflow import NeuFlow``
+    import chain and the ``init_bhwd`` fixed-shape state on the pinned stack without the
+    checkpoint and without drifting from the export path the operator runs on the box.
+    """
+
+    model = _instantiate_weightless(upstream)
+    return _initialize_fixed_shape_state(model, manifest, device)
+
+
+def load_model(
+    manifest: dict[str, Any], upstream: Path, checkpoint: Path, device: str
+):
+    import torch
+
+    model = _instantiate_weightless(upstream)
+    checkpoint_data = torch.load(str(checkpoint), map_location="cpu")
+    require(
+        isinstance(checkpoint_data, dict) and "model" in checkpoint_data,
+        "checkpoint has no official 'model' state key",
+    )
+    state_dict = checkpoint_data["model"]
+    require(isinstance(state_dict, dict), "checkpoint model state is not a mapping")
+    incompatible = model.load_state_dict(state_dict, strict=True)
+    require(
+        not incompatible.missing_keys and not incompatible.unexpected_keys,
+        "checkpoint state did not load strictly",
+    )
+    return _initialize_fixed_shape_state(model, manifest, device)
 
 
 def export_onnx(model, manifest: dict[str, Any], output: Path, device: str) -> None:

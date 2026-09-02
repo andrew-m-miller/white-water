@@ -1,0 +1,5 @@
+{
+  "_note": "Starts EMPTY on purpose. licenses.py fails closed and names any solved package that lacks embedded info/licenses evidence (or whose licence it cannot derive). The first neuflow-validation EL8 dispatch reports the exact packages+URLs to add here, each bound to its CI-solved conda build (see bakeoff/p25-6/runtime-license-supplement.json for the shape of a populated file). Do not guess entries before the solve.",
+  "schema_id": "whitewater-p25-runtime-license-supplement-v1",
+  "packages": []
+}

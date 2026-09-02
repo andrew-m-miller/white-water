@@ -191,6 +191,20 @@ resolve_entrypoint() {
       ENTRYPOINT_MODE=module
       ENTRYPOINT_VALUE=tools.bakeoff.run
       ;;
+    # --- begin neuflow-validation lane allowlist (bakeoff/neuflow-validation) ---
+    # models/export_neuflow_v2.py is the NeuFlow v2 export/validation entrypoint. It imports only
+    # its sibling models/artifact_workflow.py and models/exclusion_contract.py, so it is launched
+    # exactly like evaluator.py -- a bare script path with NO PYTHONPATH, which puts its own
+    # models/ directory on sys.path[0] so both sibling imports resolve. It reaches the pinned
+    # NeuFlow upstream source by inserting the operator-supplied --upstream checkout onto sys.path
+    # itself; the wrapper adds nothing to the import path for it. (Kept as a self-contained block
+    # so a later merge with the WAFT-validation branch, which appends a models/export_waft.py case
+    # here, is a trivial reconciliation.)
+    models/export_neuflow_v2.py)
+      ENTRYPOINT_MODE=script
+      ENTRYPOINT_VALUE="$PACKAGE_ROOT/models/export_neuflow_v2.py"
+      ;;
+    # --- end neuflow-validation lane allowlist ---
     models/export_waft.py)
       ENTRYPOINT_MODE=script
       ENTRYPOINT_VALUE="$PACKAGE_ROOT/models/export_waft.py"
