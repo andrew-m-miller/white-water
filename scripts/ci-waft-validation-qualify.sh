@@ -25,6 +25,8 @@
 #   WAFT_RUNTIME_LEGAL_REVIEW_FILE   Andrew Miller approval bound to the generated inventory
 #   WAFT_RUNTIME_LEGAL_REVIEW_SHA256 SHA256 of that exact review JSON
 #   WAFT_SRC_CHECKOUT            clean git checkout of the pinned WAFT commit (contains .git)
+#   WAFT_SOURCE_LEGAL_RECORD     checked-in source legal record for the redistributed source tree
+#   WAFT_DEPTHANYTHINGV2_LICENSE authoritative Apache-2.0 text for vendored thirdparty/DepthAnythingV2
 #   WAFT_RUNTIME_INPUTS_FILE     checked-in bakeoff/waft-validation/runtime-inputs.json
 #   WAFT_RUN_INSTRUCTIONS        RUN-WAFT-VALIDATION.txt source
 #   WAFT_WRAPPER                 scripts/ww-bakeoff-airgap
@@ -76,6 +78,8 @@ for required in \
   WAFT_RUNTIME_LEGAL_REVIEW_FILE \
   WAFT_RUNTIME_LEGAL_REVIEW_SHA256 \
   WAFT_SRC_CHECKOUT \
+  WAFT_SOURCE_LEGAL_RECORD \
+  WAFT_DEPTHANYTHINGV2_LICENSE \
   WAFT_RUNTIME_INPUTS_FILE \
   WAFT_RUN_INSTRUCTIONS \
   WAFT_WRAPPER \
@@ -104,6 +108,8 @@ runtime_root=$(resolve_repo_path "$WAFT_RUNTIME_ROOT")
 runtime_legal_dir=$(resolve_repo_path "$WAFT_RUNTIME_LEGAL_DIR")
 runtime_legal_review_file=$(resolve_repo_path "$WAFT_RUNTIME_LEGAL_REVIEW_FILE")
 src_checkout=$(resolve_repo_path "$WAFT_SRC_CHECKOUT")
+source_legal_record=$(resolve_repo_path "$WAFT_SOURCE_LEGAL_RECORD")
+depthanythingv2_license=$(resolve_repo_path "$WAFT_DEPTHANYTHINGV2_LICENSE")
 runtime_inputs=$(resolve_repo_path "$WAFT_RUNTIME_INPUTS_FILE")
 run_instructions_source=$(resolve_repo_path "$WAFT_RUN_INSTRUCTIONS")
 wrapper=$(resolve_repo_path "$WAFT_WRAPPER")
@@ -118,6 +124,8 @@ require_directory "$runtime_root" "WAFT-validation extracted runtime"
 require_directory "$runtime_legal_dir" "WAFT-validation generated runtime legal directory"
 require_regular "$runtime_legal_review_file" "WAFT-validation runtime legal-review file"
 require_directory "$src_checkout" "WAFT pinned source checkout"
+require_regular "$source_legal_record" "WAFT-validation source legal record"
+require_regular "$depthanythingv2_license" "vendored DepthAnythingV2 Apache-2.0 license text"
 require_regular "$runtime_inputs" "WAFT-validation runtime-inputs manifest"
 require_regular "$run_instructions_source" "WAFT-validation run instructions source"
 require_regular "$wrapper" "ww-bakeoff-airgap wrapper"
@@ -181,7 +189,7 @@ require_regular "$src_checkout/config/a2/twins/chairs-things.json" "pinned WAFT 
 staging_root="$output/staging"
 pkg="$staging_root/whitewater-waft-validation-el8"
 rm -rf "$staging_root"
-mkdir -p "$pkg/scripts" "$pkg/models" "$pkg/runtime" "$pkg/legal" "$pkg/bakeoff/waft-validation"
+mkdir -p "$pkg/scripts" "$pkg/models" "$pkg/runtime" "$pkg/legal" "$pkg/legal/source" "$pkg/bakeoff/waft-validation"
 
 install -m 0755 "$wrapper" "$pkg/scripts/ww-bakeoff-airgap"
 install -m 0644 "$export_entrypoint" "$pkg/models/export_waft.py"
@@ -194,6 +202,13 @@ install -m 0644 "$runtime_legal_dir/RUNTIME-LICENSES.txt" "$pkg/legal/RUNTIME-LI
 install -m 0644 "$runtime_legal_dir/RUNTIME-NOTICES.txt" "$pkg/legal/RUNTIME-NOTICES.txt"
 install -m 0644 "$runtime_legal_inventory" "$pkg/legal/runtime-license-inventory.json"
 install -m 0644 "$runtime_legal_review_file" "$pkg/legal/runtime-legal-review.json"
+# SOURCE legal record + the authoritative Apache-2.0 text for the vendored DepthAnythingV2 subtree.
+# Kept SEPARATE from the runtime inventory/review (which cover only the conda runtime): copying the
+# WAFT checkout redistributes thirdparty/DepthAnythingV2 (Apache-2.0 source, no LICENSE file in the
+# subtree, under a BSD-3-Clause root), so its licence text must travel too. Staged here rather than
+# written into waft-src/, which would dirty the checkout and export_waft.py would reject it.
+install -m 0644 "$source_legal_record" "$pkg/legal/source-legal-record.json"
+install -m 0644 "$depthanythingv2_license" "$pkg/legal/source/DepthAnythingV2-LICENSE.txt"
 install -m 0644 "$runtime_inputs" "$pkg/bakeoff/waft-validation/runtime-inputs.json"
 install -m 0644 "$run_instructions_source" "$pkg/RUN-WAFT-VALIDATION.txt"
 
@@ -208,6 +223,52 @@ if [ -n "$(find "$pkg/waft-src/thirdparty/dinov3" -type f 2>/dev/null)" ]; then
   fail "staged package carries thirdparty/dinov3 submodule content (non-commercial DINOv3); refusing"
 fi
 require_regular "$pkg/waft-src/config/a2/twins/chairs-things.json" "staged pinned WAFT Twins config"
+
+# Fail closed: if the vendored thirdparty/DepthAnythingV2 subtree is present (Apache-2.0 source
+# that vit.py imports, redistributed inside waft-src/ with NO LICENSE file of its own under a
+# BSD-3-Clause root), its authoritative Apache-2.0 text MUST be staged and bound to the source
+# legal record. This is the licence-carry guard: it refuses to package Apache-2.0 source with a
+# missing or wrong licence text.
+dav2_tree="$pkg/waft-src/thirdparty/DepthAnythingV2"
+if [ -n "$(find "$dav2_tree" -type f 2>/dev/null)" ]; then
+  staged_dav2_license="$pkg/legal/source/DepthAnythingV2-LICENSE.txt"
+  [[ -s "$staged_dav2_license" ]] ||
+    fail "thirdparty/DepthAnythingV2 (Apache-2.0) is carried but its staged licence legal/source/DepthAnythingV2-LICENSE.txt is missing/empty"
+  python3.11 - "$pkg/legal/source-legal-record.json" "$staged_dav2_license" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+record_path, staged = Path(sys.argv[1]), Path(sys.argv[2])
+record = json.loads(record_path.read_text(encoding="utf-8"))
+if record.get("schema_id") != "whitewater-waft-validation-source-legal-record-v1":
+    raise SystemExit("source legal record has the wrong schema_id")
+components = {c.get("component"): c for c in record.get("components", [])}
+dav2 = components.get("DepthAnythingV2")
+if dav2 is None:
+    raise SystemExit("source legal record does not declare the carried DepthAnythingV2 component")
+if dav2.get("license") != "Apache-2.0":
+    raise SystemExit(f"DepthAnythingV2 must be recorded as Apache-2.0, got {dav2.get('license')!r}")
+recorded_sha = dav2.get("staged_license_sha256")
+if not (isinstance(recorded_sha, str) and len(recorded_sha) == 64):
+    raise SystemExit("source legal record has no valid staged_license_sha256 for DepthAnythingV2")
+actual_sha = hashlib.sha256(staged.read_bytes()).hexdigest()
+if actual_sha != recorded_sha:
+    raise SystemExit(f"staged DepthAnythingV2 licence hash mismatch: expected {recorded_sha}, got {actual_sha}")
+src = dav2.get("source") or {}
+if not src.get("repository") or not src.get("ref"):
+    raise SystemExit("source legal record must record the DepthAnythingV2 licence source repository and ref")
+print(f"DepthAnythingV2 Apache-2.0 licence carry: PASS (sha256 {actual_sha}, from {src['repository']}@{src['ref']})")
+PY
+fi
+
+# Belt-and-braces (git template leakage): git init --template= means no .git/hooks/*.sample or
+# other template files exist. Refuse to package any such file so the runbook's "only the pinned
+# WAFT history is bundled" claim stays true even if a future change drops the empty template.
+if find "$pkg/waft-src" -name '*.sample' -print -quit | grep -q .; then
+  fail "git template sample files are present under waft-src/; re-run git init with an empty --template"
+fi
 
 # Hard stop: the checkpoint must never be inside the staged tree.
 if find "$pkg" -type f \( -name '*.pth' -o -name 'zero-shot*' \) -print -quit | grep -q .; then

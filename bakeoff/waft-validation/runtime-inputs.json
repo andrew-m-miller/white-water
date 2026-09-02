@@ -6,10 +6,11 @@
   "conda": {
     "installer_url": "https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh",
     "installer_sha256": "848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c",
-    "explicit_lock": "bakeoff/waft-validation/conda-el8-x86_64.lock",
-    "explicit_lock_sha256": "f1638a8005c6a07a043b94465d139d424411af001faf4164aa60e331840f28ba",
-    "explicit_lock_is_requested_spec": true,
-    "note": "explicit_lock is a REQUESTED match-spec (not @EXPLICIT); CI solves it on EL8 x86_64 and emits the pinned lock as evidence (conda list --explicit -> whitewater-waft-validation-runtime.inventory). If CI re-pins the lock, update explicit_lock_sha256 to the pinned lock SHA256 before the qualifying dispatch."
+    "requested_spec": "bakeoff/waft-validation/conda-el8-x86_64.lock",
+    "requested_spec_sha256": "6d9336c2f92d1cb3ad672c480b8091551c6ac114feeaf9ac2471dcb7e12546ad",
+    "solved_lock": null,
+    "solved_lock_sha256": null,
+    "note": "TWO-DIGEST scheme, kept as SEPARATE fields so neither overwrites the other. `requested_spec` is the AUTHORED conda match-spec (NOT @EXPLICIT) and `requested_spec_sha256` pins its exact bytes. `solved_lock`/`solved_lock_sha256` are the CI-SOLVED fully-pinned @EXPLICIT lock and its digest -- both null until the first (review) dispatch solves the requested spec on EL8 x86_64 and emits the pinned lock (conda list --explicit -> whitewater-waft-validation-runtime.inventory, also uploaded as the `waft-validation-runtime-explicit-lock` artifact). WORKFLOW: (1) first dispatch with solved_lock null solves the requested spec, emits the @EXPLICIT lock, and generates the runtime license inventory for Andrew Miller review; (2) after that inventory is approved, commit the emitted @EXPLICIT lock to bakeoff/waft-validation/conda-el8-x86_64.solved.lock and record its SHA256 in solved_lock_sha256 (and its repo path in solved_lock); (3) the qualifying dispatch then INSTALLS that exact @EXPLICIT lock verbatim (no re-solve, so an unpinned transitive re-solve -- e.g. einops -- cannot diverge from the approved inventory), packages, and emits the archive. solved_lock_sha256 must never equal requested_spec_sha256; if the requested spec is ever re-authored, update requested_spec_sha256 and re-run the review dispatch."
   },
   "export_dependencies": {
     "note": "The numeric export stack requested by the conda spec, mirroring models/requirements-searaft-export.txt so WAFT is validated on the same framework as the SEA-RAFT candidate. These are REQUESTED versions; the CI-solved @EXPLICIT lock is the reproducible identity.",
@@ -30,7 +31,7 @@
     "pinned": "0.9.16",
     "confidence": "low-to-moderate",
     "reason": "The pinned WAFT commit b152ff1cad1af8c185ee7b141997c48ff3334c87 does not pin timm (requirements.txt lists a bare `timm`; the README documents pytorch 2.7.0 / CUDA 12.8 / python 3.12 with no timm version). 0.9.16 is a conservative choice contemporaneous with torch 2.2.0. twins_svt_large parameter naming has been stable across recent timm, but the exact timm that produced the checkpoint is unknown. A mismatch fails export_waft.py's strict=True checkpoint load (technical blocker strict_checkpoint_load_failure). CI's weightless twins_svt_large construction smoke and the on-box strict load are the proof.",
-    "remediation": "If the smoke or strict load fails on timm, re-pin timm in conda-el8-x86_64.lock (try a recent timm 1.0.x, and if needed bump torch to WAFT's documented 2.7.x / python 3.12), update conda.explicit_lock_sha256, and re-dispatch."
+    "remediation": "If the smoke or strict load fails on timm, re-pin timm in conda-el8-x86_64.lock (try a recent timm 1.0.x, and if needed bump torch to WAFT's documented 2.7.x / python 3.12), update conda.requested_spec_sha256 to the edited spec's SHA256, clear conda.solved_lock/solved_lock_sha256 back to null, and re-run the review dispatch so a fresh @EXPLICIT lock is solved and re-approved."
   },
   "waft_source": {
     "repository": "https://github.com/princeton-vl/WAFT.git",

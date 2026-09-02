@@ -31,9 +31,14 @@ What the package carries
   deliberately OMITTED and its directory is empty: the Twins export path never instantiates the
   DINOv3 backbone, so it is not needed (CI proves this by constructing the real WAFTv2(twins)
   weightless with the submodule absent).  `thirdparty/DepthAnythingV2` (Apache-2.0, vendored
-  tracked code, not a submodule) IS present because the model imports it;
+  tracked code, not a submodule) IS present because the model imports it; that subtree ships no
+  LICENSE file of its own, so its authoritative Apache-2.0 text is carried SEPARATELY as
+  `legal/source/DepthAnythingV2-LICENSE.txt` and bound by `legal/source-legal-record.json` (CI
+  refuses to package the subtree if that licence text is missing);
 * runtime license/notice aggregates, their hash inventory, the approved runtime legal review, the
-  checked-in technical runtime-input manifest, and the CI-solved @EXPLICIT conda lock; and
+  source legal record (`legal/source-legal-record.json`) with the vendored-source licence texts
+  under `legal/source/`, the checked-in technical runtime-input manifest, and the CI-solved
+  @EXPLICIT conda lock; and
 * the pinned conda-pack runtime `runtime/whitewater-waft-validation-runtime.tar.gz`.
 
 Every carried file except the wrapper is a 0644 regular file (the vendored `.git` keeps git's own
@@ -180,7 +185,9 @@ Version-pin risks (READ BEFORE RUNNING)
   timm twins_svt_large parameter naming does not match the checkpoint: re-pin timm in
   bakeoff/waft-validation/conda-el8-x86_64.lock (try a recent timm 1.0.x first, and if that still
   fails, move the whole stack to WAFT's documented pytorch 2.7.x / python 3.12 and a matching timm),
-  update runtime-inputs.json conda.explicit_lock_sha256, and re-dispatch the qualifying build.
+  update runtime-inputs.json conda.requested_spec_sha256 to the edited spec's SHA256, clear
+  conda.solved_lock/solved_lock_sha256 back to null (the old solved lock no longer matches), and
+  re-run the review dispatch so CI solves and re-emits a fresh @EXPLICIT lock for re-approval.
 * xformers is NOT needed for the Twins path and is intentionally absent: it does not appear in
   waft_a2.py, twins.py, vit.py or dinov3.py at the pinned commit (its README note is for other
   backbones).  einops IS required by the WAFT model code (it is in the pinned commit's
@@ -199,21 +206,39 @@ the conda runtime (python, PyTorch CPU, torchvision, numpy, scipy, onnx, onnxrun
 safetensors, timm, conda-pack, setuptools and their transitive natives).  A separate Andrew Miller
 runtime legal-review JSON (schema `whitewater-p25-runtime-legal-review-v1`, reviewer
 `Andrew Miller`, `reviewed: true`) approving the exact generated runtime inventory hash is required
-before CI packages anything; the carried `legal/runtime-legal-review.json` is that approval.  The
-WAFT source is BSD-3-Clause (see the LICENSE inside `waft-src/`).  The WAFT checkpoint is
-operator-supplied and its file-level licence is unknown; no review here resolves it.
+before CI packages anything; the carried `legal/runtime-legal-review.json` is that approval.  That
+runtime review covers ONLY the conda runtime.  The redistributed SOURCE tree is recorded separately
+in `legal/source-legal-record.json`: the WAFT source is BSD-3-Clause (see the LICENSE inside
+`waft-src/`), and the vendored `thirdparty/DepthAnythingV2` is Apache-2.0 with NO LICENSE file of
+its own, so its authoritative Apache-2.0 text is carried as `legal/source/DepthAnythingV2-LICENSE.txt`
+(taken from the DepthAnything/Depth-Anything-V2 repository; the record names the source ref and the
+licence's SHA256, and CI fails closed if that subtree is carried without its licence text).  The
+WAFT checkpoint is operator-supplied and its file-level licence is unknown; no review here resolves it.
 
-Qualifying dispatch
--------------------
+Qualifying dispatch (two dispatches; two-digest conda scheme)
+-------------------------------------------------------------
 
 This package is built and qualified by the `waft-validation` lane of the `build` workflow
 (.github/workflows/ci.yml), which runs `scripts/ci-waft-validation-qualify.sh` inside an
-`almalinux:8` container.  The first dispatch (with the runtime legal-review inputs left empty)
-solves bakeoff/waft-validation/conda-el8-x86_64.lock on EL8, emits the pinned @EXPLICIT lock,
-conda-packs the environment, runs the weightless twins_svt_large construction smoke, generates the
-runtime license inventory, and uploads it for Andrew Miller to review.  The second dispatch,
-supplied with the Andrew Miller runtime legal-review file and its SHA256, packages the archive and
-emits `whitewater-waft-validation-el8.tar.gz`, its `.sha256`, and the inventory.  The archive
-SHA256 that names this qualified package is that emitted digest.  Dispatch with lane
-`waft-validation` and a `purpose` describing the on-box test (e.g. "WAFT/Twins offline export+
-validation on the airgapped EL8 box").
+`almalinux:8` container.  The conda environment is pinned by a TWO-DIGEST scheme in
+bakeoff/waft-validation/runtime-inputs.json (conda.requested_spec_sha256 for the authored
+match-spec, and conda.solved_lock_sha256 for the CI-solved @EXPLICIT lock -- SEPARATE fields):
+
+  1. REVIEW dispatch (runtime legal-review inputs left empty, conda.solved_lock still null):
+     CI SOLVES bakeoff/waft-validation/conda-el8-x86_64.lock on EL8, emits the pinned @EXPLICIT
+     lock (uploaded as the `waft-validation-runtime-explicit-lock` artifact), conda-packs the
+     environment, runs the weightless twins_svt_large construction smoke, generates the runtime
+     license inventory, and uploads it for Andrew Miller to review.  Prints the solved lock's
+     SHA256.
+  2. PROMOTE the lock: download that @EXPLICIT lock, commit it as
+     bakeoff/waft-validation/conda-el8-x86_64.solved.lock, and record its SHA256 in
+     runtime-inputs.json conda.solved_lock_sha256 (set conda.solved_lock to that path).  Do NOT
+     overwrite conda.requested_spec_sha256.
+  3. QUALIFYING dispatch (supplied with the Andrew Miller runtime legal-review file and its SHA256):
+     CI INSTALLS the committed @EXPLICIT lock VERBATIM -- it does not re-solve, so an unpinned
+     transitive re-solve (e.g. einops) cannot drift from the inventory that was approved -- then
+     packages the archive and emits `whitewater-waft-validation-el8.tar.gz`, its `.sha256`, and the
+     inventory.  The archive SHA256 that names this qualified package is that emitted digest.
+
+Dispatch with lane `waft-validation` and a `purpose` describing the on-box test (e.g. "WAFT/Twins
+offline export+validation on the airgapped EL8 box").

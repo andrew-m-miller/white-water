@@ -1,6 +1,10 @@
 # White Water WAFT export/validation EL8 x86_64 conda REQUESTED environment spec.
 #
-# THIS IS A REQUESTED SPEC (match specs), NOT A FULLY-PINNED @EXPLICIT SOLVE.
+# THIS IS THE REQUESTED SPEC (match specs), NOT A FULLY-PINNED @EXPLICIT SOLVE.  It is the FIRST of
+# a TWO-DIGEST pair (see bakeoff/waft-validation/runtime-inputs.json conda.note):
+#   * REQUESTED SPEC (this file)  -> conda.requested_spec / conda.requested_spec_sha256
+#   * SOLVED @EXPLICIT LOCK        -> conda.solved_lock / conda.solved_lock_sha256
+#                                    (committed as conda-el8-x86_64.solved.lock after review)
 # It is the authored input consumed by `conda create --override-channels -c conda-forge
 # --file <this file>` on an EL8 x86_64 host.  CI MUST solve it on EL8 x86_64 and emit the
 # fully-pinned reproducible lock as evidence (`conda list --explicit` ->
@@ -8,9 +12,11 @@
 # and do NOT hand-edit build/hash pins into it; a pinned @EXPLICIT lock is produced only by a real
 # solve, which cannot run on the macOS/arm64 development host.
 #
-# When CI regenerates the pinned lock, update
-# bakeoff/waft-validation/runtime-inputs.json conda.explicit_lock_sha256 to the CI-solved lock's
-# SHA256 (never hand-computed here) and re-run the qualifying dispatch.
+# When CI regenerates the pinned lock, commit the emitted @EXPLICIT lock as
+# bakeoff/waft-validation/conda-el8-x86_64.solved.lock and record its SHA256 (never hand-computed
+# here) in runtime-inputs.json conda.solved_lock_sha256 -- a SEPARATE field from
+# conda.requested_spec_sha256, which pins THIS file.  The qualifying dispatch then installs the
+# committed @EXPLICIT lock verbatim rather than re-solving this spec.
 #
 # PURPOSE.  This environment runs models/export_waft.py offline on the airgapped box: it strictly
 # loads the pinned WAFT/Twins checkpoint into a weightless twins_svt_large backbone, exports an

@@ -1,0 +1,37 @@
+{
+  "schema_id": "whitewater-waft-validation-source-legal-record-v1",
+  "note": "Legal record for the SOURCE tree redistributed inside the package (waft-src/), kept SEPARATE from the conda runtime license inventory. The Andrew Miller runtime legal-review approves ONLY the conda runtime (legal/runtime-license-inventory.json); it does NOT cover redistributed source. This record covers the source and is bound into the package by scripts/ci-waft-validation-qualify.sh, which stages each component's authoritative licence text under legal/source/ and fails closed if a carried component's licence text is missing.",
+  "components": [
+    {
+      "component": "WAFT",
+      "path": "waft-src",
+      "license": "BSD-3-Clause",
+      "license_file_in_tree": "waft-src/LICENSE",
+      "note": "The pinned WAFT source's own root LICENSE (BSD-3-Clause) travels inside the clean git checkout; CI asserts its presence when vendoring."
+    },
+    {
+      "component": "DepthAnythingV2",
+      "path": "waft-src/thirdparty/DepthAnythingV2",
+      "license": "Apache-2.0",
+      "license_missing_in_tree": true,
+      "root_license_of_waft_is_different": "BSD-3-Clause",
+      "staged_license_file": "legal/source/DepthAnythingV2-LICENSE.txt",
+      "staged_license_repo_path": "bakeoff/waft-validation/legal/DepthAnythingV2-LICENSE.txt",
+      "staged_license_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "staged_license_size_bytes": 11357,
+      "staged_license_git_blob_sha1": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+      "notice_file": null,
+      "notice_note": "The upstream Depth-Anything-V2 repository has NO NOTICE file (verified: contents/NOTICE returns HTTP 404), so none is staged.",
+      "reason": "WAFT vendors thirdparty/DepthAnythingV2 as tracked code (NOT a git submodule) that model/backbone/vit.py imports at module scope, so the subtree is redistributed inside waft-src/. Its Python source headers declare Apache-2.0, but the subtree ships NO LICENSE file and WAFT's only root LICENSE is BSD-3-Clause -- so copying the checkout would redistribute Apache-2.0 source without its licence text. The authoritative Apache-2.0 text is therefore staged separately under legal/source/ and bound here, WITHOUT writing into the vendored tree (which would dirty the checkout and export_waft.py's git rev-parse/clean-worktree gate would reject it).",
+      "source": {
+        "repository": "https://github.com/DepthAnything/Depth-Anything-V2",
+        "path": "LICENSE",
+        "ref": "a561b849ebae10a6f5ef49e26c83cbbcd36c71bf",
+        "git_blob_sha1": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+        "size_bytes": 11357,
+        "retrieved": "2026-09-02",
+        "retrieval_note": "Fetched by git blob SHA1 261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64 from the DepthAnything/Depth-Anything-V2 repository (default branch main at commit a561b849ebae10a6f5ef49e26c83cbbcd36c71bf). The bytes are the unmodified canonical Apache License 2.0 text (its blob SHA1 261eeb9e... is the well-known hash of the standard LICENSE; the appendix carries the generic 'Copyright [yyyy] [name of copyright owner]' placeholder, i.e. upstream ships the stock text unaltered)."
+      }
+    }
+  ]
+}
