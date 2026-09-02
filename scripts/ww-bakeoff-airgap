@@ -171,6 +171,13 @@ sanitize_environment() {
 # instead of as a bare script -- ENTRYPOINT_MODE below selects which. Only an explicit allowlist
 # of carried, package-relative modules is accepted: no absolute paths, no symlinks, no path
 # outside the package (mirrors the runtime-archive/runtime-env safety checks above).
+#
+# models/export_waft.py is the WAFT export/validation entrypoint (bakeoff/waft-validation). It
+# imports only its sibling models/artifact_workflow.py, so it is launched exactly like
+# evaluator.py -- a bare script path with NO PYTHONPATH, which puts its own models/ directory on
+# sys.path[0] so `import artifact_workflow` resolves. It reaches the pinned WAFT upstream source
+# by inserting the operator-supplied --upstream checkout onto sys.path itself; the wrapper adds
+# nothing to the import path for it.
 ENTRYPOINT_MODE=''
 ENTRYPOINT_VALUE=''
 resolve_entrypoint() {
@@ -183,6 +190,10 @@ resolve_entrypoint() {
     tools/bakeoff/run.py)
       ENTRYPOINT_MODE=module
       ENTRYPOINT_VALUE=tools.bakeoff.run
+      ;;
+    models/export_waft.py)
+      ENTRYPOINT_MODE=script
+      ENTRYPOINT_VALUE="$PACKAGE_ROOT/models/export_waft.py"
       ;;
     /*) die "WW_BAKEOFF_ENTRYPOINT must be a package-relative path: $requested" ;;
     *) die "unsupported WW_BAKEOFF_ENTRYPOINT (must be one of the carried bake-off modules): $requested" ;;

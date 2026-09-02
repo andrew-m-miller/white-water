@@ -49,6 +49,8 @@ EXPECTED_INPUTS = {
     "p25_6_legal_review_sha256",
     "p25_6_runtime_legal_review_file",
     "p25_6_runtime_legal_review_sha256",
+    "waft_validation_runtime_legal_review_file",
+    "waft_validation_runtime_legal_review_sha256",
 }
 
 
