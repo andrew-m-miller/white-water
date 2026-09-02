@@ -20,7 +20,7 @@
   },
   "native_bridge": {
     "source": "tools/bakeoff/ort_native_bridge.cpp",
-    "source_sha256": "3d1eadf9ff501edb8188298ce0037ae5b3b6b1924db086fc42b53e222ae32411",
+    "source_sha256": "caaf08152dc43424578a36e3b308885cff555a89b8da790aa46d8c2789b0dd1c",
     "payload": "lib/whitewater/ort-cuda12/libwhitewater_ort_bridge.so"
   }
 }

@@ -17,7 +17,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Mapping, Sequence
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import importlib
 import json
@@ -53,6 +53,10 @@ PROVIDER_EXECUTION_NAMES = {
     "cuda": "CUDAExecutionProvider",
     "coreml": "CoreMLExecutionProvider",
 }
+# P25-7 CUDA arena ceiling: the user-facing selection is ``gpu_mem_limit_mib`` (MiB); ORT's
+# official provider option is ``gpu_mem_limit`` in bytes paired with ``arena_extend_strategy``.
+_MIB_BYTES = 1024 * 1024
+_ARENA_EXTEND_STRATEGY = "kSameAsRequested"
 REPORT_METRICS = (
     "endpoint_error_px",
     "fraction_le_1px",
@@ -132,6 +136,40 @@ def _failure_kind(exc: BaseException, fallback: str) -> str:
 
 def _fail(kind: str, message: str) -> None:
     raise EvaluatorFailure(kind, message)
+
+
+def _normalize_provider_options(
+    provider: str,
+    execution_provider: str,
+    options: Mapping[str, Any],
+) -> tuple[list[str], list[dict[str, Any]] | None]:
+    """Translate a cell's user-facing ``gpu_mem_limit_mib`` selection into ORT's official shape.
+
+    Returns ``(providers, provider_options)``.  ``provider_options`` is ``None`` for the unbounded
+    default -- the caller then omits the kwarg entirely, so the InferenceSession call is
+    byte-for-byte identical to the historical single-provider form.  A bounded CUDA cell yields
+    ``providers=["CUDAExecutionProvider", "CPUExecutionProvider"]`` and the positionally-aligned
+    ``provider_options=[{"gpu_mem_limit": <bytes>, "arena_extend_strategy": "kSameAsRequested"},
+    {}]`` -- the CUDA arena ceiling in bytes plus an empty dict for the trailing CPU fallback --
+    which is exactly what onnxruntime's Python ``InferenceSession`` and the native CUDA-12 adapter
+    both accept (P25-7).
+    """
+
+    if not options:
+        return [execution_provider], None
+    unknown = sorted(set(options) - {"gpu_mem_limit_mib"})
+    if unknown:
+        _fail("provider_unavailable", f"unsupported provider options: {unknown!r}")
+    if provider != "cuda":
+        _fail("provider_unavailable", "gpu_mem_limit_mib is only supported by the CUDA provider")
+    limit_mib = options.get("gpu_mem_limit_mib")
+    if type(limit_mib) is not int or limit_mib <= 0:
+        _fail("provider_unavailable", "gpu_mem_limit_mib must be a positive integer number of MiB")
+    cuda_options = {
+        "gpu_mem_limit": limit_mib * _MIB_BYTES,
+        "arena_extend_strategy": _ARENA_EXTEND_STRATEGY,
+    }
+    return [execution_provider, PROVIDER_EXECUTION_NAMES["cpu"]], [cuda_options, {}]
 
 
 def _sha256_file(path: Path) -> str:
@@ -366,9 +404,17 @@ class SessionContract:
     selected_providers: tuple[str, ...]
     inputs: tuple[dict[str, Any], ...]
     outputs: tuple[dict[str, Any], ...]
+    # The exact provider options this session was opened with (P25-7).  Empty when the cell made
+    # no request, so the default path is byte-for-byte identical to before this field existed.
+    provider_options: dict[str, Any] = field(default_factory=dict)
 
 
-def validate_session_contract(session: Any, artifact: ValidatedArtifact, provider: str) -> SessionContract:
+def validate_session_contract(
+    session: Any,
+    artifact: ValidatedArtifact,
+    provider: str,
+    provider_options: Mapping[str, Any] | None = None,
+) -> SessionContract:
     """Check provider priority and exact input/output names, types, layouts, and direction."""
 
     if provider not in PROVIDER_EXECUTION_NAMES:
@@ -418,7 +464,14 @@ def validate_session_contract(session: Any, artifact: ValidatedArtifact, provide
         expected_output_shape = [1, 2, example[2], example[3]]
         if list(input_records[0]["shape"]) != expected_input_shape or list(input_records[1]["shape"]) != expected_input_shape or list(output_shape) != expected_output_shape:
             _fail("unsupported_tensor_contract", "fixed-shape runtime metadata disagrees with manifest export shape")
-    return SessionContract(provider, expected_provider, selected, tuple(input_records), output_records)
+    return SessionContract(
+        provider,
+        expected_provider,
+        selected,
+        tuple(input_records),
+        output_records,
+        dict(provider_options or {}),
+    )
 
 
 class RuntimeModule(Protocol):
@@ -453,11 +506,17 @@ class Evaluator:
         arrays: ArrayModule | None,
         *,
         clock: Callable[[], float] = time.perf_counter,
+        provider_options: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> None:
         self.artifact = artifact
         self.runtime = runtime
         self.arrays = arrays
         self.clock = clock
+        # Per-provider-token option maps (P25-7), e.g. ``{"cuda": {"gpu_mem_limit_mib": 22000}}``.
+        # A token with no entry (the default) opens its session exactly as before this existed.
+        self.provider_options: dict[str, dict[str, Any]] = {
+            str(token): dict(options) for token, options in (provider_options or {}).items()
+        }
 
     def open_session(self, provider: str) -> ProviderSession:
         execution_provider = PROVIDER_EXECUTION_NAMES.get(provider)
@@ -469,10 +528,23 @@ class Evaluator:
             raise EvaluatorFailure("provider_unavailable", f"cannot query runtime providers: {exc}") from exc
         if execution_provider not in available:
             _fail("provider_unavailable", f"requested {execution_provider} is unavailable; available={available!r}")
+        options = self.provider_options.get(provider) or {}
+        # Normalize the user-facing MiB selection into onnxruntime's official InferenceSession
+        # contract: a ``providers`` list plus a positionally-aligned ``provider_options`` list of
+        # per-provider dicts (bytes + arena_extend_strategy).  Both the Python module and the
+        # native CUDA-12 adapter consume this identical shape.  An unbounded cell keeps the
+        # historical single-provider, no-provider_options call byte-for-byte.
+        session_providers, provider_option_list = _normalize_provider_options(
+            provider, execution_provider, options
+        )
+        session_kwargs: dict[str, Any] = (
+            {"provider_options": provider_option_list} if provider_option_list is not None else {}
+        )
         try:
             session = self.runtime.InferenceSession(
                 str(self.artifact.artifact_path),
-                providers=[execution_provider],
+                providers=session_providers,
+                **session_kwargs,
             )
         except Exception as exc:
             raise EvaluatorFailure(
@@ -480,7 +552,9 @@ class Evaluator:
                 f"{execution_provider} session creation failed: {exc}",
                 stage="session_create",
             ) from exc
-        return ProviderSession(session, validate_session_contract(session, self.artifact, provider))
+        return ProviderSession(
+            session, validate_session_contract(session, self.artifact, provider, options)
+        )
 
     def verify(self, provider: str) -> dict[str, Any]:
         opened = self.open_session(provider)
@@ -491,6 +565,7 @@ class Evaluator:
             "artifact_size_bytes": self.artifact.artifact_size_bytes,
             "requested_provider": opened.contract.execution_provider,
             "selected_providers": list(opened.contract.selected_providers),
+            "provider_options": dict(opened.contract.provider_options),
             "runtime_version": str(getattr(self.runtime, "__version__", "unknown")),
             "inputs": list(opened.contract.inputs),
             "outputs": list(opened.contract.outputs),
