@@ -6,7 +6,8 @@
 # offline on the airgapped box: it carries a conda-pack export/validation environment, the export
 # entrypoint plus its models/ closure, and the pinned WAFT BSD-3-Clause source as a clean git
 # checkout. It carries NO checkpoint (operator-supplied), NO ONNX Runtime CUDA-12 archive and NO
-# native ORT bridge (the export is device-independent; onnxruntime is a conda-forge CPU package).
+# native ORT bridge (the export is device-independent; the ML stack -- torch/onnxruntime/etc. -- is
+# pip-installed CPU wheels at CI build, not conda-sourced; the conda spec is a minimal base).
 #
 # Unlike scripts/ci-p25-6-qualify.sh this seam does NOT invoke tools/p25_5/package.py: that
 # packager is a candidate-admission/protocol-v2 measurement packager (admitted candidates, artifact

@@ -2136,7 +2136,7 @@ jobs:
       #                      inventory the legal review approved). The two digests are kept SEPARATE
       #                      in runtime-inputs.json; neither overwrites the other.
       WAFT_REQUESTED_SPEC_FILE: bakeoff/waft-validation/conda-el8-x86_64.lock
-      WAFT_REQUESTED_SPEC_SHA256: f8af0424c9aaba91824e0df36715ab2fb42331c1cab46a0478b25be0230b9fa6
+      WAFT_REQUESTED_SPEC_SHA256: a1c8379b48b70afa8fb9d086c5d566efe28c7a4d76b0a0f010e3068e1cf229c0
       WAFT_SOLVED_LOCK_FILE: bakeoff/waft-validation/conda-el8-x86_64.solved.lock
       WAFT_RUNTIME_INPUTS_FILE: bakeoff/waft-validation/runtime-inputs.json
       WAFT_SOURCE_REPO: https://github.com/princeton-vl/WAFT.git
@@ -2328,13 +2328,21 @@ jobs:
           test -x "$RUNNER_TEMP/waft-conda-env/bin/conda-pack" || {
             echo "the solved environment must carry conda-pack" >&2; exit 1; }
           echo "WAFT_CONDA_ENV=$RUNNER_TEMP/waft-conda-env" >> "$GITHUB_ENV"
-          # onnxruntime is NOT in the conda spec: conda-forge does not carry onnxruntime ==1.29.0, so
-          # its EL8 conda solve fails closed. Install the exact CPU wheel with pip into THIS env, using
-          # the env's OWN python, AFTER the conda solve and BEFORE conda-pack and the runtime-license
-          # inventory -- so ORT is packed into the runtime and visible (as a pip identity) to
-          # licenses.py. The weightless smoke below imports onnxruntime and asserts 1.29.0, so this
-          # must run first.
-          "$env_py" -m pip install --no-input onnxruntime==1.29.0
+          # The ML export stack is NOT in the conda spec: conda-forge cannot provide the pinned CPU
+          # builds (no satisfiable onnxruntime ==1.29.0; the torch/torchvision CPU builds come from
+          # the PyTorch CPU wheel index). Install the WHOLE stack with pip into THIS env, using the
+          # env's OWN python, AFTER the conda solve and BEFORE conda-pack and the runtime-license
+          # inventory -- so the stack is packed into the runtime and visible (as pip identities) to
+          # licenses.py. This mirrors the PROVEN SEA-RAFT export pattern above (torch/torchvision
+          # from https://download.pytorch.org/whl/cpu, the rest from PyPI) and
+          # models/requirements-searaft-export.txt. The weightless smoke below imports the stack and
+          # asserts torch 2.2.0 / onnxruntime 1.29.0, so this must run first.
+          "$env_py" -m pip install --upgrade pip
+          "$env_py" -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            torch==2.2.0 torchvision==0.17.0
+          "$env_py" -m pip install \
+            numpy==1.26.4 scipy==1.12.0 onnx==1.15.0 onnxruntime==1.29.0 \
+            safetensors==0.4.2 timm==0.9.16 einops
           # The single most valuable de-risk: construct the REAL WAFTv2(feature_encoder='twins')
           # WEIGHTLESS and checkpoint-free, through export_waft.py's OWN construction path
           # (load_pinned_config + construct_weightless_model), so the smoke cannot drift from the
@@ -2572,7 +2580,7 @@ jobs:
       NEUFLOW_CONDA_INSTALLER_URL: https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh
       NEUFLOW_CONDA_INSTALLER_SHA256: 848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c
       NEUFLOW_CONDA_LOCK_FILE: bakeoff/neuflow-validation/conda-el8-x86_64.lock
-      NEUFLOW_CONDA_LOCK_SHA256: 663545a1f787466b5df32c38debe83773b67b6f50e0e1a7ceb31b683c68dda55
+      NEUFLOW_CONDA_LOCK_SHA256: d5ce3d5e1c142348700befdb4f3c5b028aacf8f82b4815b143fca45de23aa215
       NEUFLOW_RUNTIME_INPUTS_FILE: bakeoff/neuflow-validation/runtime-inputs.json
       NEUFLOW_SOURCE_REPO: https://github.com/neufieldrobotics/NeuFlow_v2.git
       NEUFLOW_SOURCE_COMMIT: 204b5e3744461d90303b9ff82caa7a1bb56a2ca2
@@ -2735,13 +2743,19 @@ jobs:
           test -x "$RUNNER_TEMP/neuflow-conda-env/bin/conda-pack" || {
             echo "the solved environment must carry conda-pack" >&2; exit 1; }
           echo "NEUFLOW_CONDA_ENV=$RUNNER_TEMP/neuflow-conda-env" >> "$GITHUB_ENV"
-          # onnxruntime is NOT in the conda spec: conda-forge does not carry onnxruntime ==1.16.3, so
-          # its EL8 conda solve fails closed. Install the exact CPU wheel with pip into THIS env, using
-          # the env's OWN python, AFTER the conda solve and BEFORE conda-pack and the runtime-license
-          # inventory -- so ORT is packed into the runtime and visible (as a pip identity) to
-          # licenses.py. The weightless smoke below imports onnxruntime and asserts 1.16.3, so this
-          # must run first.
-          "$env_py" -m pip install --no-input onnxruntime==1.16.3
+          # The ML export stack is NOT in the conda spec: conda-forge cannot provide the pinned CPU
+          # builds (no satisfiable onnxruntime ==1.16.3 for this stack; the torch/torchvision CPU
+          # builds come from the PyTorch CPU wheel index). Install the WHOLE stack with pip into THIS
+          # env, using the env's OWN python, AFTER the conda solve and BEFORE conda-pack and the
+          # runtime-license inventory -- so the stack is packed into the runtime and visible (as pip
+          # identities) to licenses.py. This mirrors the PROVEN SEA-RAFT export pattern (torch/
+          # torchvision from https://download.pytorch.org/whl/cpu, the rest from PyPI) and the exact
+          # versions in models/requirements-neuflow-export.txt. The weightless smoke below imports the
+          # stack and asserts torch 2.0.1 / onnxruntime 1.16.3, so this must run first.
+          "$env_py" -m pip install --upgrade pip
+          "$env_py" -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            torch==2.0.1 torchvision==0.15.2
+          "$env_py" -m pip install numpy==1.24.4 onnx==1.14.1 onnxruntime==1.16.3
           # The single most valuable de-risk: construct the REAL NeuFlow model WEIGHTLESS and
           # checkpoint-free, through export_neuflow_v2.py's OWN construction path
           # (construct_weightless_model), so the smoke cannot drift from the export the operator

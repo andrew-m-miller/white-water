@@ -5,8 +5,9 @@
 # This lane produces the SOURCE runtime that lets the human operator run models/export_neuflow_v2.py
 # offline on the airgapped box: it carries a conda-pack export/validation environment and the export
 # entrypoint plus its models/ closure. It carries NO checkpoint (operator-supplied), NO ONNX Runtime
-# CUDA-12 archive and NO native ORT bridge (the export is device-independent; onnxruntime is a
-# conda-forge CPU package).
+# CUDA-12 archive and NO native ORT bridge (the export is device-independent; the ML stack --
+# torch/onnxruntime/etc. -- is pip-installed CPU wheels at CI build, not conda-sourced; the conda
+# spec is a minimal base).
 #
 # It also -- unlike scripts/ci-waft-validation-qualify.sh -- carries NO vendored upstream source.
 # NeuFlow v2 tracks its checkpoints (neuflow_mixed.pth and siblings, 36MB real git blobs) IN the
