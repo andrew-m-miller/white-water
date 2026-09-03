@@ -1,0 +1,189 @@
+White Water P25-7 production-selection measurement package (DRAFT)
+=================================================================
+
+This package drives the Phase 2.5 profile driver (tools/bakeoff/run.py) on the airgapped Flame
+box to finally evaluate production footage across all measurable candidates.  It reuses the
+frozen active protocol bakeoff/protocol-v2.json, the P25-6 runtime (conda-pack OpenEXR + pynvml +
+the native ORT CUDA-12 bridge) and the P25-6 evaluator/driver module closure unchanged.  There is
+NO new runtime and NO new evaluator in P25-7.
+
+It is a measurement + ranking-input package, not an OFX shipping bundle: it selects no model,
+assigns no OFX choice index, and authorizes no redistribution of any model or runtime.  Do not
+install the extracted directory into Flame as a product plugin.
+
+DRAFT / prestage status
+-----------------------
+
+This directory (bakeoff/p25-7/) is a prestaged DRAFT for human review.  Two classes of value are
+deliberately not yet final and MUST be resolved before the matrix can execute the affected cells:
+
+  1. Every production shot in inputs/corpus.template.json carries a REPLACE_WITH_ON_BOX_ABSOLUTE_PATH
+     path_pattern placeholder.  The operator fills each with the truthful on-box EXR sequence path.
+     The driver refuses to start (corpus_invalid) while any placeholder remains.
+
+  2. The waft-twins and neuflow-v2 candidate Linux ONNX identity hashes do not exist yet -- they
+     are produced only by the on-box WAFT / NeuFlow validation-export runs.  Their entries in
+     inputs/candidate-entries.json and inputs/artifact-map.json carry clearly-labeled
+     PENDING_ONBOX_VALIDATION_<candidate> placeholders for artifact_sha256,
+     export_environment_sha256, manifest_sha256, artifact_size_bytes and the artifact-map platform.
+     See PENDING-ONBOX-VALIDATION.md.  Matrix PLANNING of those candidates already succeeds (the
+     planner does not consume the hashes), but any selection that names waft-twins or neuflow-v2
+     cannot EXECUTE until the operator replaces those placeholders with the validated
+     linux-x86_64 manifest values.  Do not invent hashes.
+
+No production images leave the machine.  The operator returns only:
+
+    report.json
+    summary.txt
+    runner.log
+    nvml.csv         # only when the profile produced CUDA/NVML rows
+    review.csv       # required for production shots that have no dense truth (see step 7)
+
+1. Verify the outer archive by SHA256 before extraction
+-------------------------------------------------------
+
+From the directory holding the CI artifact files, verify the qualified outer archive against the
+digest emitted by the qualifying CI dispatch; do not proceed on a mismatch:
+
+    sha256sum -c whitewater-p25-7-el8.tar.gz.sha256
+
+2. Extract without installing into Flame
+----------------------------------------
+
+    mkdir -p /path/to/whitewater-p25-7
+    tar -xzf whitewater-p25-7-el8.tar.gz -C /path/to/whitewater-p25-7
+    cd /path/to/whitewater-p25-7
+
+3. Unpack the runtime and confirm the toolchain
+-----------------------------------------------
+
+The offline bootstrap performs the conda-pack extraction, runs conda-unpack once, binds the
+writable runtime directory to the runtime archive SHA256, and sanitizes network/Python search-path
+variables before exec-ing the driver.  Confirm the driver, OpenEXR and pynvml all import and print
+the CLI help (this touches no production data):
+
+    WW_BAKEOFF_ENTRYPOINT=tools/bakeoff/run.py \
+    WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-p25-7-runtime.tar.gz \
+    WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-p25-7-runtime-env \
+    scripts/ww-bakeoff-airgap --help
+
+4. Prepare the driver inputs
+----------------------------
+
+The driver reads five small JSON inputs plus the production corpus.  Carried under inputs/:
+
+  --candidates      inputs/candidate-entries.json
+                    All four P25 candidates, each carrying BOTH status and measurement_status
+                    (excluded / measurable: P25-7 measures and ranks but this input file selects no
+                    shipping default).  sea-raft-m (shipping) and raft-original (validation-baseline)
+                    carry the materialize-from-linux-manifest CI sentinel for their platform-specific
+                    identity fields.  waft-twins and neuflow-v2 carry PENDING_ONBOX_VALIDATION_<id>
+                    placeholders that YOU must replace from the on-box validated manifests before any
+                    of their cells can run (step 4a).  raft-original is a validation baseline: it can
+                    never receive an OFX choice, ship, or win the ranking.
+  --artifact-map    inputs/artifact-map.json
+                    Maps each candidate id to its manifest + Linux ONNX.  waft-twins and neuflow-v2
+                    carry PENDING_ONBOX_VALIDATION_<id> in the platform field until unblocked.
+  --selection       one of the carried selection-*.json files (step 6).
+  --corpus          your filled copy of inputs/corpus.template.json (step 4b).
+  --report-metadata your filled copy of inputs/report-metadata.json (fill only
+                    os_release/cpu/gpu/driver; leave the materialize-from-ci hashes alone).
+
+  4a. Unblock waft-twins / neuflow-v2 (only needed to run their cells)
+      After the on-box WAFT / NeuFlow validation-export produces a linux-x86_64 manifest, replace
+      the four PENDING_ONBOX_VALIDATION_<id> fields in candidate-entries.json (artifact_sha256,
+      export_environment_sha256, manifest_sha256, artifact_size_bytes) and the artifact-map
+      platform field with that manifest's exact values.  Note: WAFT's current manifest exposes only
+      CPUExecutionProvider, so waft-twins measurement_providers is [cpu]; a CUDA (final) waft run
+      requires the on-box validation to first establish and list cuda.  See PENDING-ONBOX-VALIDATION.md.
+
+  4b. Fill the corpus
+      Copy inputs/corpus.template.json out of the package and set every production
+      path_pattern to the truthful on-box EXR sequence path.  The frozen synthetic partition must
+      not be changed.  Do NOT change the supplied production geometry/PAR/encoding/channels/bit_depth/
+      reference_frame -- those are the anonymized metadata for the real shots.  Keep at least eight
+      frames on each side of each reference frame to exercise chain offsets 1/2/4/8.  Production
+      frames stay on the box and are read locally; the runner hashes them there.
+
+The driver runs the complete corpus schema+protocol consistency gate before it creates resume
+state or starts any inference.  A remaining REPLACE_WITH_ path, a missing category or synthetic
+case is an immediate corpus_invalid stop.
+
+5. CUDA loader-path preflight (CUDA runs only)
+----------------------------------------------
+
+Mandatory before any CUDA profile (the final selection, and any neuflow-v2 CUDA run).  Skip only
+for pure-CPU smoke/screen runs.  As in P25-6: locate your box's Flame CUDA library directory
+(holding libcublas.so.12, libcublasLt.so.12, libcudart.so.12, libcurand.so.10), export
+LD_LIBRARY_PATH with the carried ORT directory FIRST then that Flame directory, and run the
+bridge/provider dependency preflight until it reports the carried ONNX Runtime and no unresolved
+dependencies.  Do not use sudo (it strips LD_LIBRARY_PATH).  See RUN-P25-6.txt step 5 for the exact
+commands; the runtime and loader contract are unchanged in P25-7.
+
+6. Run the resumable profiles
+-----------------------------
+
+Each profile is resumable: rerun the IDENTICAL command to resume; a different configuration against
+a populated output directory is refused.  Invoke through the wrapper from the extracted package root
+so the carried inputs/ and models/ paths resolve; keep runtime-env, output-dir and your filled
+corpus/report-metadata copies OUTSIDE the package.
+
+  smoke   inputs/selection-smoke.json
+          CPU sanity slice: sea-raft-m on prod-motion-blur at cap mp0_5.  Verifies archive/artifact
+          hashes, runtime/provider selection, conditioning and directions end to end.  No CUDA.
+
+  screen  the QUALITY comparison, CPU, all measurable candidates at the shared-lattice cap
+          mp0_331776.  Conditioning is matched to each shot's encoding: scene-linear shots use
+          native-clamp01-v1 + signed-log-v1 + pair-percentile-v1; log shots use native-clamp01-v1 +
+          native-log-v1 + pair-percentile-v1.  NeuFlow v2 is scheduled ONLY in its own constrained
+          768x432 / 16:9 / mp0_331776 blocks.  Run every screen file:
+            inputs/selection-screen-production-scene-linear.json          (sea-raft-m, waft-twins, raft-original)
+            inputs/selection-screen-production-log.json                   (sea-raft-m, waft-twins, raft-original)
+            inputs/selection-screen-neuflow-production-scene-linear.json  (neuflow-v2, 16:9 prod shots)
+            inputs/selection-screen-neuflow-production-log.json           (neuflow-v2, 16:9 prod shots)
+            inputs/selection-screen-synthetic-scene-linear.json           (sea-raft-m, waft-twins, raft-original)
+            inputs/selection-screen-synthetic-log.json                    (sea-raft-m, waft-twins, raft-original)
+            inputs/selection-screen-neuflow-synthetic-lattice.json        (neuflow-v2, FHD/UHD 16:9)
+          The waft-twins and neuflow-v2 files require step 4a first.
+
+  final   inputs/selection-final.json
+          The expensive repeated CUDA timing/VRAM protocol on the shipping finalist sea-raft-m at
+          cap mp2 over the synthetic FHD and UHD PAR1 performance plates, host_loads idle AND
+          live_flame.  This selection contains the two frozen mandatory source-cap cells
+          (fhd-1920x1080-par1 @ mp2 @ cuda and uhd-3840x2160-par1 @ mp2 @ cuda).  Its CUDA provider
+          selector sets gpu_mem_limit_mib: 15000 (see note below).  MUST NOT be started until the
+          step 5 CUDA preflight passes.
+
+Example (swap --selection for each file):
+
+    WW_BAKEOFF_ENTRYPOINT=tools/bakeoff/run.py \
+    WW_BAKEOFF_RUNTIME_ARCHIVE=runtime/whitewater-p25-7-runtime.tar.gz \
+    WW_BAKEOFF_RUNTIME_ENV=/path/to/whitewater-p25-7-runtime-env \
+    scripts/ww-bakeoff-airgap \
+      --selection       inputs/selection-smoke.json \
+      --candidates      inputs/candidate-entries.json \
+      --artifact-map    inputs/artifact-map.json \
+      --corpus          /path/to/your/corpus.json \
+      --report-metadata /path/to/your/report-metadata.json \
+      --output-dir      /path/to/out/smoke
+
+For the final profile the driver pauses at each CUDA host_load boundary for an interactive
+idle/live_flame confirmation (logged to runner.log).  For an unattended rerun pass
+--assume-host-load-ready.  Both idle and live_flame CUDA cells and the full NVML stage rows
+(baseline, session_create, steady, cleanup, process_exit) must be recorded; --no-nvml is refused
+for a final profile with CUDA cells.
+
+gpu_mem_limit_mib note (PROPOSED -- confirm before the final run):
+  15000 MiB bounds ONNX Runtime's CUDA arena well under the ~22 GiB idle over-allocation P25-6
+  observed, while leaving headroom on the 24 GiB A5000.  This value is a P25-7 proposal for Andrew
+  to confirm; it is frozen into the matrix identity, so changing it changes the run identity.
+
+7. Collect the returned evidence
+--------------------------------
+
+From every profile's --output-dir, return report.json, summary.txt and runner.log.  Also return
+nvml.csv when the profile produced CUDA/NVML rows.  review.csv is REQUIRED for production shots that
+have no dense truth: the local reviewer fills the five 0..4 anonymous visual-score columns
+(edge_adherence, occlusion_reveal, blur, jitter, drift) so the production_macro_score can be
+computed.  Synthetic-only analytic profiles need no review.csv.  Do not copy previews, production
+footage, checkpoints, or runtime files into a source repository.

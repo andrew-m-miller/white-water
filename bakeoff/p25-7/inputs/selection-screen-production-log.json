@@ -1,0 +1,9 @@
+{
+  "profile": "screen",
+  "environment": "el8-x86_64",
+  "candidate_ids": ["sea-raft-m", "waft-twins", "raft-original"],
+  "conditioning_tokens": ["native-clamp01-v1", "native-log-v1", "pair-percentile-v1"],
+  "cap_tokens": ["mp0_331776"],
+  "providers": [{"token": "cpu", "host_loads": ["not_applicable"]}],
+  "shot_ids": ["prod-defocus", "prod-low-contrast", "prod-grain", "prod-fine-detail", "prod-reflections-screens"]
+}

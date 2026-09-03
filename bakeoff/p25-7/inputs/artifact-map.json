@@ -1,0 +1,22 @@
+{
+  "sea-raft-m": {
+    "manifest": "models/sea-raft-m/manifest.json",
+    "artifact": "models/sea-raft-m/sea-raft-m-opset17.onnx",
+    "platform": "materialize-from-linux-manifest"
+  },
+  "waft-twins": {
+    "manifest": "models/waft-twins/manifest.json",
+    "artifact": "models/waft-twins/waft-twins-opset17.onnx",
+    "platform": "PENDING_ONBOX_VALIDATION_waft-twins"
+  },
+  "neuflow-v2": {
+    "manifest": "models/neuflow-v2/manifest.json",
+    "artifact": "models/neuflow-v2/neuflow-v2-mixed-opset17-432x768.onnx",
+    "platform": "PENDING_ONBOX_VALIDATION_neuflow-v2"
+  },
+  "raft-original": {
+    "manifest": "models/raft-original/manifest.json",
+    "artifact": "models/raft-original/raft-original-opset17.onnx",
+    "platform": "materialize-from-linux-manifest"
+  }
+}
