@@ -1,0 +1,19 @@
+{
+  "report_id": "p25-7-production-selection",
+  "runner": {
+    "name": "ww-bakeoff",
+    "version": "0.1.0",
+    "source_commit": "materialize-from-ci",
+    "evaluator_sha256": "materialize-from-ci",
+    "runtime": "python-3.11;microsoft-onnxruntime-linux-x64-gpu_cuda12-1.29.0+whitewater-native-bridge;openexr-python+openexr+imath;pynvml;conda-pack;el8-x86_64",
+    "runtime_sha256": "materialize-from-ci"
+  },
+  "hardware": {
+    "platform": "linux",
+    "architecture": "x86_64",
+    "os_release": "REPLACE_WITH_TARGET_OS_RELEASE",
+    "cpu": "REPLACE_WITH_TARGET_CPU_MODEL",
+    "gpu": "REPLACE_WITH_TARGET_GPU_MODEL",
+    "driver": "REPLACE_WITH_TARGET_NVIDIA_DRIVER_VERSION"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "profile": "screen",
+  "environment": "el8-x86_64",
+  "candidate_ids": ["sea-raft-m", "waft-twins", "raft-original"],
+  "conditioning_tokens": ["native-clamp01-v1", "signed-log-v1", "pair-percentile-v1"],
+  "cap_tokens": ["mp0_331776"],
+  "providers": [{"token": "cpu", "host_loads": ["not_applicable"]}],
+  "shot_ids": [
+    "syn-identity",
+    "syn-translation-x-positive",
+    "syn-translation-x-negative",
+    "syn-translation-y-positive",
+    "syn-translation-y-negative",
+    "syn-affine",
+    "syn-spatial",
+    "syn-border",
+    "syn-occlusion-reveal",
+    "syn-blur",
+    "syn-noise",
+    "syn-hdr-scene-linear",
+    "syn-odd-size",
+    "syn-asymmetric-padding",
+    "syn-par-half",
+    "syn-par-double",
+    "syn-chain-1",
+    "syn-chain-2",
+    "syn-chain-4",
+    "syn-chain-8",
+    "syn-fhd-1920x1080-par1",
+    "syn-uhd-3840x2160-par1"
+  ]
+}
