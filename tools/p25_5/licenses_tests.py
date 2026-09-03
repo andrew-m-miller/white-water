@@ -649,6 +649,46 @@ class LicenseInputTests(unittest.TestCase):
                 supplement_path=supplement,
             )
 
+    def test_pip_license_identifier_is_tidied_without_guessing(self) -> None:
+        prefix, lock, _runtime_input, lock_sha = self._runtime_fixture()
+        cache = self.root / "conda-pkgs"
+        self._build_package_cache(prefix, cache)
+        site = prefix / "lib" / "python3.11" / "site-packages"
+
+        def _wheel(name: str, version: str, headers: str, license_text: str = "MIT text\n") -> None:
+            di = site / f"{name}-{version}.dist-info"
+            (di / "licenses").mkdir(parents=True)
+            (di / "METADATA").write_text(
+                f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n{headers}\n"
+                "License-File: LICENSE\n\n",
+                encoding="utf-8",
+            )
+            (di / "METADATA").chmod(0o644)
+            (di / "licenses" / "LICENSE").write_text(license_text, encoding="utf-8")
+            (di / "licenses" / "LICENSE").chmod(0o644)
+
+        # full licence TEXT dumped into License: -> ignored in favour of the classifier ("BSD
+        # License"), which is ambiguous (2 vs 3 clause) and so is preserved verbatim, not guessed.
+        _wheel(
+            "numpyish", "1.0",
+            "License: Copyright (c) 2005 Devs\n All rights reserved.\n Redistribution and use...\n"
+            "Classifier: License :: OSI Approved :: BSD License",
+            license_text="BSD-3-Clause text\n",
+        )
+        # non-SPDX spelling in License: -> mapped to SPDX.
+        _wheel("apacheish", "2.0", "License: Apache 2.0", license_text="Apache text\n")
+        # canonical License-Expression -> passthrough.
+        _wheel("exprish", "3.0", "License-Expression: MIT", license_text="MIT text\n")
+
+        generated = self.root / "gen2" / "input.json"
+        generate_runtime_input(prefix, lock, cache, generated, lock_sha)
+        collect_runtime(prefix, lock, generated, self.root / "tidy-out", lock_sha)
+        inv = json.loads((self.root / "tidy-out/runtime-license-inventory.json").read_text(encoding="utf-8"))
+        ids = {p["package_url"]: p["license"] for p in inv["packages"] if p["package_url"].startswith("pip://")}
+        self.assertEqual(ids["pip://numpyish==1.0"], "BSD License")
+        self.assertEqual(ids["pip://apacheish==2.0"], "Apache-2.0")
+        self.assertEqual(ids["pip://exprish==3.0"], "MIT")
+
     def test_upstream_package_cache_license_mode_is_tolerated_but_owned_evidence_is_not(self) -> None:
         # conda-forge ships some upstream license files non-0644 (e.g. intel-gmmlib's LICENSE.md at
         # 0755). Their mode is not our integrity property, so the package-cache license-evidence read

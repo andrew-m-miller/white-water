@@ -57,6 +57,52 @@ EXPECTED_MODE = 0o644
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 _UNKNOWN_LICENSES = frozenset({"", "unknown", "other", "n/a", "na", "none"})
+# Conservative map from common non-SPDX licence spellings to their SPDX identifier. Only
+# UNAMBIGUOUS spellings are listed: a bare "BSD License" (which does not distinguish 2- vs
+# 3-clause) is deliberately absent and left exactly as the distribution declared it rather than
+# guessed. Keys are casefolded.
+_LICENSE_ALIASES = {
+    "mit": "MIT",
+    "mit license": "MIT",
+    "apache 2.0": "Apache-2.0",
+    "apache-2.0": "Apache-2.0",
+    "apache license 2.0": "Apache-2.0",
+    "apache software license": "Apache-2.0",
+    "bsd-3-clause": "BSD-3-Clause",
+    "bsd 3-clause": "BSD-3-Clause",
+    "new bsd license": "BSD-3-Clause",
+    "bsd-2-clause": "BSD-2-Clause",
+    "python-2.0": "Python-2.0",
+    "psf-2.0": "Python-2.0",
+    "python software foundation license": "Python-2.0",
+    "mozilla public license 2.0 (mpl 2.0)": "MPL-2.0",
+    "mpl-2.0": "MPL-2.0",
+    "the unlicense (unlicense)": "Unlicense",
+    "isc license (iscl)": "ISC",
+}
+
+
+def _looks_like_license_identifier(value: str) -> bool:
+    """A short single-line token is an identifier; a multi-line or long value is licence TEXT.
+
+    Some wheels (e.g. numpy) dump the full licence text into the free-text ``License`` field.
+    That is not a usable identifier, so it is ignored in favour of the ``License ::`` classifier.
+    """
+
+    return bool(value) and "\n" not in value and len(value) <= 64
+
+
+def _normalize_license_token(value: str) -> str:
+    """Reduce a declared licence label to a tidy identifier without inventing terms.
+
+    Strips a trove-classifier prefix (``License :: OSI Approved :: X`` -> ``X``) and maps only
+    unambiguous non-SPDX spellings to their SPDX id; anything else is returned unchanged.
+    """
+
+    token = value.strip()
+    if "::" in token:
+        token = token.split("::")[-1].strip()
+    return _LICENSE_ALIASES.get(token.casefold(), token)
 _RUNTIME_CONTENT_EXCLUDED_ROOTS = ("conda-meta",)
 _RUNTIME_CONTENT_EXCLUDED_DIRECTORIES = ("__pycache__",)
 _RUNTIME_CONTENT_EXCLUDED_SUFFIXES = (".pyc",)
@@ -557,19 +603,25 @@ def _pip_metadata_packages(prefix: Path, conda_records: Sequence[RuntimePackage]
             # precedence over the deprecated free-text `License` field and the `License ::`
             # trove classifiers.  Reading it is not inference: it is the distribution's own
             # declared SPDX identifier.  Newer wheels (e.g. packaging>=24, anyio>=4) carry only
-            # this field, so without it the whole pip stack fails closed.
-            license_id = (message.get("License-Expression") or "").strip()
-            if license_id.casefold() in _UNKNOWN_LICENSES:
-                license_id = (message.get("License") or "").strip()
-            if license_id.casefold() in _UNKNOWN_LICENSES:
+            # this field, so without it the whole pip stack fails closed.  The free-text `License`
+            # field is used only when it is a short identifier, not when a wheel dumps its full
+            # licence text there (e.g. numpy), in which case the `License ::` classifier is used.
+            # The result is tidied by _normalize_license_token, which maps only unambiguous
+            # non-SPDX spellings and never guesses an ambiguous one.
+            candidate = (message.get("License-Expression") or "").strip()
+            if candidate.casefold() in _UNKNOWN_LICENSES:
+                license_field = (message.get("License") or "").strip()
+                candidate = license_field if _looks_like_license_identifier(license_field) else ""
+            if candidate.casefold() in _UNKNOWN_LICENSES:
                 classifiers = message.get_all("Classifier", [])
                 license_classifiers = [
-                    item.split("::", 1)[1].strip()
+                    item
                     for item in classifiers
                     if isinstance(item, str) and item.startswith("License ::") and "::" in item
                 ]
                 if license_classifiers:
-                    license_id = license_classifiers[-1]
+                    candidate = license_classifiers[-1]
+            license_id = _normalize_license_token(candidate)
             if license_id.casefold() in _UNKNOWN_LICENSES:
                 raise LicenseInputError(
                     f"runtime Python distribution {identity} has no usable licence identifier; "
