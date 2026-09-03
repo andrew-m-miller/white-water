@@ -502,9 +502,19 @@ def _pip_metadata_packages(prefix: Path, conda_records: Sequence[RuntimePackage]
     # ``conda_records`` is already validated; use its normalized name/version identity for the
     # normal path so a conda-provided dist-info is not counted twice.
     conda_identities = {(_pip_name(item.name), item.version) for item in conda_records}
-    site_roots = sorted(prefix.glob("lib/python*/site-packages"), key=lambda item: str(item))
+    # A conda env may expose the same site-packages under more than one path (e.g. a
+    # ``lib/python3.1 -> python3.12`` compatibility symlink), so collapse the roots by their real
+    # path before scanning to avoid counting every distribution twice.
+    site_roots: list[Path] = []
+    seen_roots: set[str] = set()
+    for candidate in sorted(prefix.glob("lib/python*/site-packages"), key=lambda item: str(item)):
+        real = os.path.realpath(candidate)
+        if real in seen_roots:
+            continue
+        seen_roots.add(real)
+        site_roots.append(candidate)
     records: list[RuntimePackage] = []
-    seen: set[str] = set()
+    seen: dict[str, str] = {}
     for site_root in site_roots:
         _require_directory(site_root, "runtime Python site-packages directory")
         candidates = sorted(
@@ -534,9 +544,15 @@ def _pip_metadata_packages(prefix: Path, conda_records: Sequence[RuntimePackage]
                 # conda; do not count its dist-info as an unbound second package.
                 continue
             identity = f"pip:{identity_name}=={version}"
+            metadata_sha256 = hashlib.sha256(metadata_bytes).hexdigest()
             if identity in seen:
+                # The same distribution reached through two paths (e.g. a duplicated or symlinked
+                # tree not collapsed by realpath) is the same package; tolerate an identical
+                # dist-info and reject only a genuine conflicting second install.
+                if seen[identity] == metadata_sha256:
+                    continue
                 raise LicenseInputError(f"duplicate runtime Python distribution: {identity}")
-            seen.add(identity)
+            seen[identity] = metadata_sha256
             # PEP 639 `License-Expression` is the modern canonical SPDX field and takes
             # precedence over the deprecated free-text `License` field and the `License ::`
             # trove classifiers.  Reading it is not inference: it is the distribution's own
@@ -570,7 +586,7 @@ def _pip_metadata_packages(prefix: Path, conda_records: Sequence[RuntimePackage]
                     license_id=license_id,
                     license_family=None,
                     metadata_path=metadata_path,
-                    metadata_sha256=hashlib.sha256(metadata_bytes).hexdigest(),
+                    metadata_sha256=metadata_sha256,
                     license=(),
                     notice=(),
                 )

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import stat
@@ -604,11 +605,15 @@ class LicenseInputTests(unittest.TestCase):
             },
         )
 
+        # A compatibility symlink exposing the same site-packages under a second path must not
+        # double-count every distribution (conda envs sometimes carry `lib/python3.1 -> python3.11`).
+        os.symlink("python3.11", prefix / "lib" / "python3.1")
+
         generated = self.root / "gen" / "runtime-pip-input.json"
         result = generate_runtime_input(
             prefix, lock, cache, generated, lock_sha, supplement_path=supplement
         )
-        self.assertEqual(result["package_count"], 4)  # 2 conda + 2 pip
+        self.assertEqual(result["package_count"], 4)  # 2 conda + 2 pip, symlinked root collapsed
         generated_value = json.loads(generated.read_text(encoding="utf-8"))
         torchy = next(
             item for item in generated_value["packages"] if item["package_url"] == "pip://torchy==2.7.0"
