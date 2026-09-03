@@ -2338,13 +2338,13 @@ jobs:
           # models/requirements-searaft-export.txt. The weightless smoke below imports the stack and
           # asserts torch 2.2.0 / onnxruntime 1.29.0, so this must run first.  Do NOT `pip install
           # --upgrade pip`: this env is conda-packed, and upgrading conda's own pip makes conda-pack
-          # fail on the clobbered conda-managed pip files.  opencv-python (cv2) is required by the
+          # fail on the clobbered conda-managed pip files.  opencv-python-headless (cv2) is required by the
           # WAFTv2(twins) import chain via thirdparty/DepthAnythingV2 (it is in WAFT's requirements).
           "$env_py" -m pip install --index-url https://download.pytorch.org/whl/cpu \
             torch==2.2.0 torchvision==0.17.0
           "$env_py" -m pip install \
             numpy==1.26.4 scipy==1.12.0 onnx==1.15.0 onnxruntime==1.29.0 \
-            safetensors==0.4.2 timm==0.9.16 einops opencv-python
+            safetensors==0.4.2 timm==0.9.16 einops opencv-python-headless
           # The single most valuable de-risk: construct the REAL WAFTv2(feature_encoder='twins')
           # WEIGHTLESS and checkpoint-free, through export_waft.py's OWN construction path
           # (load_pinned_config + construct_weightless_model), so the smoke cannot drift from the
