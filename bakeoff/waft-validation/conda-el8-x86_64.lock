@@ -28,18 +28,18 @@
 # THE ML EXPORT STACK IS pip-INSTALLED AT CI BUILD, NOT conda-sourced.  This conda spec is a
 # MINIMAL BASE only: it provides the pinned python interpreter plus the conda-pack/setuptools
 # packaging leaf.  conda-forge cannot provide the pinned CPU builds this export needs (there is no
-# satisfiable conda-forge onnxruntime ==1.29.0, and the torch/torchvision CPU builds the SEA-RAFT
+# satisfiable conda-forge onnxruntime ==1.22.0, and the torch/torchvision CPU builds the SEA-RAFT
 # candidate proved come from the PyTorch CPU wheel index), so the WHOLE ML export stack -- torch,
 # torchvision, numpy, scipy, onnx, onnxruntime, safetensors, timm, einops -- is pip-installed into
 # THIS env by CI AFTER the conda solve and BEFORE conda-pack and the runtime-license inventory,
 # mirroring the PROVEN models/requirements-searaft-export.txt pattern (torch/torchvision from
 # https://download.pytorch.org/whl/cpu, the rest from PyPI).  Those pip packages are packed into
-# the runtime and reported by licenses.py as pip identities (e.g. pip://torch==2.2.0,
-# pip://onnxruntime==1.29.0) for the licence-supplement population step.  See runtime-inputs.json
+# the runtime and reported by licenses.py as pip identities (e.g. pip://torch==2.7.0,
+# pip://onnxruntime==1.22.0) for the licence-supplement population step.  See runtime-inputs.json
 # export_dependencies for the exact versions/indexes and RUN-WAFT-VALIDATION.txt for the timm and
-# torch-version RISK notes -- upstream WAFT documents a NEWER stack than this.
+# torch-version RISK notes -- this stack now matches WAFT's documented python 3.12 / torch 2.7.0.
 
-python 3.11.*
+python 3.12.*
 
 # conda-pack is pinned to 0.8.1 (matching the P25-5/P25-6 lock): conda-forge's conda-pack 0.9.2
 # installs dist-info with `Version: 0.0.0` and no License field, so licenses.py cannot derive its

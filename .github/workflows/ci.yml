@@ -2136,7 +2136,7 @@ jobs:
       #                      inventory the legal review approved). The two digests are kept SEPARATE
       #                      in runtime-inputs.json; neither overwrites the other.
       WAFT_REQUESTED_SPEC_FILE: bakeoff/waft-validation/conda-el8-x86_64.lock
-      WAFT_REQUESTED_SPEC_SHA256: a1c8379b48b70afa8fb9d086c5d566efe28c7a4d76b0a0f010e3068e1cf229c0
+      WAFT_REQUESTED_SPEC_SHA256: b66bdaee3db7c71773d62a4b6b011519626e77513eda1132b11a0a505165d33a
       WAFT_SOLVED_LOCK_FILE: bakeoff/waft-validation/conda-el8-x86_64.solved.lock
       WAFT_RUNTIME_INPUTS_FILE: bakeoff/waft-validation/runtime-inputs.json
       WAFT_SOURCE_REPO: https://github.com/princeton-vl/WAFT.git
@@ -2336,15 +2336,20 @@ jobs:
           # licenses.py. This mirrors the PROVEN SEA-RAFT export pattern above (torch/torchvision
           # from https://download.pytorch.org/whl/cpu, the rest from PyPI) and
           # models/requirements-searaft-export.txt. The weightless smoke below imports the stack and
-          # asserts torch 2.2.0 / onnxruntime 1.29.0, so this must run first.  Do NOT `pip install
+          # asserts torch 2.7.0 / onnxruntime 1.22.0, so this must run first.  Do NOT `pip install
           # --upgrade pip`: this env is conda-packed, and upgrading conda's own pip makes conda-pack
           # fail on the clobbered conda-managed pip files.  opencv-python-headless (cv2) is required by the
           # WAFTv2(twins) import chain via thirdparty/DepthAnythingV2 (it is in WAFT's requirements).
+          # torch 2.7.0 pairs with torchvision 0.22.0 (PyTorch previous-versions CPU install line and
+          # the torchvision compatibility table: torch 2.7 <-> torchvision 0.22, python 3.9-3.13).
+          # timm is bumped to a recent 1.0.x: timm 0.9.16 raised "features_only not implemented for
+          # Vision Transformer models" building WAFTv2(twins) -- see the RISK note in
+          # RUN-WAFT-VALIDATION.txt; if this smoke STILL raises it, do not blind-bump, escalate.
           "$env_py" -m pip install --index-url https://download.pytorch.org/whl/cpu \
-            torch==2.2.0 torchvision==0.17.0
+            torch==2.7.0 torchvision==0.22.0
           "$env_py" -m pip install \
-            numpy==1.26.4 scipy==1.12.0 onnx==1.15.0 onnxruntime==1.29.0 \
-            safetensors==0.4.2 timm==0.9.16 einops opencv-python-headless
+            numpy==2.1.3 scipy==1.15.3 onnx==1.17.0 onnxruntime==1.22.0 \
+            safetensors==0.5.3 timm==1.0.19 einops opencv-python-headless
           # The single most valuable de-risk: construct the REAL WAFTv2(feature_encoder='twins')
           # WEIGHTLESS and checkpoint-free, through export_waft.py's OWN construction path
           # (load_pinned_config + construct_weightless_model), so the smoke cannot drift from the
@@ -2359,14 +2364,14 @@ jobs:
           from pathlib import Path
 
           workspace, upstream = Path(sys.argv[1]), Path(sys.argv[2])
-          if sys.version_info[:2] != (3, 11):
-              raise SystemExit(f"expected pinned Python 3.11, got {sys.version}")
+          if sys.version_info[:2] != (3, 12):
+              raise SystemExit(f"expected pinned Python 3.12, got {sys.version}")
           import numpy, scipy, onnx, onnxruntime, safetensors, einops  # noqa: F401
           import torch, timm
-          if not torch.__version__.startswith("2.2.0"):
-              raise SystemExit(f"expected torch 2.2.0, got {torch.__version__}")
-          if onnxruntime.__version__ != "1.29.0":
-              raise SystemExit(f"expected onnxruntime 1.29.0, got {onnxruntime.__version__}")
+          if not torch.__version__.startswith("2.7.0"):
+              raise SystemExit(f"expected torch 2.7.0, got {torch.__version__}")
+          if onnxruntime.__version__ != "1.22.0":
+              raise SystemExit(f"expected onnxruntime 1.22.0, got {onnxruntime.__version__}")
           sys.path.insert(0, str(workspace / "models"))
           import export_waft
           manifest = export_waft.load_manifest(workspace / "models" / "waft-twins-artifact.json")
