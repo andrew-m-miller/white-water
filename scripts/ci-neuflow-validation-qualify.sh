@@ -119,6 +119,18 @@ artifact_workflow=$(resolve_repo_path "$NEUFLOW_ARTIFACT_WORKFLOW")
 exclusion_contract=$(resolve_repo_path "$NEUFLOW_EXCLUSION_CONTRACT")
 manifest=$(resolve_repo_path "$NEUFLOW_MANIFEST")
 
+# models/artifact_workflow.py resolves three files relative to the PACKAGE ROOT at import/run time:
+# the dependency-free bake-off validator (loaded at import, which in turn loads its geometry/metrics
+# siblings), and the artifact schema + protocol it validates the manifest against. These are stable
+# in-repo tooling/protocol files, not per-run inputs, so they are resolved from the repo directly.
+# They were previously omitted from the staged tree, so the exporter imported fine in CI (run from
+# the repo) but failed on the airgapped box with FileNotFoundError for tools/bakeoff/validator.py.
+bakeoff_validator=$(resolve_repo_path "tools/bakeoff/validator.py")
+bakeoff_geometry=$(resolve_repo_path "tools/bakeoff/geometry.py")
+bakeoff_metrics=$(resolve_repo_path "tools/bakeoff/metrics.py")
+artifact_schema=$(resolve_repo_path "models/artifact-v1.schema.json")
+bakeoff_protocol=$(resolve_repo_path "bakeoff/protocol-v1.json")
+
 require_regular "$runtime_archive" "NeuFlow-validation conda-pack runtime archive"
 require_regular "$runtime_sha_file" "NeuFlow-validation runtime SHA256 file"
 require_regular "$runtime_inventory" "NeuFlow-validation CI-solved @EXPLICIT conda lock"
@@ -132,6 +144,11 @@ require_regular "$export_entrypoint" "models/export_neuflow_v2.py"
 require_regular "$artifact_workflow" "models/artifact_workflow.py"
 require_regular "$exclusion_contract" "models/exclusion_contract.py"
 require_regular "$manifest" "models/neuflow-v2.json"
+require_regular "$bakeoff_validator" "tools/bakeoff/validator.py"
+require_regular "$bakeoff_geometry" "tools/bakeoff/geometry.py"
+require_regular "$bakeoff_metrics" "tools/bakeoff/metrics.py"
+require_regular "$artifact_schema" "models/artifact-v1.schema.json"
+require_regular "$bakeoff_protocol" "bakeoff/protocol-v1.json"
 
 # The CI-solved lock must be a real @EXPLICIT lock, not the requested match-spec.
 grep -qx '@EXPLICIT' "$runtime_inventory" ||
@@ -184,13 +201,21 @@ python3.11 "$root/tools/p25_5/licenses.py" verify-runtime-content \
 staging_root="$output/staging"
 pkg="$staging_root/whitewater-neuflow-validation-el8"
 rm -rf "$staging_root"
-mkdir -p "$pkg/scripts" "$pkg/models" "$pkg/runtime" "$pkg/legal" "$pkg/bakeoff/neuflow-validation"
+mkdir -p "$pkg/scripts" "$pkg/models" "$pkg/runtime" "$pkg/legal" "$pkg/bakeoff/neuflow-validation" "$pkg/tools/bakeoff"
 
 install -m 0755 "$wrapper" "$pkg/scripts/ww-bakeoff-airgap"
 install -m 0644 "$export_entrypoint" "$pkg/models/export_neuflow_v2.py"
 install -m 0644 "$artifact_workflow" "$pkg/models/artifact_workflow.py"
 install -m 0644 "$exclusion_contract" "$pkg/models/exclusion_contract.py"
 install -m 0644 "$manifest" "$pkg/models/neuflow-v2.json"
+# The exporter's ROOT-relative closure (see the resolution block above): the bake-off validator and
+# its geometry/metrics siblings under tools/bakeoff/, plus the artifact schema and protocol the
+# manifest is validated against. Layout mirrors the repo so models/artifact_workflow.py resolves them.
+install -m 0644 "$bakeoff_validator" "$pkg/tools/bakeoff/validator.py"
+install -m 0644 "$bakeoff_geometry" "$pkg/tools/bakeoff/geometry.py"
+install -m 0644 "$bakeoff_metrics" "$pkg/tools/bakeoff/metrics.py"
+install -m 0644 "$artifact_schema" "$pkg/models/artifact-v1.schema.json"
+install -m 0644 "$bakeoff_protocol" "$pkg/bakeoff/protocol-v1.json"
 install -m 0644 "$runtime_archive" "$pkg/runtime/whitewater-neuflow-validation-runtime.tar.gz"
 install -m 0644 "$runtime_sha_file" "$pkg/runtime/whitewater-neuflow-validation-runtime.tar.gz.sha256"
 install -m 0644 "$runtime_inventory" "$pkg/runtime/whitewater-neuflow-validation-runtime.inventory"
@@ -222,6 +247,32 @@ while IFS= read -r -d '' f; do
     fail "the pinned NeuFlow checkpoint bytes are present in the staged package: $f"
   fi
 done < <(find "$pkg" -type f -print0)
+
+# Staged-artifact import smoke: reproduce the box's "first contact" import from the STAGED tree
+# (not the repo checkout), so any missing element of the exporter's ROOT-relative closure fails HERE
+# rather than on the airgapped box. artifact_workflow loads tools/bakeoff/validator.py (and its
+# geometry/metrics siblings) at import; the schema and protocol are read when the manifest is
+# written/loaded, so their presence is asserted too. This is a pure-import/path check, so the CI
+# host interpreter reproduces the box's FileNotFoundError without unpacking the runtime.
+echo "NeuFlow-validation: staged-artifact import smoke (exporter closure from the packaged tree)"
+( cd "$pkg" && PYTHONDONTWRITEBYTECODE=1 python3.11 - "export_neuflow_v2" <<'PY'
+import importlib
+import sys
+from pathlib import Path
+
+pkg = Path.cwd()
+sys.path.insert(0, str(pkg / "models"))
+# Importing artifact_workflow resolves models/exclusion_contract.py and loads tools/bakeoff/validator.py
+# (and its geometry/metrics siblings) relative to the package root, exactly as on the box. Importing
+# the exporter then exercises its own from-imports of both.
+import artifact_workflow  # noqa: F401
+importlib.import_module(sys.argv[1])
+for rel in ("models/artifact-v1.schema.json", "bakeoff/protocol-v1.json"):
+    if not (pkg / rel).is_file():
+        raise SystemExit(f"staged package is missing a manifest-validation input: {rel}")
+print("NeuFlow-validation staged-artifact import smoke: PASS")
+PY
+) || fail "staged-artifact import smoke failed; package is missing part of the exporter's ROOT-relative closure"
 
 package_tarball="$output/whitewater-neuflow-validation-el8.tar.gz"
 package_checksum="$package_tarball.sha256"
