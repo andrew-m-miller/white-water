@@ -40,6 +40,26 @@
         }
       ],
       "notice_files": []
+    },
+    {
+      "package_url": "pip://flatbuffers==25.12.19",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/flatbuffers-25.12.19.LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "pip://onnxruntime==1.16.3",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/onnxruntime-1.16.3.LICENSE",
+          "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c"
+        }
+      ],
+      "notice_files": []
     }
   ]
 }
