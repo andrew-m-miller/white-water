@@ -679,6 +679,16 @@ class LicenseInputTests(unittest.TestCase):
         _wheel("apacheish", "2.0", "License: Apache 2.0", license_text="Apache text\n")
         # canonical License-Expression -> passthrough.
         _wheel("exprish", "3.0", "License-Expression: MIT", license_text="MIT text\n")
+        # bare "Apache Software License" trove family classifier: trove uses it for every Apache
+        # version, so PEP 639 forbids inferring Apache-2.0 -> the leaf is preserved verbatim.
+        _wheel(
+            "apachecls", "4.0",
+            "Classifier: License :: OSI Approved :: Apache Software License",
+            license_text="Apache text\n",
+        )
+        # License-Expression PSF-2.0 -> kept verbatim as the distinct SPDX id, NOT rewritten to the
+        # separate Python-2.0 identifier.
+        _wheel("psfish", "5.0", "License-Expression: PSF-2.0", license_text="PSF text\n")
 
         generated = self.root / "gen2" / "input.json"
         generate_runtime_input(prefix, lock, cache, generated, lock_sha)
@@ -688,6 +698,34 @@ class LicenseInputTests(unittest.TestCase):
         self.assertEqual(ids["pip://numpyish==1.0"], "BSD License")
         self.assertEqual(ids["pip://apacheish==2.0"], "Apache-2.0")
         self.assertEqual(ids["pip://exprish==3.0"], "MIT")
+        self.assertEqual(ids["pip://apachecls==4.0"], "Apache Software License")
+        self.assertEqual(ids["pip://psfish==5.0"], "PSF-2.0")
+
+    def test_pip_disagreeing_license_classifiers_fail_closed(self) -> None:
+        # Two unrelated licence classifiers with no other signal: PEP 639 says their relationship
+        # (choice vs. conjunction) is undefined, so tools MUST NOT infer an expression. We refuse
+        # rather than silently pick one.
+        prefix, lock, _runtime_input, lock_sha = self._runtime_fixture()
+        cache = self.root / "conda-pkgs"
+        self._build_package_cache(prefix, cache)
+        site = prefix / "lib" / "python3.11" / "site-packages"
+        di = site / "ambiguous-1.0.dist-info"
+        (di / "licenses").mkdir(parents=True)
+        (di / "METADATA").write_text(
+            "Metadata-Version: 2.4\nName: ambiguous\nVersion: 1.0\n"
+            "Classifier: License :: OSI Approved :: MIT License\n"
+            "Classifier: License :: OSI Approved :: Apache Software License\n"
+            "License-File: LICENSE\n\n",
+            encoding="utf-8",
+        )
+        (di / "METADATA").chmod(0o644)
+        (di / "licenses" / "LICENSE").write_text("text\n", encoding="utf-8")
+        (di / "licenses" / "LICENSE").chmod(0o644)
+
+        generated = self.root / "gen-ambig" / "input.json"
+        with self.assertRaises(LicenseInputError) as caught:
+            generate_runtime_input(prefix, lock, cache, generated, lock_sha)
+        self.assertIn("no usable licence identifier", str(caught.exception))
 
     def test_upstream_package_cache_license_mode_is_tolerated_but_owned_evidence_is_not(self) -> None:
         # conda-forge ships some upstream license files non-0644 (e.g. intel-gmmlib's LICENSE.md at

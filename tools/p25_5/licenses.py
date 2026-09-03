@@ -58,16 +58,18 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 _UNKNOWN_LICENSES = frozenset({"", "unknown", "other", "n/a", "na", "none"})
 # Conservative map from common non-SPDX licence spellings to their SPDX identifier. Only
-# UNAMBIGUOUS spellings are listed: a bare "BSD License" (which does not distinguish 2- vs
-# 3-clause) is deliberately absent and left exactly as the distribution declared it rather than
-# guessed. Keys are casefolded.
+# UNAMBIGUOUS spellings are listed: version-less family spellings are deliberately ABSENT and left
+# exactly as the distribution declared them rather than guessed. A bare "BSD License" (2- vs
+# 3-clause) and a bare "Apache Software License" (which trove uses for every Apache version) are
+# both such families -- PEP 639 forbids inferring an SPDX identifier from them
+# (https://peps.python.org/pep-0639/appendix-mapping-classifiers/), so they are preserved verbatim.
+# Keys are casefolded.
 _LICENSE_ALIASES = {
     "mit": "MIT",
     "mit license": "MIT",
     "apache 2.0": "Apache-2.0",
     "apache-2.0": "Apache-2.0",
     "apache license 2.0": "Apache-2.0",
-    "apache software license": "Apache-2.0",
     "bsd-3-clause": "BSD-3-Clause",
     "bsd 3-clause": "BSD-3-Clause",
     "bsd-3": "BSD-3-Clause",
@@ -76,13 +78,17 @@ _LICENSE_ALIASES = {
     "bsd-2-clause": "BSD-2-Clause",
     "apache license v2.0": "Apache-2.0",
     "python-2.0": "Python-2.0",
-    "psf-2.0": "Python-2.0",
-    "python software foundation license": "Python-2.0",
+    # SPDX distinguishes the Python License 2.0 (Python-2.0) from the Python Software Foundation
+    # License 2.0 (PSF-2.0); the PSF spellings must resolve to PSF-2.0, not Python-2.0.
+    "psf-2.0": "PSF-2.0",
+    "python software foundation license": "PSF-2.0",
     "mozilla public license 2.0 (mpl 2.0)": "MPL-2.0",
     "mpl-2.0": "MPL-2.0",
     "the unlicense (unlicense)": "Unlicense",
     "isc license (iscl)": "ISC",
 }
+# Bare trove hierarchy parents that name no licence of their own; ignored when reading classifiers.
+_LICENSE_CLASSIFIER_PARENTS = frozenset({"OSI Approved", "DFSG approved", "Approved"})
 
 
 def _looks_like_license_identifier(value: str) -> bool:
@@ -106,6 +112,35 @@ def _normalize_license_token(value: str) -> str:
     if "::" in token:
         token = token.split("::")[-1].strip()
     return _LICENSE_ALIASES.get(token.casefold(), token)
+
+
+def _license_from_classifiers(message: Any) -> str:
+    """Derive a licence label from ``License ::`` trove classifiers, PEP 639-safely.
+
+    PEP 639 forbids inferring a licence expression when several unrelated licence classifiers are
+    present, because their relationship (choice vs. conjunction) is undefined
+    (https://peps.python.org/pep-0639/appendix-mapping-classifiers/). So this returns a single
+    classifier's own leaf verbatim -- which ``_normalize_license_token`` maps only when the spelling
+    is unambiguous, and otherwise (e.g. a bare "Apache Software License") leaves untouched -- and
+    refuses, by returning ``""``, when the classifiers disagree. The empty string then fails closed
+    at the caller's "no usable licence identifier" guard rather than silently naming one term.
+    """
+
+    chosen: dict[str, str] = {}
+    for item in message.get_all("Classifier", []):
+        if not (isinstance(item, str) and item.startswith("License ::") and "::" in item):
+            continue
+        leaf = item.split("::")[-1].strip()
+        if not leaf or leaf in _LICENSE_CLASSIFIER_PARENTS:
+            continue
+        # Collapse classifiers that normalise to the same identifier (e.g. "MIT" and "MIT License");
+        # keep distinct ones apart so a genuine disagreement is caught below.
+        chosen.setdefault(_normalize_license_token(leaf).casefold(), leaf)
+    if len(chosen) == 1:
+        return next(iter(chosen.values()))
+    return ""
+
+
 _RUNTIME_CONTENT_EXCLUDED_ROOTS = ("conda-meta",)
 _RUNTIME_CONTENT_EXCLUDED_DIRECTORIES = ("__pycache__",)
 _RUNTIME_CONTENT_EXCLUDED_SUFFIXES = (".pyc",)
@@ -602,29 +637,29 @@ def _pip_metadata_packages(prefix: Path, conda_records: Sequence[RuntimePackage]
                     continue
                 raise LicenseInputError(f"duplicate runtime Python distribution: {identity}")
             seen[identity] = metadata_sha256
-            # PEP 639 `License-Expression` is the modern canonical SPDX field and takes
-            # precedence over the deprecated free-text `License` field and the `License ::`
-            # trove classifiers.  Reading it is not inference: it is the distribution's own
-            # declared SPDX identifier.  Newer wheels (e.g. packaging>=24, anyio>=4) carry only
-            # this field, so without it the whole pip stack fails closed.  The free-text `License`
-            # field is used only when it is a short identifier, not when a wheel dumps its full
-            # licence text there (e.g. numpy), in which case the `License ::` classifier is used.
-            # The result is tidied by _normalize_license_token, which maps only unambiguous
-            # non-SPDX spellings and never guesses an ambiguous one.
-            candidate = (message.get("License-Expression") or "").strip()
-            if candidate.casefold() in _UNKNOWN_LICENSES:
+            # PEP 639 `License-Expression` is the modern canonical SPDX field and takes precedence
+            # over the deprecated free-text `License` field and the `License ::` trove classifiers.
+            # Reading it is not inference: it is the distribution's own declared SPDX identifier, so
+            # it is recorded VERBATIM and never run through the alias table (which would, e.g.,
+            # rewrite the distinct `PSF-2.0` to `Python-2.0`).  Newer wheels (e.g. packaging>=24,
+            # anyio>=4, typing_extensions) carry only this field, so without it the whole pip stack
+            # fails closed.
+            license_expression = (message.get("License-Expression") or "").strip()
+            if license_expression.casefold() not in _UNKNOWN_LICENSES:
+                license_id = license_expression
+            else:
+                # Free-text `License` is used only when it is a short identifier, not when a wheel
+                # dumps its full licence text there (e.g. numpy).  Failing that, fall back to the
+                # `License ::` classifiers via _license_from_classifiers, which is PEP 639-safe:
+                # it preserves a single classifier's own (possibly ambiguous, e.g. "Apache Software
+                # License") leaf verbatim and refuses to pick among disagreeing classifiers.  The
+                # result is tidied by _normalize_license_token, which maps only unambiguous non-SPDX
+                # spellings and never guesses a version-less family.
                 license_field = (message.get("License") or "").strip()
                 candidate = license_field if _looks_like_license_identifier(license_field) else ""
-            if candidate.casefold() in _UNKNOWN_LICENSES:
-                classifiers = message.get_all("Classifier", [])
-                license_classifiers = [
-                    item
-                    for item in classifiers
-                    if isinstance(item, str) and item.startswith("License ::") and "::" in item
-                ]
-                if license_classifiers:
-                    candidate = license_classifiers[-1]
-            license_id = _normalize_license_token(candidate)
+                if candidate.casefold() in _UNKNOWN_LICENSES:
+                    candidate = _license_from_classifiers(message)
+                license_id = _normalize_license_token(candidate)
             if license_id.casefold() in _UNKNOWN_LICENSES:
                 raise LicenseInputError(
                     f"runtime Python distribution {identity} has no usable licence identifier; "
