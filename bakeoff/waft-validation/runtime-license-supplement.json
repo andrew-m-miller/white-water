@@ -2,26 +2,6 @@
   "schema_id": "whitewater-p25-runtime-license-supplement-v1",
   "packages": [
     {
-      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda",
-      "license_files": [
-        {
-          "path": "runtime-license-evidence/_openmp_mutex-conda-forge.LICENSE",
-          "sha256": "344c439ba60e5db75f0c894fdd22e3445db089b3bd936806bdf128c0016c12c7"
-        }
-      ],
-      "notice_files": []
-    },
-    {
-      "package_url": "https://conda.anaconda.org/conda-forge/noarch/conda-pack-0.8.1-pyhd8ed1ab_1.conda",
-      "license_files": [
-        {
-          "path": "runtime-license-evidence/conda-pack-0.8.1.LICENSE.txt",
-          "sha256": "b0e95f386b21798f8a7a459336b8f1262a9723998d16956f582a0cff58df9270"
-        }
-      ],
-      "notice_files": []
-    },
-    {
       "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_4.conda",
       "license_files": [
         {
@@ -42,26 +22,6 @@
       "notice_files": []
     },
     {
-      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libnsl-2.0.1-hb9d3cd8_1.conda",
-      "license_files": [
-        {
-          "path": "runtime-license-evidence/libnsl-2.0.1.COPYING",
-          "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
-        }
-      ],
-      "notice_files": []
-    },
-    {
-      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libsqlite-3.53.4-h13e7031_1.conda",
-      "license_files": [
-        {
-          "path": "runtime-license-evidence/SQLITE-BLESSING.txt",
-          "sha256": "9c6479123f32a1ed50d9a0af203dfe8972e65035b0cdeef436b5f8d0924517fe"
-        }
-      ],
-      "notice_files": []
-    },
-    {
       "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-16.2.0-h934c35e_4.conda",
       "license_files": [
         {
@@ -72,11 +32,11 @@
       "notice_files": []
     },
     {
-      "package_url": "https://conda.anaconda.org/conda-forge/noarch/setuptools-80.10.2-pyh332efcf_0.conda",
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libsqlite-3.53.4-h13e7031_1.conda",
       "license_files": [
         {
-          "path": "runtime-license-evidence/setuptools-80.10.2.LICENSE",
-          "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+          "path": "runtime-license-evidence/SQLITE-BLESSING.txt",
+          "sha256": "9c6479123f32a1ed50d9a0af203dfe8972e65035b0cdeef436b5f8d0924517fe"
         }
       ],
       "notice_files": []
