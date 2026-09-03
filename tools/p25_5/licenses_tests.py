@@ -569,7 +569,9 @@ class LicenseInputTests(unittest.TestCase):
             "License-Expression: BSD-3-Clause\nLicense-File: LICENSE\n\n",
             encoding="utf-8",
         )
-        (harvested / "METADATA").chmod(0o644)
+        # Wheels/pip control the METADATA mode (protobuf ships it 0755); it is bound by content
+        # SHA, so a non-0644 dist metadata file must be tolerated.
+        (harvested / "METADATA").chmod(0o755)
         (harvested / "licenses" / "LICENSE").write_text(
             "torchy BSD-3-Clause bundled text\n", encoding="utf-8"
         )

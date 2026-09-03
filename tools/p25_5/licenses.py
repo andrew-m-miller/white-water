@@ -160,11 +160,13 @@ def _load_json(path: Path, label: str) -> Any:
 
 def _require_regular(path: Path, label: str, mode: int = EXPECTED_MODE, *, require_mode: bool = True) -> None:
     # ``require_mode=False`` keeps the regular-file and symlink-rejection guards but skips the
-    # permission-bits check. It is used ONLY for upstream conda package-cache license evidence
-    # (info/licenses/*), whose file mode conda-forge controls, not us. Integrity for those files
-    # is the content and its recorded SHA256, both still enforced by _read_evidence. Every file we
-    # own or carry (aggregated RUNTIME-LICENSES/NOTICES, supplement/component evidence, the explicit
-    # lock, python-dist metadata, reviews, the inventory) keeps the default 0644 requirement.
+    # permission-bits check. It is used for upstream files whose mode we do not control -- conda
+    # package-cache license evidence (info/licenses/*, mode set by conda-forge) and pip dist-info
+    # METADATA (mode set by the wheel/pip; e.g. protobuf ships it 0755). Integrity for those files
+    # is the content and its recorded SHA256, still enforced (by _read_evidence, or by the
+    # metadata_sha256 binding for dist metadata). Every file we own or carry (aggregated
+    # RUNTIME-LICENSES/NOTICES, supplement/component/harvested evidence, the explicit lock, reviews,
+    # the inventory) keeps the default 0644 requirement.
     try:
         info = path.lstat()
     except OSError as exc:
@@ -512,7 +514,11 @@ def _pip_metadata_packages(prefix: Path, conda_records: Sequence[RuntimePackage]
         for distribution_dir in candidates:
             _require_directory(distribution_dir, "runtime Python distribution metadata directory")
             metadata_path = distribution_dir / ("METADATA" if distribution_dir.name.endswith(".dist-info") else "PKG-INFO")
-            _require_regular(metadata_path, "runtime Python distribution metadata")
+            # The dist-info METADATA mode is set by the wheel/pip, not by us (e.g. protobuf ships
+            # its METADATA 0755), so it is not our integrity property. The distribution is bound by
+            # this file's content SHA256 (metadata_sha256) below; read it mode-agnostically, keeping
+            # the regular-file and symlink guards, exactly like upstream conda cache licence files.
+            _require_regular(metadata_path, "runtime Python distribution metadata", require_mode=False)
             try:
                 metadata_bytes = metadata_path.read_bytes()
                 message = Parser().parsestr(metadata_bytes.decode("utf-8"))
