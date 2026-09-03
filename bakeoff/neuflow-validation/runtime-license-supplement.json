@@ -1,4 +1,115 @@
 {
   "schema_id": "whitewater-p25-runtime-license-supplement-v1",
-  "packages": []
+  "packages": [
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/_openmp_mutex-conda-forge.LICENSE",
+          "sha256": "344c439ba60e5db75f0c894fdd22e3445db089b3bd936806bdf128c0016c12c7"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/noarch/conda-pack-0.8.1-pyhd8ed1ab_1.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/conda-pack-0.8.1.LICENSE.txt",
+          "sha256": "b0e95f386b21798f8a7a459336b8f1262a9723998d16956f582a0cff58df9270"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_4.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/libgcc-16.2.0-ha9f2e26_4.RUNTIME.LIBRARY.EXCEPTION",
+          "sha256": "28e85c5aa4af9b4f1dfe6b4817aa3eefb3eaaee7fd735045016f29ccf50276a1"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libgomp-16.2.0-he0feb66_4.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/libgcc-16.2.0-ha9f2e26_4.RUNTIME.LIBRARY.EXCEPTION",
+          "sha256": "28e85c5aa4af9b4f1dfe6b4817aa3eefb3eaaee7fd735045016f29ccf50276a1"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libnsl-2.0.1-hb9d3cd8_1.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/libnsl-2.0.1.COPYING",
+          "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libsqlite-3.53.4-h13e7031_1.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/SQLITE-BLESSING.txt",
+          "sha256": "9c6479123f32a1ed50d9a0af203dfe8972e65035b0cdeef436b5f8d0924517fe"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-16.2.0-h934c35e_4.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/libgcc-16.2.0-ha9f2e26_4.RUNTIME.LIBRARY.EXCEPTION",
+          "sha256": "28e85c5aa4af9b4f1dfe6b4817aa3eefb3eaaee7fd735045016f29ccf50276a1"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/noarch/pip-25.2-pyh8b19718_0.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/pip-25.2.LICENSE.txt",
+          "sha256": "634300a669d49aeae65b12c6c48c924c51a4cdf3d1ff086dc3456dc8bcaa2104"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/python-3.9.23-hc30ae73_0_cpython.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/python-3.9.23.LICENSE",
+          "sha256": "0bcd0ed8d17aed30c8487847c5d92d153471dba38520e81b15312cb432c44852"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/noarch/setuptools-80.9.0-pyhff2d567_0.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/setuptools-80.9.0.LICENSE",
+          "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/noarch/wheel-0.45.1-pyhd8ed1ab_1.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/wheel-0.45.1.LICENSE.txt",
+          "sha256": "cca9e20c6af1fcfbf69408f377769286cbeebcded336100c9b4a3f35fbe635e4"
+        }
+      ],
+      "notice_files": []
+    }
+  ]
 }
