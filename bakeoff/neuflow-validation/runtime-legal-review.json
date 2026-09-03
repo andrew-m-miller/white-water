@@ -1,10 +1,8 @@
 {
-  "_status": "PENDING -- NOT AN APPROVAL. Claude pre-filled this scaffold with the final NeuFlow-validation runtime inventory SHA256 (emitted by run 33798025679, from the digest-validated conda solve + pinned pip stack + normalized licence labels). It is NOT signed: reviewed is false. To sign: review the inventory (shipped as NeuFlow-runtime-license-inventory.json / NeuFlow-RUNTIME-LICENSES.txt), then delete the _status and _instructions keys, set reviewed to true, set reviewed_at to a real ISO-8601 UTC timestamp, and confirm/edit the statement. CI fails closed while reviewed!=true, the key set is not exact, or inventory_sha256 does not match the regenerated inventory.",
-  "_instructions": "Fields consumed by tools/p25_5/licenses.py validate-runtime-review (exact key set): schema_id, inventory_sha256, reviewed, reviewer, reviewed_at, statement. The statement below was rewritten from the template to reflect that the ML stack is pip-installed (not conda); review the wording before signing. After signing, dispatch the neuflow-validation lane with neuflow_validation_runtime_legal_review_file=bakeoff/neuflow-validation/runtime-legal-review.json and neuflow_validation_runtime_legal_review_sha256=<this file's SHA256>.",
   "schema_id": "whitewater-p25-runtime-legal-review-v1",
   "inventory_sha256": "eb64b5ce46a015e501066fef2c22696cbe1ace37eac226bd0debdd63e49b1adb",
-  "reviewed": false,
+  "reviewed": true,
   "reviewer": "Andrew Miller",
-  "reviewed_at": "<set to an ISO-8601 UTC timestamp with explicit timezone when you sign, e.g. 2026-09-03T00:00:00Z>",
+  "reviewed_at": "2026-09-03T10:00:01Z",
   "statement": "I, Andrew Miller, reviewed the generated NeuFlow-validation runtime license and notice inventory with SHA256 eb64b5ce46a015e501066fef2c22696cbe1ace37eac226bd0debdd63e49b1adb, covering the conda base (python 3.9, conda-pack, setuptools and the transitive system libraries) and the pip-installed export stack (PyTorch CPU, torchvision, numpy, onnx, onnxruntime CPU and their transitive dependencies), each bound to its own licence and notice evidence. I approve this exact runtime inventory for the NeuFlow v2 export/validation run. The pinned NeuFlow v2 source is Apache-2.0; the NeuFlow v2 checkpoint is operator-supplied and its file-level licence remains unknown -- this approval covers the packed runtime only, not the checkpoint, and no upstream source or checkpoint is carried in the package."
 }

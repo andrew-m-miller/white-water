@@ -1,10 +1,8 @@
 {
-  "_status": "PENDING -- NOT AN APPROVAL. Claude pre-filled this scaffold with the final WAFT-validation runtime inventory SHA256 (emitted by run 33798017539, from the pinned conda solved lock + pinned pip stack + normalized licence labels). It is NOT signed: reviewed is false. To sign: review the inventory (bakeoff/waft-validation shipped as WAFT-runtime-license-inventory.json / WAFT-RUNTIME-LICENSES.txt), then delete the _status and _instructions keys, set reviewed to true, set reviewed_at to a real ISO-8601 UTC timestamp, and confirm/edit the statement. CI fails closed while reviewed!=true, the key set is not exact, or inventory_sha256 does not match the regenerated inventory.",
-  "_instructions": "Fields consumed by tools/p25_5/licenses.py validate-runtime-review (exact key set): schema_id, inventory_sha256, reviewed, reviewer, reviewed_at, statement. The statement below was rewritten from the template to reflect that the ML stack is pip-installed (not conda); review the wording before signing. After signing, dispatch the waft-validation lane with waft_validation_runtime_legal_review_file=bakeoff/waft-validation/runtime-legal-review.json and waft_validation_runtime_legal_review_sha256=<this file's SHA256>.",
   "schema_id": "whitewater-p25-runtime-legal-review-v1",
   "inventory_sha256": "9f5b05c4281c66963842c20eea646a19a0f534fa95e40e39fe9cc6560345bab8",
-  "reviewed": false,
+  "reviewed": true,
   "reviewer": "Andrew Miller",
-  "reviewed_at": "<set to an ISO-8601 UTC timestamp with explicit timezone when you sign, e.g. 2026-09-03T00:00:00Z>",
+  "reviewed_at": "2026-09-03T10:00:00Z",
   "statement": "I, Andrew Miller, reviewed the generated WAFT-validation runtime license and notice inventory with SHA256 9f5b05c4281c66963842c20eea646a19a0f534fa95e40e39fe9cc6560345bab8, covering the conda base (python 3.12, conda-pack, setuptools and the transitive system libraries) and the pip-installed export stack (PyTorch CPU, torchvision, numpy, scipy, onnx, onnxruntime CPU, safetensors, timm and their transitive dependencies), each bound to its own licence and notice evidence. I approve this exact runtime inventory for the WAFT export/validation run. The pinned WAFT source is BSD-3-Clause; the WAFT checkpoint is operator-supplied and its file-level licence remains unknown -- this approval covers the packed runtime only, not the checkpoint, and no upstream source or checkpoint is carried in the package."
 }
