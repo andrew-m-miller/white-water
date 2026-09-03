@@ -2336,13 +2336,15 @@ jobs:
           # licenses.py. This mirrors the PROVEN SEA-RAFT export pattern above (torch/torchvision
           # from https://download.pytorch.org/whl/cpu, the rest from PyPI) and
           # models/requirements-searaft-export.txt. The weightless smoke below imports the stack and
-          # asserts torch 2.2.0 / onnxruntime 1.29.0, so this must run first.
-          "$env_py" -m pip install --upgrade pip
+          # asserts torch 2.2.0 / onnxruntime 1.29.0, so this must run first.  Do NOT `pip install
+          # --upgrade pip`: this env is conda-packed, and upgrading conda's own pip makes conda-pack
+          # fail on the clobbered conda-managed pip files.  opencv-python (cv2) is required by the
+          # WAFTv2(twins) import chain via thirdparty/DepthAnythingV2 (it is in WAFT's requirements).
           "$env_py" -m pip install --index-url https://download.pytorch.org/whl/cpu \
             torch==2.2.0 torchvision==0.17.0
           "$env_py" -m pip install \
             numpy==1.26.4 scipy==1.12.0 onnx==1.15.0 onnxruntime==1.29.0 \
-            safetensors==0.4.2 timm==0.9.16 einops
+            safetensors==0.4.2 timm==0.9.16 einops opencv-python
           # The single most valuable de-risk: construct the REAL WAFTv2(feature_encoder='twins')
           # WEIGHTLESS and checkpoint-free, through export_waft.py's OWN construction path
           # (load_pinned_config + construct_weightless_model), so the smoke cannot drift from the
@@ -2751,8 +2753,9 @@ jobs:
           # identities) to licenses.py. This mirrors the PROVEN SEA-RAFT export pattern (torch/
           # torchvision from https://download.pytorch.org/whl/cpu, the rest from PyPI) and the exact
           # versions in models/requirements-neuflow-export.txt. The weightless smoke below imports the
-          # stack and asserts torch 2.0.1 / onnxruntime 1.16.3, so this must run first.
-          "$env_py" -m pip install --upgrade pip
+          # stack and asserts torch 2.0.1 / onnxruntime 1.16.3, so this must run first.  Do NOT
+          # `pip install --upgrade pip`: this env is conda-packed, and upgrading conda's own pip
+          # makes conda-pack fail on the clobbered conda-managed pip files.
           "$env_py" -m pip install --index-url https://download.pytorch.org/whl/cpu \
             torch==2.0.1 torchvision==0.15.2
           "$env_py" -m pip install numpy==1.24.4 onnx==1.14.1 onnxruntime==1.16.3
