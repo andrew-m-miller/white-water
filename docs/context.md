@@ -903,3 +903,40 @@ do not change that approved runtime inventory.
 The lesson: a directory selected for four known dependencies is still a loader namespace, not a
 bag of only those four files. Verify ownership of the primary runtime library as well as absence
 of unresolved transitive dependencies; a clean provider-only `ldd` is not enough.
+
+### 11. The validation-pack smoke tested the repo, not the artifact it shipped
+
+**Symptom:** the NeuFlow-validation package unpacked cleanly on the airgapped box but failed at
+first contact (step 3, toolchain confirm) with
+`FileNotFoundError: .../whitewater-neuflow-validation-el8/tools/bakeoff/validator.py`. CI had
+built and "qualified" that same package as a success.
+
+`models/artifact_workflow.py` — carried in both validation packs — resolves several files
+relative to the package root and loads them as the exporter runs: `tools/bakeoff/validator.py`
+at import (which itself loads its `geometry.py`/`metrics.py` siblings at import), plus
+`models/artifact-v1.schema.json` and `bakeoff/protocol-v1.json` when the manifest is written and
+validated. It also imports `models/exclusion_contract.py` at module scope. The two qualify scripts
+staged `artifact_workflow.py` but none of that closure; the WAFT script additionally never staged
+`exclusion_contract.py`, so WAFT was broken the same way and one file deeper — the operator simply
+ran NeuFlow first.
+
+The reason CI stayed green is the important part. Its packaging step imported the exporter from the
+**repository checkout**, where every one of those files exists, rather than from the **staged
+package tree**, where none of them did. The smoke proved the repo could import the exporter; it
+never proved the artifact could. This is correction 3 in a new costume — there the glibc gate
+derived its baseline from the builder and so could never fail; here the import smoke derived its
+files from the source tree and so could never catch a staging omission. A check whose inputs come
+from the wrong tree is not a check.
+
+**The fix** stages the full closure into both packages, mirroring the repo layout so
+`artifact_workflow.py` resolves it, and adds a staged-artifact import smoke that `cd`s into the
+assembled package and imports the exporter **from there**. Because the failure is pure path
+resolution, the CI host interpreter reproduces the box's `FileNotFoundError` deterministically
+without unpacking the runtime; it was validated to pass on the full closure and to fail with the
+exact box error when any element is removed. The runtime inventory is unchanged, so the runtime
+legal-review signatures still held — only the outer package gained files. (Landed on the P25-7
+validation-pack branch; PR #36.)
+
+The lesson: test the artifact from where it will be unpacked, not the tree you built it from. A
+packaging smoke that imports from the source checkout is the airgap-era twin of a local
+modern-distro build — it exercises everything except the thing you ship.
