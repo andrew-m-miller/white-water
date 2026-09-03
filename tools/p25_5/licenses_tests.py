@@ -552,6 +552,96 @@ class LicenseInputTests(unittest.TestCase):
             license_paths[package_name] = license_file
         return license_paths
 
+    def test_generate_harvests_pip_distribution_license_evidence(self) -> None:
+        # conda-pack ships the full export env, so every installed wheel must land in the
+        # inventory. generate-runtime-input harvests each wheel's own bundled licence (PEP 639
+        # License-File under dist-info/licenses/, keyed off the modern License-Expression field),
+        # and a wheel that bundles nothing falls back to a pip:// supplement entry.
+        prefix, lock, _runtime_input, lock_sha = self._runtime_fixture()
+        cache = self.root / "conda-pkgs"
+        self._build_package_cache(prefix, cache)
+        site = prefix / "lib" / "python3.11" / "site-packages"
+
+        harvested = site / "torchy-2.7.0.dist-info"
+        (harvested / "licenses").mkdir(parents=True)
+        (harvested / "METADATA").write_text(
+            "Metadata-Version: 2.4\nName: torchy\nVersion: 2.7.0\n"
+            "License-Expression: BSD-3-Clause\nLicense-File: LICENSE\n\n",
+            encoding="utf-8",
+        )
+        (harvested / "METADATA").chmod(0o644)
+        (harvested / "licenses" / "LICENSE").write_text(
+            "torchy BSD-3-Clause bundled text\n", encoding="utf-8"
+        )
+        (harvested / "licenses" / "LICENSE").chmod(0o644)
+
+        bundleless = site / "barepkg-1.0.dist-info"
+        bundleless.mkdir(parents=True)
+        (bundleless / "METADATA").write_text(
+            "Metadata-Version: 2.4\nName: barepkg\nVersion: 1.0\nLicense-Expression: MIT\n\n",
+            encoding="utf-8",
+        )
+        (bundleless / "METADATA").chmod(0o644)
+        supp_license = self.root / "barepkg-LICENSE.txt"
+        supp_license.write_text("barepkg MIT supplement evidence\n", encoding="utf-8")
+        supp_license.chmod(0o644)
+        supplement = self.root / "pip-supplement.json"
+        self._write_json(
+            supplement,
+            {
+                "schema_id": "whitewater-p25-runtime-license-supplement-v1",
+                "packages": [
+                    {
+                        "package_url": "pip://barepkg==1.0",
+                        "license_files": [
+                            {"path": supp_license.name, "sha256": self._sha(supp_license)}
+                        ],
+                        "notice_files": [],
+                    }
+                ],
+            },
+        )
+
+        generated = self.root / "gen" / "runtime-pip-input.json"
+        result = generate_runtime_input(
+            prefix, lock, cache, generated, lock_sha, supplement_path=supplement
+        )
+        self.assertEqual(result["package_count"], 4)  # 2 conda + 2 pip
+        generated_value = json.loads(generated.read_text(encoding="utf-8"))
+        torchy = next(
+            item for item in generated_value["packages"] if item["package_url"] == "pip://torchy==2.7.0"
+        )
+        self.assertIn("metadata_sha256", torchy)
+        self.assertTrue(torchy["license_files"][0]["path"].startswith("pip-license-evidence/"))
+
+        collect_runtime(prefix, lock, generated, self.root / "pip-harvest-out", lock_sha)
+        inventory = json.loads(
+            (self.root / "pip-harvest-out/runtime-license-inventory.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(inventory["package_count"], 4)
+        pip_ids = {
+            item["package_url"]
+            for item in inventory["packages"]
+            if item["package_url"].startswith("pip://")
+        }
+        self.assertEqual(pip_ids, {"pip://torchy==2.7.0", "pip://barepkg==1.0"})
+        aggregated = (self.root / "pip-harvest-out/LICENSES.txt").read_bytes()
+        self.assertIn(b"torchy BSD-3-Clause bundled text", aggregated)
+        self.assertIn(b"barepkg MIT supplement evidence", aggregated)
+
+        # A wheel that bundles no licence and has no supplement entry fails closed by name.
+        (site / "orphan-9.9.dist-info").mkdir(parents=True)
+        (site / "orphan-9.9.dist-info" / "METADATA").write_text(
+            "Metadata-Version: 2.4\nName: orphan\nVersion: 9.9\nLicense-Expression: MIT\n\n",
+            encoding="utf-8",
+        )
+        (site / "orphan-9.9.dist-info" / "METADATA").chmod(0o644)
+        with self.assertRaisesRegex(LicenseInputError, "no licence file"):
+            generate_runtime_input(
+                prefix, lock, cache, self.root / "gen-orphan" / "input.json", lock_sha,
+                supplement_path=supplement,
+            )
+
     def test_upstream_package_cache_license_mode_is_tolerated_but_owned_evidence_is_not(self) -> None:
         # conda-forge ships some upstream license files non-0644 (e.g. intel-gmmlib's LICENSE.md at
         # 0755). Their mode is not our integrity property, so the package-cache license-evidence read
