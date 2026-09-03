@@ -7,8 +7,9 @@ no model, assigns no OFX choice index, and authorizes no redistribution of the W
 Do not install the extracted directory into Flame as a product plugin.
 
 The export is device-independent and runs on CPU.  This package deliberately does NOT carry the
-ONNX Runtime CUDA-12 archive or the White Water native ORT bridge; onnxruntime is the conda-forge
-CPU build and there is no CUDA setup.  (If you have run RUN-P25-6.txt: that procedure does not
+ONNX Runtime CUDA-12 archive or the White Water native ORT bridge; onnxruntime is the exact CPU
+wheel pip-installed at CI build (onnxruntime==1.29.0; conda-forge does not carry 1.29.0) and there
+is no CUDA setup.  (If you have run RUN-P25-6.txt: that procedure does not
 apply here -- this is a different runtime with a different purpose.)
 
 No production images and no checkpoint leave the machine.  The operator returns only:
@@ -202,8 +203,9 @@ Legal record
 ------------
 
 The runtime aggregates are `legal/RUNTIME-LICENSES.txt` and `legal/RUNTIME-NOTICES.txt`, covering
-the conda runtime (python, PyTorch CPU, torchvision, numpy, scipy, onnx, onnxruntime CPU,
-safetensors, timm, conda-pack, setuptools and their transitive natives).  A separate Andrew Miller
+the runtime (python, PyTorch CPU, torchvision, numpy, scipy, onnx, safetensors, timm, conda-pack,
+setuptools and their transitive natives from conda, plus the pip-installed onnxruntime CPU wheel
+reported as a pip identity).  A separate Andrew Miller
 runtime legal-review JSON (schema `whitewater-p25-runtime-legal-review-v1`, reviewer
 `Andrew Miller`, `reviewed: true`) approving the exact generated runtime inventory hash is required
 before CI packages anything; the carried `legal/runtime-legal-review.json` is that approval.  That

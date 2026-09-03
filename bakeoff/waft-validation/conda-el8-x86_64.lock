@@ -24,8 +24,8 @@
 # PyTorch-vs-ONNX parity) against the models/waft-twins-artifact.json validation.* thresholds.
 # The export is device-independent, so this is a CPU-only stack: unlike the P25-5/P25-6
 # measurement runtimes it does NOT add the ONNX Runtime CUDA-12 archive or the native ORT bridge.
-# onnxruntime is taken directly from conda-forge (CPU build), and there is no CUDA math-library
-# dependency.
+# onnxruntime is pip-installed at CI build (the exact CPU wheel; conda-forge does not carry 1.29.0),
+# and there is no CUDA math-library dependency.
 #
 # WHY THESE PINS.  The export dependency versions mirror models/requirements-searaft-export.txt
 # (torch==2.2.0, torchvision==0.17.0, numpy==1.26.4, scipy==1.12.0, onnx==1.15.0,
@@ -49,11 +49,12 @@ torchvision ==0.17.0=cpu*
 numpy ==1.26.4
 scipy ==1.12.0
 onnx ==1.15.0
-# onnxruntime here is the conda-forge CPU build (CPUExecutionProvider only); the CUDA provider is
-# irrelevant to a device-independent export/validation run.  1.29.0 matches the SEA-RAFT export's
-# pin.  If conda-forge lacks exactly 1.29.0 for this Python, CI's solve fails closed and names what
-# it does have -- decide the nearest acceptable ORT then, in review, rather than silently drifting.
-onnxruntime ==1.29.0
+# onnxruntime is deliberately NOT a conda spec here: conda-forge does not carry onnxruntime ==1.29.0
+# (the SEA-RAFT export's pin), so an EL8 conda solve of it fails closed.  CI instead pip-installs the
+# exact CPU wheel (onnxruntime==1.29.0, CPUExecutionProvider only) into this env AFTER the conda solve
+# and BEFORE conda-pack and the runtime-license inventory, so it is packed into the runtime and
+# reported by licenses.py as a pip identity (pip://onnxruntime==1.29.0).  The CUDA provider is
+# irrelevant to a device-independent export/validation run.
 safetensors ==0.4.2
 
 # timm builds WAFT's twins_svt_large feature encoder (weightless: export_waft.py forces

@@ -12,8 +12,9 @@ validation.status="passed"); its export is FIXED-shape 1x3x432x768 with no dynam
 This run produces the linux ONNX artifact and re-qualifies it against the same frozen thresholds.
 
 The export is device-independent and runs on CPU.  This package deliberately does NOT carry the
-ONNX Runtime CUDA-12 archive or the White Water native ORT bridge; onnxruntime is the conda-forge
-CPU build and only CPUExecutionProvider is available in this runtime.  (If you have run RUN-P25-6.txt
+ONNX Runtime CUDA-12 archive or the White Water native ORT bridge; onnxruntime is the exact CPU
+wheel pip-installed at CI build (onnxruntime==1.16.3; conda-forge does not carry 1.16.3) and only
+CPUExecutionProvider is available in this runtime.  (If you have run RUN-P25-6.txt
 or RUN-WAFT-VALIDATION.txt: those are different runtimes with different purposes.)
 
 No production images and no checkpoint leave the machine.  The operator returns only:
@@ -176,7 +177,7 @@ failure_type note) WITHOUT publishing any ONNX hash.  The failure stages you are
                                            exported.
   * model_load                          -- the checkpoint did not load strictly into the pinned
                                            NeuFlow architecture (a framework/stack mismatch: this is
-                                           the python-3.8/torch-2.0.1 RISK below), or a missing import
+                                           the python-3.9/torch-2.0.1 RISK below), or a missing import
                                            (torch/onnx/onnxruntime).
   * onnx_export                         -- the graph could not be exported/checked at the fixed shape.
   * CPUExecutionProvider_runtime_validation -- the graph exported but missed a frozen numerical
@@ -190,10 +191,13 @@ repository.
 Version-pin risks (READ BEFORE RUNNING)
 ---------------------------------------
 
-* Python 3.8 + torch 2.0.1 is the single biggest risk.  Python 3.8 is end-of-life and conda-forge no
-  longer builds new packages for it; the exact CPU stack (torch 2.0.1 / numpy 1.24.4 / onnx 1.14.1 /
-  onnxruntime 1.16.3) co-solving on conda-forge linux-64 is proven only by CI's EL8 solve, never on
-  the dev host.  If the qualifying dispatch fails to solve, see
+* Python 3.9 + torch 2.0.1 is the single biggest risk.  The pinned upstream README targets python
+  3.8, but 3.8 is end-of-life and conda-forge no longer builds new packages for it, so this runtime
+  pins python 3.9 -- which is conda-forge-built AND the NeuFlow v2 validated export interpreter
+  recorded in models/neuflow-v2.json (export_environment.python 3.9.6).  The conda stack (torch 2.0.1
+  / numpy 1.24.4 / onnx 1.14.1) co-solving on conda-forge linux-64 for py39 is proven only by CI's
+  EL8 solve, never on the dev host; onnxruntime 1.16.3 is not on conda-forge and is pip-installed as
+  the exact CPU wheel after the solve.  If the qualifying dispatch fails to solve, see
   bakeoff/neuflow-validation/runtime-inputs.json (python38_torch201_risk) for the remediation: raise
   only Python to the lowest conda-forge-built version that still carries torch 2.0.1, re-solve, and
   re-run the weightless NeuFlow construction smoke; escalate a framework bump to Andrew rather than
@@ -212,8 +216,9 @@ Legal record
 ------------
 
 The runtime aggregates are `legal/RUNTIME-LICENSES.txt` and `legal/RUNTIME-NOTICES.txt`, covering
-the conda runtime (python, PyTorch CPU, torchvision, numpy, onnx, onnxruntime CPU, conda-pack,
-setuptools and their transitive natives).  A separate Andrew Miller runtime legal-review JSON (schema
+the runtime (python, PyTorch CPU, torchvision, numpy, onnx, conda-pack, setuptools and their
+transitive natives from conda, plus the pip-installed onnxruntime CPU wheel reported as a pip
+identity).  A separate Andrew Miller runtime legal-review JSON (schema
 `whitewater-p25-runtime-legal-review-v1`, reviewer `Andrew Miller`, `reviewed: true`) approving the
 exact generated runtime inventory hash is required before CI packages anything; the carried
 `legal/runtime-legal-review.json` is that approval.  The NeuFlow v2 source is Apache-2.0 but is NOT

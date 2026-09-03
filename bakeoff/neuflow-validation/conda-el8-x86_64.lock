@@ -22,8 +22,9 @@
 # produces the linux-x86_64 ONNX artifact and re-validates it on the box.  The export is
 # device-independent, so this is a CPU-only stack: like bakeoff/waft-validation and unlike the
 # P25-5/P25-6 measurement runtimes it does NOT add the ONNX Runtime CUDA-12 archive or the native
-# ORT bridge.  onnxruntime is taken directly from conda-forge (CPU build), so this runtime advertises
-# CPUExecutionProvider ONLY: it has no CUDA execution provider compiled in, and pointing
+# ORT bridge.  onnxruntime is the exact CPU wheel pip-installed at CI build (conda-forge does not
+# carry 1.16.3), so this runtime advertises CPUExecutionProvider ONLY: it has no CUDA execution
+# provider compiled in, and pointing
 # LD_LIBRARY_PATH at host CUDA libraries cannot add one.  --provider CUDAExecutionProvider fails here
 # with "requested ONNX Runtime provider is unavailable" (RUN-NEUFLOW-VALIDATION.txt says the same);
 # CUDA qualification would need a separate CUDA-enabled onnxruntime build in its own env and is out of
@@ -33,20 +34,22 @@
 # (torch==2.0.1, torchvision==0.15.2, numpy==1.24.4, onnx==1.14.1, onnxruntime==1.16.3), which in
 # turn mirror the pinned upstream README (NeuFlow_v2 @ 204b5e37: "python==3.8 ... pytorch==2.0.1
 # torchvision==0.15.2").  These are INCOMPATIBLE with the WAFT/SEA-RAFT stack (python 3.11 /
-# torch 2.2.0 / onnxruntime 1.29.0), which is exactly why NeuFlow needs its own pack.  See
-# runtime-inputs.json and RUN-NEUFLOW-VALIDATION.txt for the python-3.8/torch-2.0.1 conda-forge
-# availability RISK note -- python 3.8 is EOL and this exact CPU stack is proven only by CI's EL8
-# solve.
+# torch 2.2.0 / onnxruntime 1.29.0), which is exactly why NeuFlow needs its own pack.  Python is
+# pinned to 3.9 (not the README's 3.8) because 3.8 is EOL and no longer conda-forge-built, and 3.9 is
+# the validated export interpreter recorded in models/neuflow-v2.json; see runtime-inputs.json and
+# RUN-NEUFLOW-VALIDATION.txt for that python38_torch201_risk note -- the py39 torch 2.0.1 CPU stack is
+# proven only by CI's EL8 solve.
 
-# Python 3.8 is what the pinned NeuFlow README and models/requirements-neuflow-export.txt target.
-# It is END-OF-LIFE (upstream Python EOL 2024-10) and conda-forge has stopped building new packages
-# for it, so the SOLVE (not this file) is where a py38-compatible set of torch 2.0.1 / numpy 1.24.4
-# / onnx 1.14.1 / onnxruntime 1.16.3 is proven to still exist on conda-forge for linux-64.  This is
-# the single biggest risk in this runtime (analogous to WAFT's timm risk); if the EL8 solve fails
-# closed on an unsatisfiable py38 graph, see RUN-NEUFLOW-VALIDATION.txt for the remediation (the
-# most likely being to move the whole stack forward to a still-built Python, keeping torch 2.0.1 if
-# conda-forge still carries it there, and otherwise escalating the framework bump to Andrew).
-python 3.8.*
+# Python 3.9 matches the NeuFlow v2 export environment ALREADY RECORDED in models/neuflow-v2.json
+# (export_environment.python == "3.9.6", framework pytorch==2.0.1, onnx==1.14.1, onnxruntime==1.16.3),
+# i.e. the exact interpreter the macOS-arm64 validation pass was produced under.  The pinned upstream
+# README documents python==3.8, but 3.8 reached upstream end-of-life (2024-10) and conda-forge has
+# stopped building new packages for it, so an EL8 solve of a py38 stack is unsatisfiable on
+# conda-forge and fails closed; 3.9 is both conda-forge-built and the model's own validated export
+# interpreter, so it re-exports on the framework the frozen validation.* thresholds were produced on.
+# torch 2.0.1 / numpy 1.24.4 / onnx 1.14.1 are unchanged (torch 2.0.1 predates conda-forge's py38
+# drop and is co-installable on py39); the SOLVE remains the proof they co-resolve for linux-64.
+python 3.9.*
 
 # CPU-only PyTorch/torchvision.  conda-forge encodes the CPU vs CUDA choice in the BUILD STRING
 # (there is no `cpuonly` package on conda-forge), so the build glob `=cpu*` requests the CPU
@@ -62,13 +65,14 @@ torchvision ==0.15.2=cpu*
 
 numpy ==1.24.4
 onnx ==1.14.1
-# onnxruntime here is the conda-forge CPU build (CPUExecutionProvider only); the CUDA provider is
-# irrelevant to a device-independent export/validation run.  1.16.3 matches
-# models/requirements-neuflow-export.txt and the macOS export environment already recorded in
-# models/neuflow-v2.json.  If conda-forge lacks exactly 1.16.3 for this Python, CI's solve fails
-# closed and names what it does have -- decide the nearest acceptable ORT then, in review, rather
-# than silently drifting.
-onnxruntime ==1.16.3
+# onnxruntime is deliberately NOT a conda spec here: conda-forge does not carry a satisfiable
+# onnxruntime ==1.16.3 for this stack, so an EL8 conda solve of it fails closed.  CI instead
+# pip-installs the exact CPU wheel (onnxruntime==1.16.3, CPUExecutionProvider only) into this env
+# AFTER the conda solve and BEFORE conda-pack and the runtime-license inventory, so it is packed into
+# the runtime and reported by licenses.py as a pip identity (pip://onnxruntime==1.16.3).  1.16.3
+# matches models/requirements-neuflow-export.txt and the macOS export environment already recorded in
+# models/neuflow-v2.json.  The CUDA provider is irrelevant to a device-independent export/validation
+# run.
 
 # NeuFlow's model construction imports ONLY torch and huggingface_hub, and export_neuflow_v2.py
 # stubs huggingface_hub with an inert PyTorchModelHubMixin BEFORE importing NeuFlow.neuflow (so no

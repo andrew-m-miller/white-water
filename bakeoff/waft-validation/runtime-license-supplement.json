@@ -1,5 +1,5 @@
 {
-  "_note": "Starts EMPTY on purpose. licenses.py fails closed and names any solved package that lacks embedded info/licenses evidence (or whose licence it cannot derive). The first waft-validation EL8 dispatch reports the exact packages+URLs to add here, each bound to its CI-solved conda build (see bakeoff/p25-6/runtime-license-supplement.json for the shape of a populated file). Do not guess entries before the solve.",
+  "_note": "Starts EMPTY on purpose. licenses.py fails closed and names any package that lacks embedded info/licenses evidence (or whose licence it cannot derive). This inventory now includes the pip-installed onnxruntime==1.29.0 CPU wheel (conda-forge does not carry 1.29.0), which appears as a pip identity (pip://onnxruntime==1.29.0); the first waft-validation EL8 dispatch reports the exact packages+URLs to add here -- conda packages bound to their CI-solved build, and the pip onnxruntime by its wheel -- see bakeoff/p25-6/runtime-license-supplement.json for the shape of a populated file. Do not guess entries before the solve.",
   "schema_id": "whitewater-p25-runtime-license-supplement-v1",
   "packages": []
 }

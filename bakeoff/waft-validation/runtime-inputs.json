@@ -2,15 +2,15 @@
   "schema_id": "whitewater-waft-validation-runtime-inputs-v1",
   "target": "el8-x86_64-glibc-2.28",
   "python": "3.11",
-  "purpose": "Offline WAFT/Twins export+validation runtime for models/export_waft.py. CPU-only and device-independent: unlike bakeoff/p25-6/runtime-inputs.json this runtime carries NO ONNX Runtime CUDA-12 archive and NO native ORT bridge -- onnxruntime is a conda-forge CPU package. It carries the pinned WAFT BSD-3-Clause source instead.",
+  "purpose": "Offline WAFT/Twins export+validation runtime for models/export_waft.py. CPU-only and device-independent: unlike bakeoff/p25-6/runtime-inputs.json this runtime carries NO ONNX Runtime CUDA-12 archive and NO native ORT bridge -- onnxruntime is the exact CPU wheel pip-installed at CI build (onnxruntime==1.29.0), because conda-forge does not carry 1.29.0. It carries the pinned WAFT BSD-3-Clause source instead.",
   "conda": {
     "installer_url": "https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh",
     "installer_sha256": "848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c",
     "requested_spec": "bakeoff/waft-validation/conda-el8-x86_64.lock",
-    "requested_spec_sha256": "6d9336c2f92d1cb3ad672c480b8091551c6ac114feeaf9ac2471dcb7e12546ad",
+    "requested_spec_sha256": "f8af0424c9aaba91824e0df36715ab2fb42331c1cab46a0478b25be0230b9fa6",
     "solved_lock": null,
     "solved_lock_sha256": null,
-    "note": "TWO-DIGEST scheme, kept as SEPARATE fields so neither overwrites the other. `requested_spec` is the AUTHORED conda match-spec (NOT @EXPLICIT) and `requested_spec_sha256` pins its exact bytes. `solved_lock`/`solved_lock_sha256` are the CI-SOLVED fully-pinned @EXPLICIT lock and its digest -- both null until the first (review) dispatch solves the requested spec on EL8 x86_64 and emits the pinned lock (conda list --explicit -> whitewater-waft-validation-runtime.inventory, also uploaded as the `waft-validation-runtime-explicit-lock` artifact). WORKFLOW: (1) first dispatch with solved_lock null solves the requested spec, emits the @EXPLICIT lock, and generates the runtime license inventory for Andrew Miller review; (2) after that inventory is approved, commit the emitted @EXPLICIT lock to bakeoff/waft-validation/conda-el8-x86_64.solved.lock and record its SHA256 in solved_lock_sha256 (and its repo path in solved_lock); (3) the qualifying dispatch then INSTALLS that exact @EXPLICIT lock verbatim (no re-solve, so an unpinned transitive re-solve -- e.g. einops -- cannot diverge from the approved inventory), packages, and emits the archive. solved_lock_sha256 must never equal requested_spec_sha256; if the requested spec is ever re-authored, update requested_spec_sha256 and re-run the review dispatch."
+    "note": "TWO-DIGEST scheme, kept as SEPARATE fields so neither overwrites the other. `requested_spec` is the AUTHORED conda match-spec (NOT @EXPLICIT) and `requested_spec_sha256` pins its exact bytes. `solved_lock`/`solved_lock_sha256` are the CI-SOLVED fully-pinned @EXPLICIT lock and its digest -- both null until the first (review) dispatch solves the requested spec on EL8 x86_64 and emits the pinned lock (conda list --explicit -> whitewater-waft-validation-runtime.inventory, also uploaded as the `waft-validation-runtime-explicit-lock` artifact). WORKFLOW: (1) first dispatch with solved_lock null solves the requested spec, emits the @EXPLICIT lock, and generates the runtime license inventory for Andrew Miller review; (2) after that inventory is approved, commit the emitted @EXPLICIT lock to bakeoff/waft-validation/conda-el8-x86_64.solved.lock and record its SHA256 in solved_lock_sha256 (and its repo path in solved_lock); (3) the qualifying dispatch then INSTALLS that exact @EXPLICIT lock verbatim (no re-solve, so an unpinned transitive re-solve -- e.g. einops -- cannot diverge from the approved inventory), packages, and emits the archive. solved_lock_sha256 must never equal requested_spec_sha256; if the requested spec is ever re-authored, update requested_spec_sha256 and re-run the review dispatch. ORT SOURCING: onnxruntime is NOT in the requested spec (conda-forge does not carry 1.29.0). CI pip-installs the exact CPU wheel onnxruntime==1.29.0 into the solved env AFTER the conda solve and BEFORE conda-pack and the runtime-license inventory, so it is packed into the runtime and reported by licenses.py as a pip identity (pip://onnxruntime==1.29.0) for the licence-supplement population step."
   },
   "export_dependencies": {
     "note": "The numeric export stack requested by the conda spec, mirroring models/requirements-searaft-export.txt so WAFT is validated on the same framework as the SEA-RAFT candidate. These are REQUESTED versions; the CI-solved @EXPLICIT lock is the reproducible identity.",
@@ -20,7 +20,7 @@
     "numpy": "1.26.4",
     "scipy": "1.12.0",
     "onnx": "1.15.0",
-    "onnxruntime": "1.29.0 (conda-forge CPU build; CPUExecutionProvider only)",
+    "onnxruntime": "1.29.0 (pip-installed CPU wheel at CI build, not conda-sourced; CPUExecutionProvider only)",
     "safetensors": "0.4.2",
     "timm": "0.9.16",
     "einops": "(unpinned; required by WAFT model code per the pinned commit's requirements.txt)",
