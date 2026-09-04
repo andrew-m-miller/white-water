@@ -778,21 +778,29 @@ def export_onnx(model: Any, manifest: Mapping[str, Any], output: Path, device: s
     except TechnicalBlocker:
         raise
     except Exception as exc:
-        import traceback
-
-        # Surface the underlying cause and a traceback tail: some exporter errors (e.g. onnxscript's
-        # SerdeError) stringify to opaque metadata and hide the real failure in their chained cause.
-        cause = exc.__cause__ or exc.__context__
+        # Walk the full __cause__/__context__ chain to the DEEPEST exception: onnxscript wraps the
+        # real serialize failure in nested SerdeErrors whose str() is a huge graph-metadata dump, so
+        # the outer message hides the root. Report the innermost error's type and a truncated message.
+        root = exc
+        seen = {id(exc)}
+        while True:
+            nxt = getattr(root, "__cause__", None) or getattr(root, "__context__", None)
+            if nxt is None or id(nxt) in seen:
+                break
+            seen.add(id(nxt))
+            root = nxt
+        root_message = str(root)
+        if len(root_message) > 600:
+            root_message = root_message[:600] + " …[truncated]"
         raise TechnicalBlocker(
             BlockerCode.ONNX_EXPORT,
             "onnx_export",
             "PyTorch could not export WAFT to a checked ONNX graph",
             {
                 "exception": type(exc).__name__,
-                "message": str(exc),
                 "exporter": exporter,
-                "cause": f"{type(cause).__name__}: {cause}" if cause is not None else None,
-                "traceback_tail": "".join(traceback.format_exc().splitlines(keepends=True)[-20:]),
+                "root_exception": type(root).__name__,
+                "root_message": root_message,
             },
         ) from exc
 
