@@ -105,6 +105,24 @@ def _test_provenance_invariants(manifest) -> None:
                 "dirty",
             )
 
+        # A git query that exits non-zero (e.g. the safe.directory "dubious ownership" guard on a
+        # checkout copied in from another user) must surface git's OWN stderr, not a bare exit code:
+        # on the airgapped box that message is the only pointer to the fix.
+        def _fake_git_dubious(command, **_kwargs):
+            raise exporter.subprocess.CalledProcessError(
+                128,
+                command,
+                stderr="fatal: detected dubious ownership in repository at '/x'\n"
+                "        git config --global --add safe.directory /x\n",
+            )
+
+        with patch.object(exporter.subprocess, "run", side_effect=_fake_git_dubious):
+            _expect_error(
+                lambda: exporter.verify_provenance(manifest, upstream, checkpoint_target),
+                RuntimeError,
+                "safe.directory",
+            )
+
 
 def _test_numerically_validated_failure_is_immutable(manifest) -> None:
     if (

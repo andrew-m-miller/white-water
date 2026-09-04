@@ -125,11 +125,16 @@ def _git_head(upstream: Path) -> str:
             text=True,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
+        # Surface git's own stderr: on the airgapped box it is the only diagnostic channel, and its
+        # "detected dubious ownership ... add safe.directory" guard (a checkout copied in from
+        # another user) names the exact fix. A bare exit-128 does not.
+        detail = (getattr(exc, "stderr", "") or "").strip()
         raise TechnicalBlocker(
             BlockerCode.MISSING_INPUT,
             "provenance",
-            f"could not read the pinned upstream checkout: {upstream}",
-            {"command": ["git", "-C", str(upstream), "rev-parse", "HEAD"]},
+            f"could not read the pinned upstream checkout: {upstream}"
+            + (f"; git said: {detail}" if detail else ""),
+            {"command": ["git", "-C", str(upstream), "rev-parse", "HEAD"], "git_stderr": detail},
         ) from exc
     return result.stdout.strip()
 
@@ -145,10 +150,12 @@ def _require_clean_worktree(upstream: Path) -> None:
             text=True,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
+        detail = (getattr(exc, "stderr", "") or "").strip()
         raise TechnicalBlocker(
             BlockerCode.MISSING_INPUT,
             "provenance",
-            f"could not inspect the upstream worktree: {upstream}",
+            f"could not inspect the upstream worktree: {upstream}"
+            + (f"; git said: {detail}" if detail else ""),
         ) from exc
     dirty = result.stdout.strip()
     require(
