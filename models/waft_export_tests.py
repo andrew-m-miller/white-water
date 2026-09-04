@@ -134,6 +134,24 @@ def main() -> int:
         assert failed["validation"]["status"] == "pending"
         assert failed["validation"]["observed"]["technical_blocker"]["code"] == BlockerCode.DEPENDENCY
 
+    # An ONNX Runtime inference failure (e.g. the dynamic-shape broadcast mismatch) is now a typed
+    # blocker, so --record-failure can capture it instead of the run dying on a raw traceback.
+    with tempfile.TemporaryDirectory(prefix="whitewater-waft-export-tests-ort-") as temporary:
+        manifest_path = Path(temporary) / "manifest.json"
+        shutil.copy2(MANIFEST, manifest_path)
+        ort_blocker = TechnicalBlocker(
+            BlockerCode.ONNX_RUNTIME,
+            "CPUExecutionProvider_runtime_validation",
+            "ONNX Runtime raised while running the exported graph",
+            {"exception": "RuntimeException", "input_shape": [1, 3, 160, 256]},
+        )
+        assert record_failure(manifest_path, copy.deepcopy(manifest), ort_blocker) is True
+        recorded = load_manifest(manifest_path)
+        assert recorded["validation"]["status"] == "pending"
+        tb = recorded["validation"]["observed"]["technical_blocker"]
+        assert tb["code"] == BlockerCode.ONNX_RUNTIME
+        assert tb["stage"] == "CPUExecutionProvider_runtime_validation"
+
     print("WAFT export gates and failure-safe manifest tests: PASS")
     return 0
 

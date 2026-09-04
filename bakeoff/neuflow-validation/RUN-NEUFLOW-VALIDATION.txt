@@ -12,9 +12,14 @@ validation.status="passed"); its export is FIXED-shape 1x3x432x768 with no dynam
 This run produces the linux ONNX artifact and re-qualifies it against the same frozen thresholds.
 
 The export is device-independent and runs on CPU.  This package deliberately does NOT carry the
-ONNX Runtime CUDA-12 archive or the White Water native ORT bridge; onnxruntime is the conda-forge
-CPU build and only CPUExecutionProvider is available in this runtime.  (If you have run RUN-P25-6.txt
-or RUN-WAFT-VALIDATION.txt: those are different runtimes with different purposes.)
+ONNX Runtime CUDA-12 archive or the White Water native ORT bridge, and only CPUExecutionProvider is
+available in this runtime.  The conda spec is a MINIMAL BASE (python 3.9 + conda-pack + setuptools);
+the WHOLE ML export stack (torch 2.0.1 / torchvision 0.15.2 from the PyTorch CPU wheel index, and
+numpy 1.24.4 / onnx 1.14.1 / onnxruntime 1.16.3 from PyPI) is pip-installed into the env at CI
+build, because conda-forge cannot provide the pinned CPU builds.  This mirrors the PROVEN SEA-RAFT
+export pattern (models/requirements-searaft-export.txt) and the exact versions in
+models/requirements-neuflow-export.txt.  (If you have run RUN-P25-6.txt or RUN-WAFT-VALIDATION.txt:
+those are different runtimes with different purposes.)
 
 No production images and no checkpoint leave the machine.  The operator returns only:
 
@@ -176,7 +181,7 @@ failure_type note) WITHOUT publishing any ONNX hash.  The failure stages you are
                                            exported.
   * model_load                          -- the checkpoint did not load strictly into the pinned
                                            NeuFlow architecture (a framework/stack mismatch: this is
-                                           the python-3.8/torch-2.0.1 RISK below), or a missing import
+                                           the python-3.9/torch-2.0.1 RISK below), or a missing import
                                            (torch/onnx/onnxruntime).
   * onnx_export                         -- the graph could not be exported/checked at the fixed shape.
   * CPUExecutionProvider_runtime_validation -- the graph exported but missed a frozen numerical
@@ -190,20 +195,27 @@ repository.
 Version-pin risks (READ BEFORE RUNNING)
 ---------------------------------------
 
-* Python 3.8 + torch 2.0.1 is the single biggest risk.  Python 3.8 is end-of-life and conda-forge no
-  longer builds new packages for it; the exact CPU stack (torch 2.0.1 / numpy 1.24.4 / onnx 1.14.1 /
-  onnxruntime 1.16.3) co-solving on conda-forge linux-64 is proven only by CI's EL8 solve, never on
-  the dev host.  If the qualifying dispatch fails to solve, see
-  bakeoff/neuflow-validation/runtime-inputs.json (python38_torch201_risk) for the remediation: raise
-  only Python to the lowest conda-forge-built version that still carries torch 2.0.1, re-solve, and
-  re-run the weightless NeuFlow construction smoke; escalate a framework bump to Andrew rather than
-  drifting the numeric stack the manifest thresholds were frozen against.
+* Python 3.9 + torch 2.0.1 is the single biggest risk.  The pinned upstream README targets python
+  3.8, but 3.8 is end-of-life and conda-forge no longer builds new packages for it, so this runtime
+  pins python 3.9 -- which is conda-forge-built AND the NeuFlow v2 validated export interpreter
+  recorded in models/neuflow-v2.json (export_environment.python 3.9.6).  The conda base carries only
+  python 3.9 + conda-pack + setuptools; the ML stack (torch 2.0.1 / torchvision 0.15.2 / numpy 1.24.4
+  / onnx 1.14.1 / onnxruntime 1.16.3) is pip-installed at CI build -- torch/torchvision from the
+  PyTorch CPU wheel index, the rest from PyPI -- so the risk is that those py39 linux-64 pip wheels
+  install and co-import, proven by CI's EL8 build, never on the dev host.  If the qualifying dispatch
+  fails, see bakeoff/neuflow-validation/runtime-inputs.json (python38_torch201_risk) for the
+  remediation: raise only Python to the lowest conda-forge-built version whose pip torch 2.0.1 wheel
+  exists (raising `python 3.9.*` in conda-el8-x86_64.lock, recomputing its SHA256, and updating both
+  runtime-inputs.json conda.explicit_lock_sha256 and ci.yml NEUFLOW_CONDA_LOCK_SHA256), re-run the
+  weightless NeuFlow construction smoke, and escalate a framework bump to Andrew rather than drifting
+  the numeric stack the manifest thresholds were frozen against.
 * NeuFlow's model construction imports only torch and huggingface_hub, and export_neuflow_v2.py stubs
   huggingface_hub with an inert mixin BEFORE importing NeuFlow.neuflow, so no hub/network import
   happens and huggingface_hub is intentionally NOT in the runtime.  There is no einops/timm/scipy/
   safetensors dependency (verified against every NeuFlow/*.py module).  The CI weightless NeuFlow
   construction smoke is the gate for any OTHER missing transitive import: if it names one, add that
-  package to bakeoff/neuflow-validation/conda-el8-x86_64.lock and re-dispatch.
+  package to the ci.yml neuflow-validation pip block (or, if it is a conda base leaf, to
+  bakeoff/neuflow-validation/conda-el8-x86_64.lock) and re-dispatch.
 * NeuFlow_v2 has no git submodules at the pinned commit (unlike WAFT's non-commercial thirdparty/
   dinov3), so there is no submodule-licence exclusion to make.  The licence exposure here is the
   in-repo checkpoint, which is why no upstream tree is carried.
@@ -212,8 +224,11 @@ Legal record
 ------------
 
 The runtime aggregates are `legal/RUNTIME-LICENSES.txt` and `legal/RUNTIME-NOTICES.txt`, covering
-the conda runtime (python, PyTorch CPU, torchvision, numpy, onnx, onnxruntime CPU, conda-pack,
-setuptools and their transitive natives).  A separate Andrew Miller runtime legal-review JSON (schema
+the runtime (python, conda-pack and setuptools from the conda base, plus the pip-installed ML stack
+-- PyTorch CPU, torchvision, numpy, onnx and onnxruntime -- each reported as a pip identity,
+INCLUDING the third-party libraries the pip torch wheel bundles).  Note this pip-sourced stack makes
+the runtime licence surface SUBSTANTIALLY LARGER than a conda-only solve.  A separate Andrew Miller
+runtime legal-review JSON (schema
 `whitewater-p25-runtime-legal-review-v1`, reviewer `Andrew Miller`, `reviewed: true`) approving the
 exact generated runtime inventory hash is required before CI packages anything; the carried
 `legal/runtime-legal-review.json` is that approval.  The NeuFlow v2 source is Apache-2.0 but is NOT

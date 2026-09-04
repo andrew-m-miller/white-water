@@ -38,6 +38,7 @@ from pathlib import Path
 import re
 import stat
 import sys
+from types import SimpleNamespace
 from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import urlsplit
 
@@ -56,6 +57,90 @@ EXPECTED_MODE = 0o644
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 _UNKNOWN_LICENSES = frozenset({"", "unknown", "other", "n/a", "na", "none"})
+# Conservative map from common non-SPDX licence spellings to their SPDX identifier. Only
+# UNAMBIGUOUS spellings are listed: version-less family spellings are deliberately ABSENT and left
+# exactly as the distribution declared them rather than guessed. A bare "BSD License" (2- vs
+# 3-clause) and a bare "Apache Software License" (which trove uses for every Apache version) are
+# both such families -- PEP 639 forbids inferring an SPDX identifier from them
+# (https://peps.python.org/pep-0639/appendix-mapping-classifiers/), so they are preserved verbatim.
+# Keys are casefolded.
+_LICENSE_ALIASES = {
+    "mit": "MIT",
+    "mit license": "MIT",
+    "apache 2.0": "Apache-2.0",
+    "apache-2.0": "Apache-2.0",
+    "apache license 2.0": "Apache-2.0",
+    "bsd-3-clause": "BSD-3-Clause",
+    "bsd 3-clause": "BSD-3-Clause",
+    "bsd-3": "BSD-3-Clause",
+    "3-clause bsd license": "BSD-3-Clause",
+    "new bsd license": "BSD-3-Clause",
+    "bsd-2-clause": "BSD-2-Clause",
+    "apache license v2.0": "Apache-2.0",
+    "python-2.0": "Python-2.0",
+    # SPDX distinguishes the Python License 2.0 (Python-2.0) from the Python Software Foundation
+    # License 2.0 (PSF-2.0); the PSF spellings must resolve to PSF-2.0, not Python-2.0.
+    "psf-2.0": "PSF-2.0",
+    "python software foundation license": "PSF-2.0",
+    "mozilla public license 2.0 (mpl 2.0)": "MPL-2.0",
+    "mpl-2.0": "MPL-2.0",
+    "the unlicense (unlicense)": "Unlicense",
+    "isc license (iscl)": "ISC",
+}
+# Bare trove hierarchy parents that name no licence of their own; ignored when reading classifiers.
+_LICENSE_CLASSIFIER_PARENTS = frozenset({"OSI Approved", "DFSG approved", "Approved"})
+
+
+def _looks_like_license_identifier(value: str) -> bool:
+    """A short single-line token is an identifier; a multi-line or long value is licence TEXT.
+
+    Some wheels (e.g. numpy) dump the full licence text into the free-text ``License`` field.
+    That is not a usable identifier, so it is ignored in favour of the ``License ::`` classifier.
+    """
+
+    return bool(value) and "\n" not in value and len(value) <= 64
+
+
+def _normalize_license_token(value: str) -> str:
+    """Reduce a declared licence label to a tidy identifier without inventing terms.
+
+    Strips a trove-classifier prefix (``License :: OSI Approved :: X`` -> ``X``) and maps only
+    unambiguous non-SPDX spellings to their SPDX id; anything else is returned unchanged.
+    """
+
+    token = value.strip()
+    if "::" in token:
+        token = token.split("::")[-1].strip()
+    return _LICENSE_ALIASES.get(token.casefold(), token)
+
+
+def _license_from_classifiers(message: Any) -> str:
+    """Derive a licence label from ``License ::`` trove classifiers, PEP 639-safely.
+
+    PEP 639 forbids inferring a licence expression when several unrelated licence classifiers are
+    present, because their relationship (choice vs. conjunction) is undefined
+    (https://peps.python.org/pep-0639/appendix-mapping-classifiers/). So this returns a single
+    classifier's own leaf verbatim -- which ``_normalize_license_token`` maps only when the spelling
+    is unambiguous, and otherwise (e.g. a bare "Apache Software License") leaves untouched -- and
+    refuses, by returning ``""``, when the classifiers disagree. The empty string then fails closed
+    at the caller's "no usable licence identifier" guard rather than silently naming one term.
+    """
+
+    chosen: dict[str, str] = {}
+    for item in message.get_all("Classifier", []):
+        if not (isinstance(item, str) and item.startswith("License ::") and "::" in item):
+            continue
+        leaf = item.split("::")[-1].strip()
+        if not leaf or leaf in _LICENSE_CLASSIFIER_PARENTS:
+            continue
+        # Collapse classifiers that normalise to the same identifier (e.g. "MIT" and "MIT License");
+        # keep distinct ones apart so a genuine disagreement is caught below.
+        chosen.setdefault(_normalize_license_token(leaf).casefold(), leaf)
+    if len(chosen) == 1:
+        return next(iter(chosen.values()))
+    return ""
+
+
 _RUNTIME_CONTENT_EXCLUDED_ROOTS = ("conda-meta",)
 _RUNTIME_CONTENT_EXCLUDED_DIRECTORIES = ("__pycache__",)
 _RUNTIME_CONTENT_EXCLUDED_SUFFIXES = (".pyc",)
@@ -159,11 +244,13 @@ def _load_json(path: Path, label: str) -> Any:
 
 def _require_regular(path: Path, label: str, mode: int = EXPECTED_MODE, *, require_mode: bool = True) -> None:
     # ``require_mode=False`` keeps the regular-file and symlink-rejection guards but skips the
-    # permission-bits check. It is used ONLY for upstream conda package-cache license evidence
-    # (info/licenses/*), whose file mode conda-forge controls, not us. Integrity for those files
-    # is the content and its recorded SHA256, both still enforced by _read_evidence. Every file we
-    # own or carry (aggregated RUNTIME-LICENSES/NOTICES, supplement/component evidence, the explicit
-    # lock, python-dist metadata, reviews, the inventory) keeps the default 0644 requirement.
+    # permission-bits check. It is used for upstream files whose mode we do not control -- conda
+    # package-cache license evidence (info/licenses/*, mode set by conda-forge) and pip dist-info
+    # METADATA (mode set by the wheel/pip; e.g. protobuf ships it 0755). Integrity for those files
+    # is the content and its recorded SHA256, still enforced (by _read_evidence, or by the
+    # metadata_sha256 binding for dist metadata). Every file we own or carry (aggregated
+    # RUNTIME-LICENSES/NOTICES, supplement/component/harvested evidence, the explicit lock, reviews,
+    # the inventory) keeps the default 0644 requirement.
     try:
         info = path.lstat()
     except OSError as exc:
@@ -499,9 +586,19 @@ def _pip_metadata_packages(prefix: Path, conda_records: Sequence[RuntimePackage]
     # ``conda_records`` is already validated; use its normalized name/version identity for the
     # normal path so a conda-provided dist-info is not counted twice.
     conda_identities = {(_pip_name(item.name), item.version) for item in conda_records}
-    site_roots = sorted(prefix.glob("lib/python*/site-packages"), key=lambda item: str(item))
+    # A conda env may expose the same site-packages under more than one path (e.g. a
+    # ``lib/python3.1 -> python3.12`` compatibility symlink), so collapse the roots by their real
+    # path before scanning to avoid counting every distribution twice.
+    site_roots: list[Path] = []
+    seen_roots: set[str] = set()
+    for candidate in sorted(prefix.glob("lib/python*/site-packages"), key=lambda item: str(item)):
+        real = os.path.realpath(candidate)
+        if real in seen_roots:
+            continue
+        seen_roots.add(real)
+        site_roots.append(candidate)
     records: list[RuntimePackage] = []
-    seen: set[str] = set()
+    seen: dict[str, str] = {}
     for site_root in site_roots:
         _require_directory(site_root, "runtime Python site-packages directory")
         candidates = sorted(
@@ -511,7 +608,11 @@ def _pip_metadata_packages(prefix: Path, conda_records: Sequence[RuntimePackage]
         for distribution_dir in candidates:
             _require_directory(distribution_dir, "runtime Python distribution metadata directory")
             metadata_path = distribution_dir / ("METADATA" if distribution_dir.name.endswith(".dist-info") else "PKG-INFO")
-            _require_regular(metadata_path, "runtime Python distribution metadata")
+            # The dist-info METADATA mode is set by the wheel/pip, not by us (e.g. protobuf ships
+            # its METADATA 0755), so it is not our integrity property. The distribution is bound by
+            # this file's content SHA256 (metadata_sha256) below; read it mode-agnostically, keeping
+            # the regular-file and symlink guards, exactly like upstream conda cache licence files.
+            _require_regular(metadata_path, "runtime Python distribution metadata", require_mode=False)
             try:
                 metadata_bytes = metadata_path.read_bytes()
                 message = Parser().parsestr(metadata_bytes.decode("utf-8"))
@@ -527,19 +628,38 @@ def _pip_metadata_packages(prefix: Path, conda_records: Sequence[RuntimePackage]
                 # conda; do not count its dist-info as an unbound second package.
                 continue
             identity = f"pip:{identity_name}=={version}"
+            metadata_sha256 = hashlib.sha256(metadata_bytes).hexdigest()
             if identity in seen:
+                # The same distribution reached through two paths (e.g. a duplicated or symlinked
+                # tree not collapsed by realpath) is the same package; tolerate an identical
+                # dist-info and reject only a genuine conflicting second install.
+                if seen[identity] == metadata_sha256:
+                    continue
                 raise LicenseInputError(f"duplicate runtime Python distribution: {identity}")
-            seen.add(identity)
-            license_id = (message.get("License") or "").strip()
-            if license_id.casefold() in _UNKNOWN_LICENSES:
-                classifiers = message.get_all("Classifier", [])
-                license_classifiers = [
-                    item.split("::", 1)[1].strip()
-                    for item in classifiers
-                    if isinstance(item, str) and item.startswith("License ::") and "::" in item
-                ]
-                if license_classifiers:
-                    license_id = license_classifiers[-1]
+            seen[identity] = metadata_sha256
+            # PEP 639 `License-Expression` is the modern canonical SPDX field and takes precedence
+            # over the deprecated free-text `License` field and the `License ::` trove classifiers.
+            # Reading it is not inference: it is the distribution's own declared SPDX identifier, so
+            # it is recorded VERBATIM and never run through the alias table (which would, e.g.,
+            # rewrite the distinct `PSF-2.0` to `Python-2.0`).  Newer wheels (e.g. packaging>=24,
+            # anyio>=4, typing_extensions) carry only this field, so without it the whole pip stack
+            # fails closed.
+            license_expression = (message.get("License-Expression") or "").strip()
+            if license_expression.casefold() not in _UNKNOWN_LICENSES:
+                license_id = license_expression
+            else:
+                # Free-text `License` is used only when it is a short identifier, not when a wheel
+                # dumps its full licence text there (e.g. numpy).  Failing that, fall back to the
+                # `License ::` classifiers via _license_from_classifiers, which is PEP 639-safe:
+                # it preserves a single classifier's own (possibly ambiguous, e.g. "Apache Software
+                # License") leaf verbatim and refuses to pick among disagreeing classifiers.  The
+                # result is tidied by _normalize_license_token, which maps only unambiguous non-SPDX
+                # spellings and never guesses a version-less family.
+                license_field = (message.get("License") or "").strip()
+                candidate = license_field if _looks_like_license_identifier(license_field) else ""
+                if candidate.casefold() in _UNKNOWN_LICENSES:
+                    candidate = _license_from_classifiers(message)
+                license_id = _normalize_license_token(candidate)
             if license_id.casefold() in _UNKNOWN_LICENSES:
                 raise LicenseInputError(
                     f"runtime Python distribution {identity} has no usable licence identifier; "
@@ -556,12 +676,92 @@ def _pip_metadata_packages(prefix: Path, conda_records: Sequence[RuntimePackage]
                     license_id=license_id,
                     license_family=None,
                     metadata_path=metadata_path,
-                    metadata_sha256=hashlib.sha256(metadata_bytes).hexdigest(),
+                    metadata_sha256=metadata_sha256,
                     license=(),
                     notice=(),
                 )
             )
     return sorted(records, key=lambda item: item.canonical_url)
+
+
+_PIP_LICENSE_NAME = re.compile(r"^(?:license|licence|copying|copyright)", re.IGNORECASE)
+_PIP_NOTICE_NAME = re.compile(r"^(?:notice|authors)", re.IGNORECASE)
+
+
+def _harvest_pip_license_files(
+    dist_info: Path, message: Any
+) -> tuple[list[Path], list[Path]]:
+    """Collect a wheel's own bundled licence and notice files from its dist-info.
+
+    PEP 639 wheels record ``License-File`` headers whose files are installed under
+    ``<dist-info>/licenses/``; older wheels drop ``LICENSE``/``COPYING`` at the dist-info
+    root.  Nothing is fetched or inferred: only files the wheel actually ships are read, and
+    each must be a non-symlink, non-empty, UTF-8 regular file to be admitted.  A distribution
+    that bundles nothing returns empty lists and is handled by the caller (supplement or fail
+    closed).
+    """
+
+    def _usable(path: Path) -> bool:
+        try:
+            info = path.lstat()
+        except OSError:
+            return False
+        if not stat.S_ISREG(info.st_mode) or info.st_size == 0:
+            return False
+        try:
+            content = path.read_bytes()
+        except OSError:
+            return False
+        if not content:
+            return False
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+        return "\x00" not in text
+
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+
+    def _add(path: Path) -> None:
+        resolved = Path(os.path.abspath(path))
+        if resolved in seen:
+            return
+        if _usable(path):
+            seen.add(resolved)
+            candidates.append(path)
+
+    for raw in message.get_all("License-File", []) or []:
+        if not isinstance(raw, str):
+            continue
+        rel = raw.strip()
+        if not rel:
+            continue
+        relative = Path(rel)
+        if relative.is_absolute() or any(part in {"", "..", "."} for part in relative.parts):
+            continue
+        _add(dist_info / "licenses" / relative)
+        _add(dist_info / relative)
+
+    if not candidates:
+        licenses_dir = dist_info / "licenses"
+        if licenses_dir.is_dir():
+            for item in sorted(licenses_dir.rglob("*"), key=lambda p: p.as_posix()):
+                _add(item)
+
+    if not candidates:
+        for item in sorted(dist_info.iterdir(), key=lambda p: p.name):
+            if _PIP_LICENSE_NAME.match(item.name) or _PIP_NOTICE_NAME.match(item.name):
+                _add(item)
+
+    license_files: list[Path] = []
+    notice_files: list[Path] = []
+    for path in candidates:
+        if _PIP_NOTICE_NAME.match(path.name):
+            notice_files.append(path)
+        else:
+            license_files.append(path)
+    return license_files, notice_files
 
 
 def _parse_evidence_declarations(
@@ -1188,8 +1388,10 @@ def generate_runtime_input(
                 raise LicenseInputError(f"{label} must be an object")
             _require_exact_keys(raw, {"package_url", "license_files", "notice_files"}, label)
             source, identity, display = _canonical_runtime_identity(raw["package_url"], f"{label}.package_url")
-            if source != "conda":
-                raise LicenseInputError(f"{label}.package_url must be an HTTPS conda package URL")
+            if source not in ("conda", "pip"):
+                raise LicenseInputError(
+                    f"{label}.package_url must be a conda package URL or pip://name==version"
+                )
             if identity in supplements:
                 raise LicenseInputError(f"duplicate runtime license supplement package: {display}")
             supplements[identity] = {
@@ -1248,11 +1450,82 @@ def generate_runtime_input(
                 "notice_files": [],
             }
         )
+    # Harvest each installed pip distribution's own bundled licence/notice evidence.  conda-pack
+    # ships the full export environment, so every wheel (torch, numpy, onnxruntime, ...) is part of
+    # the runtime and must appear in the inventory with its own declared terms.  Evidence is copied
+    # verbatim from the wheel's dist-info into a staging tree beside the generated input so that
+    # collect_runtime reads exactly these bytes; a wheel bundling no licence file falls back to a
+    # pip:// supplement entry and otherwise fails closed by name.
+    conda_shims = [
+        SimpleNamespace(name=raw["name"], version=raw["version"]) for raw, _p, _i, _u in metadata
+    ]
+    pip_records = _pip_metadata_packages(prefix_path, conda_shims)
+    pip_evidence_root = Path(output_path).parent / "pip-license-evidence"
+    input_base = Path(os.path.abspath(Path(output_path).parent))
+    missing_pip_evidence: list[str] = []
+    for record in pip_records:
+        dist_info = record.metadata_path.parent
+        message = Parser().parsestr(record.metadata_path.read_bytes().decode("utf-8"))
+        license_srcs, notice_srcs = _harvest_pip_license_files(dist_info, message)
+        supplement = supplements.get(record.canonical_url)
+        if not license_srcs and supplement is None:
+            # Report every wheel that bundles no licence file in one pass so the whole set can be
+            # added to the pip supplement at once rather than one CI cycle per package.
+            missing_pip_evidence.append(f"pip://{_pip_name(record.name)}=={record.version}")
+            continue
+        if not license_srcs and supplement is not None:
+            used_supplements.add(record.canonical_url)
+            lic = _runtime_evidence(
+                supplement["license"], supplement["base"], f"pip supplement {record.name} license"
+            )
+            noti = _runtime_evidence(
+                supplement["notice"], supplement["base"], f"pip supplement {record.name} notice"
+            )
+            license_files = [{"path": str(item.path), "sha256": item.sha256} for item in lic]
+            notice_files = [{"path": str(item.path), "sha256": item.sha256} for item in noti]
+        elif license_srcs:
+            safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{_pip_name(record.name)}-{record.version}")
+            dest_dir = pip_evidence_root / safe
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            license_files = []
+            notice_files = []
+            for kind, srcs, target in (
+                ("license", license_srcs, license_files),
+                ("notice", notice_srcs, notice_files),
+            ):
+                for src in srcs:
+                    content = src.read_bytes()
+                    dest = dest_dir / f"{kind}-{src.name}"
+                    collision = 1
+                    while dest.exists():
+                        dest = dest_dir / f"{kind}-{collision}-{src.name}"
+                        collision += 1
+                    dest.write_bytes(content)
+                    dest.chmod(0o644)
+                    target.append(
+                        {
+                            "path": Path(os.path.abspath(dest)).relative_to(input_base).as_posix(),
+                            "sha256": hashlib.sha256(content).hexdigest(),
+                        }
+                    )
+        packages.append(
+            {
+                "package_url": record.package_url,
+                "metadata_sha256": record.metadata_sha256,
+                "license_files": license_files,
+                "notice_files": notice_files,
+            }
+        )
+    if missing_pip_evidence:
+        raise LicenseInputError(
+            "pip runtime distributions bundle no licence file; declare each in the runtime licence "
+            "supplement as pip://name==version: " + ", ".join(sorted(missing_pip_evidence))
+        )
     unused_supplements = sorted(set(supplements) - used_supplements)
     if unused_supplements:
         raise LicenseInputError(
-            "runtime license supplement contains packages with cache license evidence: "
-            + ", ".join(unused_supplements)
+            "runtime license supplement contains unused packages (cache or wheel already carries "
+            "licence evidence): " + ", ".join(unused_supplements)
         )
     components: list[Any] = []
     technical_components: list[Any] = []

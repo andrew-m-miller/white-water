@@ -69,6 +69,30 @@ def require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def _run_git(upstream: Path, args: list[str], action: str) -> str:
+    """Run a git query against the operator's checkout, surfacing git's own message on failure.
+
+    On the airgapped box stderr (captured to Flame's log) is the only diagnostic channel, so a bare
+    ``returned non-zero exit status 128`` is useless. git's stderr must reach the operator -- most
+    often its "detected dubious ownership ... add safe.directory" guard, the usual symptom of a
+    checkout cloned as one user and copied onto the box as another; git's message names the exact
+    ``git config --global --add safe.directory <path>`` fix.
+    """
+
+    command = ["git", "-C", str(upstream), *args]
+    try:
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+    except FileNotFoundError as exc:  # git absent from the wrapper's runtime/bin:/usr/bin:/bin PATH
+        raise RuntimeError(f"git is required to {action} but was not found on PATH") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        raise RuntimeError(
+            f"could not {action} for {upstream}: git exited {exc.returncode}"
+            + (f"; git said: {detail}" if detail else "")
+        ) from exc
+    return result.stdout.strip()
+
+
 def _checkpoint_terms_unknown(manifest: dict[str, Any]) -> bool:
     checkpoint_license = manifest["licenses"]["checkpoint"]
     return any(
@@ -81,30 +105,17 @@ def verify_provenance(manifest: dict[str, Any], upstream: Path, checkpoint: Path
     """Refuse to import model code until source and checkpoint identity is exact."""
 
     require((upstream / ".git").exists(), f"not a git checkout: {upstream}")
-    actual_commit = subprocess.run(
-        ["git", "-C", str(upstream), "rev-parse", "HEAD"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    actual_commit = _run_git(upstream, ["rev-parse", "HEAD"], "read the checkout's HEAD commit")
     expected_commit = manifest["upstream"]["commit"]
     require(
         actual_commit == expected_commit,
         f"NeuFlow v2 checkout is {actual_commit}, expected {expected_commit}",
     )
-    status = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(upstream),
-            "status",
-            "--porcelain=v1",
-            "--untracked-files=all",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    status = _run_git(
+        upstream,
+        ["status", "--porcelain=v1", "--untracked-files=all"],
+        "inspect the checkout for local edits",
+    )
     require(
         not status,
         "NeuFlow v2 checkout is dirty; refusing to export uncommitted source: "

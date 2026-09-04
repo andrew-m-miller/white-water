@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import stat
@@ -551,6 +552,180 @@ class LicenseInputTests(unittest.TestCase):
             license_file.chmod(0o644)
             license_paths[package_name] = license_file
         return license_paths
+
+    def test_generate_harvests_pip_distribution_license_evidence(self) -> None:
+        # conda-pack ships the full export env, so every installed wheel must land in the
+        # inventory. generate-runtime-input harvests each wheel's own bundled licence (PEP 639
+        # License-File under dist-info/licenses/, keyed off the modern License-Expression field),
+        # and a wheel that bundles nothing falls back to a pip:// supplement entry.
+        prefix, lock, _runtime_input, lock_sha = self._runtime_fixture()
+        cache = self.root / "conda-pkgs"
+        self._build_package_cache(prefix, cache)
+        site = prefix / "lib" / "python3.11" / "site-packages"
+
+        harvested = site / "torchy-2.7.0.dist-info"
+        (harvested / "licenses").mkdir(parents=True)
+        (harvested / "METADATA").write_text(
+            "Metadata-Version: 2.4\nName: torchy\nVersion: 2.7.0\n"
+            "License-Expression: BSD-3-Clause\nLicense-File: LICENSE\n\n",
+            encoding="utf-8",
+        )
+        # Wheels/pip control the METADATA mode (protobuf ships it 0755); it is bound by content
+        # SHA, so a non-0644 dist metadata file must be tolerated.
+        (harvested / "METADATA").chmod(0o755)
+        (harvested / "licenses" / "LICENSE").write_text(
+            "torchy BSD-3-Clause bundled text\n", encoding="utf-8"
+        )
+        (harvested / "licenses" / "LICENSE").chmod(0o644)
+
+        bundleless = site / "barepkg-1.0.dist-info"
+        bundleless.mkdir(parents=True)
+        (bundleless / "METADATA").write_text(
+            "Metadata-Version: 2.4\nName: barepkg\nVersion: 1.0\nLicense-Expression: MIT\n\n",
+            encoding="utf-8",
+        )
+        (bundleless / "METADATA").chmod(0o644)
+        supp_license = self.root / "barepkg-LICENSE.txt"
+        supp_license.write_text("barepkg MIT supplement evidence\n", encoding="utf-8")
+        supp_license.chmod(0o644)
+        supplement = self.root / "pip-supplement.json"
+        self._write_json(
+            supplement,
+            {
+                "schema_id": "whitewater-p25-runtime-license-supplement-v1",
+                "packages": [
+                    {
+                        "package_url": "pip://barepkg==1.0",
+                        "license_files": [
+                            {"path": supp_license.name, "sha256": self._sha(supp_license)}
+                        ],
+                        "notice_files": [],
+                    }
+                ],
+            },
+        )
+
+        # A compatibility symlink exposing the same site-packages under a second path must not
+        # double-count every distribution (conda envs sometimes carry `lib/python3.1 -> python3.11`).
+        os.symlink("python3.11", prefix / "lib" / "python3.1")
+
+        generated = self.root / "gen" / "runtime-pip-input.json"
+        result = generate_runtime_input(
+            prefix, lock, cache, generated, lock_sha, supplement_path=supplement
+        )
+        self.assertEqual(result["package_count"], 4)  # 2 conda + 2 pip, symlinked root collapsed
+        generated_value = json.loads(generated.read_text(encoding="utf-8"))
+        torchy = next(
+            item for item in generated_value["packages"] if item["package_url"] == "pip://torchy==2.7.0"
+        )
+        self.assertIn("metadata_sha256", torchy)
+        self.assertTrue(torchy["license_files"][0]["path"].startswith("pip-license-evidence/"))
+
+        collect_runtime(prefix, lock, generated, self.root / "pip-harvest-out", lock_sha)
+        inventory = json.loads(
+            (self.root / "pip-harvest-out/runtime-license-inventory.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(inventory["package_count"], 4)
+        pip_ids = {
+            item["package_url"]
+            for item in inventory["packages"]
+            if item["package_url"].startswith("pip://")
+        }
+        self.assertEqual(pip_ids, {"pip://torchy==2.7.0", "pip://barepkg==1.0"})
+        aggregated = (self.root / "pip-harvest-out/LICENSES.txt").read_bytes()
+        self.assertIn(b"torchy BSD-3-Clause bundled text", aggregated)
+        self.assertIn(b"barepkg MIT supplement evidence", aggregated)
+
+        # A wheel that bundles no licence and has no supplement entry fails closed by name.
+        (site / "orphan-9.9.dist-info").mkdir(parents=True)
+        (site / "orphan-9.9.dist-info" / "METADATA").write_text(
+            "Metadata-Version: 2.4\nName: orphan\nVersion: 9.9\nLicense-Expression: MIT\n\n",
+            encoding="utf-8",
+        )
+        (site / "orphan-9.9.dist-info" / "METADATA").chmod(0o644)
+        with self.assertRaisesRegex(LicenseInputError, "no licence file"):
+            generate_runtime_input(
+                prefix, lock, cache, self.root / "gen-orphan" / "input.json", lock_sha,
+                supplement_path=supplement,
+            )
+
+    def test_pip_license_identifier_is_tidied_without_guessing(self) -> None:
+        prefix, lock, _runtime_input, lock_sha = self._runtime_fixture()
+        cache = self.root / "conda-pkgs"
+        self._build_package_cache(prefix, cache)
+        site = prefix / "lib" / "python3.11" / "site-packages"
+
+        def _wheel(name: str, version: str, headers: str, license_text: str = "MIT text\n") -> None:
+            di = site / f"{name}-{version}.dist-info"
+            (di / "licenses").mkdir(parents=True)
+            (di / "METADATA").write_text(
+                f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n{headers}\n"
+                "License-File: LICENSE\n\n",
+                encoding="utf-8",
+            )
+            (di / "METADATA").chmod(0o644)
+            (di / "licenses" / "LICENSE").write_text(license_text, encoding="utf-8")
+            (di / "licenses" / "LICENSE").chmod(0o644)
+
+        # full licence TEXT dumped into License: -> ignored in favour of the classifier ("BSD
+        # License"), which is ambiguous (2 vs 3 clause) and so is preserved verbatim, not guessed.
+        _wheel(
+            "numpyish", "1.0",
+            "License: Copyright (c) 2005 Devs\n All rights reserved.\n Redistribution and use...\n"
+            "Classifier: License :: OSI Approved :: BSD License",
+            license_text="BSD-3-Clause text\n",
+        )
+        # non-SPDX spelling in License: -> mapped to SPDX.
+        _wheel("apacheish", "2.0", "License: Apache 2.0", license_text="Apache text\n")
+        # canonical License-Expression -> passthrough.
+        _wheel("exprish", "3.0", "License-Expression: MIT", license_text="MIT text\n")
+        # bare "Apache Software License" trove family classifier: trove uses it for every Apache
+        # version, so PEP 639 forbids inferring Apache-2.0 -> the leaf is preserved verbatim.
+        _wheel(
+            "apachecls", "4.0",
+            "Classifier: License :: OSI Approved :: Apache Software License",
+            license_text="Apache text\n",
+        )
+        # License-Expression PSF-2.0 -> kept verbatim as the distinct SPDX id, NOT rewritten to the
+        # separate Python-2.0 identifier.
+        _wheel("psfish", "5.0", "License-Expression: PSF-2.0", license_text="PSF text\n")
+
+        generated = self.root / "gen2" / "input.json"
+        generate_runtime_input(prefix, lock, cache, generated, lock_sha)
+        collect_runtime(prefix, lock, generated, self.root / "tidy-out", lock_sha)
+        inv = json.loads((self.root / "tidy-out/runtime-license-inventory.json").read_text(encoding="utf-8"))
+        ids = {p["package_url"]: p["license"] for p in inv["packages"] if p["package_url"].startswith("pip://")}
+        self.assertEqual(ids["pip://numpyish==1.0"], "BSD License")
+        self.assertEqual(ids["pip://apacheish==2.0"], "Apache-2.0")
+        self.assertEqual(ids["pip://exprish==3.0"], "MIT")
+        self.assertEqual(ids["pip://apachecls==4.0"], "Apache Software License")
+        self.assertEqual(ids["pip://psfish==5.0"], "PSF-2.0")
+
+    def test_pip_disagreeing_license_classifiers_fail_closed(self) -> None:
+        # Two unrelated licence classifiers with no other signal: PEP 639 says their relationship
+        # (choice vs. conjunction) is undefined, so tools MUST NOT infer an expression. We refuse
+        # rather than silently pick one.
+        prefix, lock, _runtime_input, lock_sha = self._runtime_fixture()
+        cache = self.root / "conda-pkgs"
+        self._build_package_cache(prefix, cache)
+        site = prefix / "lib" / "python3.11" / "site-packages"
+        di = site / "ambiguous-1.0.dist-info"
+        (di / "licenses").mkdir(parents=True)
+        (di / "METADATA").write_text(
+            "Metadata-Version: 2.4\nName: ambiguous\nVersion: 1.0\n"
+            "Classifier: License :: OSI Approved :: MIT License\n"
+            "Classifier: License :: OSI Approved :: Apache Software License\n"
+            "License-File: LICENSE\n\n",
+            encoding="utf-8",
+        )
+        (di / "METADATA").chmod(0o644)
+        (di / "licenses" / "LICENSE").write_text("text\n", encoding="utf-8")
+        (di / "licenses" / "LICENSE").chmod(0o644)
+
+        generated = self.root / "gen-ambig" / "input.json"
+        with self.assertRaises(LicenseInputError) as caught:
+            generate_runtime_input(prefix, lock, cache, generated, lock_sha)
+        self.assertIn("no usable licence identifier", str(caught.exception))
 
     def test_upstream_package_cache_license_mode_is_tolerated_but_owned_evidence_is_not(self) -> None:
         # conda-forge ships some upstream license files non-0644 (e.g. intel-gmmlib's LICENSE.md at
