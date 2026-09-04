@@ -17,6 +17,7 @@ manifest is an evaluation record, not shipping approval; its checkpoint licence 
 from __future__ import annotations
 
 import argparse
+import contextlib
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -634,6 +635,60 @@ def _export_legacy(torch: Any, wrapper: Any, samples: tuple, output: Path, opset
     )
 
 
+@contextlib.contextmanager
+def _torch_export_shims(torch: Any):
+    """Temporarily neutralise data-dependent guards that block torch.export, then restore them.
+
+    torch.export cannot evaluate a data-dependent tensor boolean, so a guard like torchvision
+    normalize's ``if (std == 0).any(): raise`` aborts the export with GuardOnDataDependentSymNode
+    even though std is a fixed non-zero constant and the branch never fires. Each shim is a
+    byte-for-byte copy of the upstream function (torchvision 0.22) with only the offending
+    data-dependent guard removed, installed for the duration of the export and unconditionally
+    restored. If a target module is not importable there is nothing to patch. Shims are added here
+    one at a time as torch.export surfaces the next data-dependent guard in the WAFT stack.
+    """
+
+    restores: list = []
+    try:
+        try:
+            from torchvision.transforms import _functional_tensor as F_t
+
+            _original_normalize = F_t.normalize
+
+            def _normalize_export_safe(tensor, mean, std, inplace: bool = False):
+                assert_image = getattr(F_t, "_assert_image_tensor", None)
+                if assert_image is not None:
+                    assert_image(tensor)
+                if not tensor.is_floating_point():
+                    raise TypeError(f"Input tensor should be a float tensor. Got {tensor.dtype}.")
+                if tensor.ndim < 3:
+                    raise ValueError(
+                        "Expected tensor to be a tensor image of size (..., C, H, W). "
+                        f"Got tensor.size() = {tensor.size()}"
+                    )
+                if not inplace:
+                    tensor = tensor.clone()
+                dtype = tensor.dtype
+                mean_t = torch.as_tensor(mean, dtype=dtype, device=tensor.device)
+                std_t = torch.as_tensor(std, dtype=dtype, device=tensor.device)
+                # Upstream's `if (std == 0).any(): raise` is dropped here: std is a fixed non-zero
+                # constant, and the tensor boolean is a data-dependent symbol torch.export rejects.
+                if mean_t.ndim == 1:
+                    mean_t = mean_t.view(-1, 1, 1)
+                if std_t.ndim == 1:
+                    std_t = std_t.view(-1, 1, 1)
+                return tensor.sub_(mean_t).div_(std_t)
+
+            F_t.normalize = _normalize_export_safe
+            restores.append(lambda: setattr(F_t, "normalize", _original_normalize))
+        except ImportError:
+            pass
+        yield
+    finally:
+        for restore in reversed(restores):
+            restore()
+
+
 def _export_dynamo(torch: Any, wrapper: Any, samples: tuple, output: Path, opset: int,
                    input_names: list[str], output_names: list[str]) -> None:
     """EXPERIMENTAL: export with torch's dynamo (torch.export) exporter so spatial axes stay symbolic.
@@ -651,16 +706,17 @@ def _export_dynamo(torch: Any, wrapper: Any, samples: tuple, output: Path, opset
     height = Dim("height", min=32, max=8192)
     width = Dim("width", min=32, max=8192)
     dynamic_shapes = ({2: height, 3: width}, {2: height, 3: width})
-    program = torch.onnx.export(
-        wrapper,
-        samples,
-        str(output),
-        opset_version=opset,
-        input_names=input_names,
-        output_names=output_names,
-        dynamic_shapes=dynamic_shapes,
-        dynamo=True,
-    )
+    with _torch_export_shims(torch):
+        program = torch.onnx.export(
+            wrapper,
+            samples,
+            str(output),
+            opset_version=opset,
+            input_names=input_names,
+            output_names=output_names,
+            dynamic_shapes=dynamic_shapes,
+            dynamo=True,
+        )
     # Depending on the torch version the ONNXProgram may need an explicit save to reach the path.
     if not output.exists() and program is not None and hasattr(program, "save"):
         program.save(str(output))
