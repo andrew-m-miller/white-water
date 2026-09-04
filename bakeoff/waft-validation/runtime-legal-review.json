@@ -1,8 +1,8 @@
 {
   "schema_id": "whitewater-p25-runtime-legal-review-v1",
-  "inventory_sha256": "320f8ec4529e6f6f3f73ed8fa6489f8634644d26898a277b7e498b1b4757c902",
+  "inventory_sha256": "3e97e011874ab923a47d8c3173d430dd4dccb9c974b0d8efe28ff109d4a629a3",
   "reviewed": true,
   "reviewer": "Andrew Miller",
-  "reviewed_at": "2026-09-03T22:38:41Z",
-  "statement": "I, Andrew Miller, reviewed the generated WAFT-validation runtime license and notice inventory with SHA256 320f8ec4529e6f6f3f73ed8fa6489f8634644d26898a277b7e498b1b4757c902, covering the conda base (python 3.12, conda-pack, setuptools and the transitive system libraries) and the pip-installed export stack (PyTorch CPU, torchvision, numpy, scipy, onnx, onnxruntime CPU, safetensors, timm and their transitive dependencies), each bound to its own licence and notice evidence. I approve this exact runtime inventory for the WAFT export/validation run. The pinned WAFT source is BSD-3-Clause; the WAFT checkpoint is operator-supplied and its file-level licence remains unknown -- this approval covers the packed conda+pip runtime only, not the operator-supplied checkpoint, and not the WAFT source redistributed inside the package under waft-src/, which is separately covered by legal/source-legal-record.json."
+  "reviewed_at": "2026-09-04T17:11:43Z",
+  "statement": "I, Andrew Miller, reviewed the generated WAFT-validation runtime license and notice inventory with SHA256 3e97e011874ab923a47d8c3173d430dd4dccb9c974b0d8efe28ff109d4a629a3, covering the conda base (python 3.12, conda-pack, setuptools and the transitive system libraries) and the pip-installed export stack (PyTorch CPU, torchvision, numpy, scipy, onnx, onnxruntime CPU, safetensors, timm, onnxscript (MIT) and ml-dtypes (Apache-2.0, both added so the torch dynamo ONNX exporter can attempt a spatially-dynamic WAFT graph) and their transitive dependencies), each bound to its own licence and notice evidence. I approve this exact runtime inventory for the WAFT export/validation run. The pinned WAFT source is BSD-3-Clause; the WAFT checkpoint is operator-supplied and its file-level licence remains unknown -- this approval covers the packed conda+pip runtime only, not the operator-supplied checkpoint, and not the WAFT source redistributed inside the package under waft-src/, which is separately covered by legal/source-legal-record.json."
 }
