@@ -2356,6 +2356,13 @@ jobs:
           "$env_py" -m pip install -c "$waft_constraints" \
             numpy==2.1.3 scipy==1.15.3 onnx==1.17.0 onnxruntime==1.22.0 \
             safetensors==0.5.3 timm==1.0.19 einops opencv-python-headless
+          # onnxscript is required by torch's dynamo (torch.export) ONNX exporter, used by
+          # export_waft.py --exporter dynamo to attempt a spatially-dynamic WAFT graph. torch 2.7.0
+          # pairs with the onnxscript 0.2.x line (its contemporaneous release); a much newer major
+          # can drift from torch 2.7's exporter API. It pulls ml_dtypes and packaging as new
+          # transitive deps; the constraints file pins the CI-solved set, so the reviewed inventory
+          # cannot drift on a re-run.
+          "$env_py" -m pip install -c "$waft_constraints" 'onnxscript>=0.2,<0.3'
           # The single most valuable de-risk: construct the REAL WAFTv2(feature_encoder='twins')
           # WEIGHTLESS and checkpoint-free, through export_waft.py's OWN construction path
           # (load_pinned_config + construct_weightless_model), so the smoke cannot drift from the
@@ -2373,6 +2380,7 @@ jobs:
           if sys.version_info[:2] != (3, 12):
               raise SystemExit(f"expected pinned Python 3.12, got {sys.version}")
           import numpy, scipy, onnx, onnxruntime, safetensors, einops  # noqa: F401
+          import onnxscript  # noqa: F401  # required by torch's dynamo ONNX exporter (--exporter dynamo)
           import torch, timm
           if not torch.__version__.startswith("2.7.0"):
               raise SystemExit(f"expected torch 2.7.0, got {torch.__version__}")
