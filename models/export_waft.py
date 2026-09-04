@@ -748,18 +748,23 @@ def export_onnx(model: Any, manifest: Mapping[str, Any], output: Path, device: s
     sample2 = torch.zeros(shape, dtype=torch.float32, device=device)
     output.parent.mkdir(parents=True, exist_ok=True)
     opset = manifest["export"]["opset"]
+    # torch's dynamo exporter emits an opset-18 / IR-10 graph and cannot down-convert to a lower
+    # opset ("Conversion to opset < 18 is not supported"), so the experimental dynamo path exports
+    # and is gated at an opset floor of 18 even when the manifest pins a lower opset for the legacy
+    # artifact. The legacy tracer honours the manifest opset unchanged.
+    effective_opset = max(opset, 18) if exporter == "dynamo" else opset
     input_names = [item["name"] for item in manifest["tensor_contract"]["inputs"]]
     output_names = [manifest["tensor_contract"]["output"]["name"]]
     try:
         if exporter == "dynamo":
-            _export_dynamo(torch, wrapper, (sample1, sample2), output, opset, input_names, output_names)
+            _export_dynamo(torch, wrapper, (sample1, sample2), output, effective_opset, input_names, output_names)
         else:
-            _export_legacy(torch, wrapper, (sample1, sample2), output, opset, input_names, output_names)
+            _export_legacy(torch, wrapper, (sample1, sample2), output, effective_opset, input_names, output_names)
         exported = onnx.load(str(output), load_external_data=False)
-        operator_gate = gate_onnx_graph(exported, expected_opset=opset)
+        operator_gate = gate_onnx_graph(exported, expected_opset=effective_opset)
         onnx.checker.check_model(exported, full_check=True)
-        # Record which exporter produced the graph so the artifact identity is complete.
-        operator_gate = {**operator_gate, "exporter": exporter}
+        # Record which exporter produced the graph and at what opset so the identity is complete.
+        operator_gate = {**operator_gate, "exporter": exporter, "opset": effective_opset}
         return operator_gate
     except TechnicalBlocker:
         raise
