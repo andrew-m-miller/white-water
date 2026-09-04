@@ -701,25 +701,34 @@ def _export_dynamo(torch: Any, wrapper: Any, samples: tuple, output: Path, opset
     EL8 box; any failure surfaces as a typed onnx_export blocker rather than a raw traceback.
     """
 
+    import onnx
     from torch.export import Dim
 
     height = Dim("height", min=32, max=8192)
     width = Dim("width", min=32, max=8192)
     dynamic_shapes = ({2: height, 3: width}, {2: height, 3: width})
+    # Do NOT hand the exporter a path: torch.export builds the ONNXProgram in memory, and letting
+    # onnxscript serialize to the path is where it fails (SerdeError in serialize_model_into). The
+    # in-memory graph translated fine, so serialize its ModelProto with the onnx package instead,
+    # bypassing onnxscript's writer entirely.
     with _torch_export_shims(torch):
         program = torch.onnx.export(
             wrapper,
             samples,
-            str(output),
             opset_version=opset,
             input_names=input_names,
             output_names=output_names,
             dynamic_shapes=dynamic_shapes,
             dynamo=True,
         )
-    # Depending on the torch version the ONNXProgram may need an explicit save to reach the path.
-    if not output.exists() and program is not None and hasattr(program, "save"):
+    model_proto = getattr(program, "model_proto", None)
+    if model_proto is not None:
+        onnx.save(model_proto, str(output))
+    elif hasattr(program, "save"):
+        # Fall back to the exporter's own serializer only if no ModelProto is exposed.
         program.save(str(output))
+    else:
+        raise RuntimeError("dynamo ONNXProgram exposed neither a model_proto nor a save method")
 
 
 def export_onnx(model: Any, manifest: Mapping[str, Any], output: Path, device: str,
@@ -769,11 +778,22 @@ def export_onnx(model: Any, manifest: Mapping[str, Any], output: Path, device: s
     except TechnicalBlocker:
         raise
     except Exception as exc:
+        import traceback
+
+        # Surface the underlying cause and a traceback tail: some exporter errors (e.g. onnxscript's
+        # SerdeError) stringify to opaque metadata and hide the real failure in their chained cause.
+        cause = exc.__cause__ or exc.__context__
         raise TechnicalBlocker(
             BlockerCode.ONNX_EXPORT,
             "onnx_export",
             "PyTorch could not export WAFT to a checked ONNX graph",
-            {"exception": type(exc).__name__, "message": str(exc), "exporter": exporter},
+            {
+                "exception": type(exc).__name__,
+                "message": str(exc),
+                "exporter": exporter,
+                "cause": f"{type(cause).__name__}: {cause}" if cause is not None else None,
+                "traceback_tail": "".join(traceback.format_exc().splitlines(keepends=True)[-20:]),
+            },
         ) from exc
 
 
