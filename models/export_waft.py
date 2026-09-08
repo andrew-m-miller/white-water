@@ -727,9 +727,18 @@ def _export_dynamo(torch: Any, wrapper: Any, samples: tuple, output: Path, opset
     import onnx
     from torch.export import Dim
 
-    height = Dim("height", min=32, max=8192)
-    width = Dim("width", min=32, max=8192)
-    dynamic_shapes = ({2: height, 3: width}, {2: height, 3: width})
+    # Dim.AUTO marks each spatial axis dynamic where the model allows and specializes -- with a log
+    # naming the axis -- only where the graph forces a constant. That is exactly the signal we want:
+    # if WAFT's backbone bakes the resolution, torch says which dim it pinned, and the post-export
+    # input-shape check records whether the emitted ONNX is actually dynamic. Fall back to named Dims
+    # on a torch without Dim.AUTO.
+    auto = getattr(Dim, "AUTO", None)
+    if auto is not None:
+        dynamic_shapes = ({2: auto, 3: auto}, {2: auto, 3: auto})
+    else:
+        height = Dim("height", min=32, max=8192)
+        width = Dim("width", min=32, max=8192)
+        dynamic_shapes = ({2: height, 3: width}, {2: height, 3: width})
     # Serialization (via the ONNXProgram's model_proto / save) itself runs through onnxscript's
     # serde, so it must happen INSIDE the shim context too -- that is where the bool->int attribute
     # coercion applies. Building the ONNXProgram without a path keeps it in memory; we then write
@@ -752,6 +761,32 @@ def _export_dynamo(torch: Any, wrapper: Any, samples: tuple, output: Path, opset
             program.save(str(output))
         else:
             raise RuntimeError("dynamo ONNXProgram exposed neither a model_proto nor a save method")
+
+
+def _onnx_input_spatial_dims(model_proto: Any, input_names: Sequence[str]) -> dict[str, list]:
+    """Report axes 2,3 of each named graph input as an int (fixed) or a str (dynamic dim_param).
+
+    A spatially-dynamic export has dim_param strings on the height/width axes; a specialized one has
+    concrete ints. This is the ground truth for whether the emitted ONNX can run at another size.
+    """
+
+    dims: dict[str, list] = {}
+    for value_info in model_proto.graph.input:
+        if value_info.name not in input_names:
+            continue
+        shape = value_info.type.tensor_type.shape.dim
+        if len(shape) < 4:
+            continue
+
+        def _axis(d: Any) -> Any:
+            if d.HasField("dim_param"):
+                return d.dim_param
+            if d.HasField("dim_value"):
+                return d.dim_value
+            return None
+
+        dims[value_info.name] = [_axis(shape[2]), _axis(shape[3])]
+    return dims
 
 
 def export_onnx(model: Any, manifest: Mapping[str, Any], output: Path, device: str,
@@ -793,10 +828,28 @@ def export_onnx(model: Any, manifest: Mapping[str, Any], output: Path, device: s
         else:
             _export_legacy(torch, wrapper, (sample1, sample2), output, effective_opset, input_names, output_names)
         exported = onnx.load(str(output), load_external_data=False)
+        spatial_dims = _onnx_input_spatial_dims(exported, input_names)
+        if exporter == "dynamo":
+            # Definitive check: the export is only spatially dynamic if the height/width axes are
+            # dim_param strings. If every input pins them to concrete ints, torch.export specialized
+            # the resolution (the backbone bakes it) and the graph cannot run at another size -- fail
+            # closed here with the exact dims rather than deferring to a cryptic ORT shape error.
+            all_static = spatial_dims and all(
+                isinstance(h, int) and isinstance(w, int) for h, w in spatial_dims.values()
+            )
+            if all_static:
+                raise TechnicalBlocker(
+                    BlockerCode.ONNX_EXPORT,
+                    "onnx_export_dynamic_shape",
+                    "dynamo export specialized the spatial dims; the ONNX graph is not spatially "
+                    "dynamic (the backbone bakes the input resolution)",
+                    {"input_spatial_dims": spatial_dims, "exporter": exporter},
+                )
         operator_gate = gate_onnx_graph(exported, expected_opset=effective_opset)
         onnx.checker.check_model(exported, full_check=True)
-        # Record which exporter produced the graph and at what opset so the identity is complete.
-        operator_gate = {**operator_gate, "exporter": exporter, "opset": effective_opset}
+        # Record which exporter produced the graph, at what opset, and the input spatial dims.
+        operator_gate = {**operator_gate, "exporter": exporter, "opset": effective_opset,
+                         "input_spatial_dims": spatial_dims}
         return operator_gate
     except TechnicalBlocker:
         raise
