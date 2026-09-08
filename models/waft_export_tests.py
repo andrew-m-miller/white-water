@@ -8,9 +8,11 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
-from artifact_workflow import load_manifest
+import check_waft_artifact
+from artifact_workflow import ArtifactError, load_manifest
 from export_waft import (  # type: ignore  # pylint: disable=wrong-import-position
     BlockerCode,
     TechnicalBlocker,
@@ -162,6 +164,28 @@ def main() -> int:
         tb = recorded["validation"]["observed"]["technical_blocker"]
         assert tb["code"] == BlockerCode.ONNX_RUNTIME
         assert tb["stage"] == "CPUExecutionProvider_runtime_validation"
+
+    # A missing ONNX payload is exempt only for the repository's own checked-in manifest (whose
+    # payload is gitignored). A caller-supplied manifest -- e.g. an operator checking a returned
+    # validation package -- must carry the exact bytes it claims; a missing artifact is fatal
+    # there and must not pass on self-reported hash and size alone.
+    old_argv = sys.argv
+    try:
+        sys.argv = ["check_waft_artifact.py"]
+        assert check_waft_artifact.main() == 0, "default checked-in WAFT manifest must pass without the gitignored ONNX"
+        with tempfile.TemporaryDirectory(prefix="whitewater-waft-artifact-scope-") as scope_dir:
+            supplied = Path(scope_dir) / "waft-twins-artifact.json"
+            supplied.write_bytes(MANIFEST.read_bytes())
+            assert not (supplied.parent / "waft-twins-opset17.onnx").exists()
+            sys.argv = ["check_waft_artifact.py", str(supplied)]
+            try:
+                check_waft_artifact.main()
+            except ArtifactError as exc:
+                assert "artifact is missing" in str(exc), exc
+            else:
+                raise AssertionError("caller-supplied WAFT manifest with a missing artifact must be fatal")
+    finally:
+        sys.argv = old_argv
 
     print("WAFT export gates and failure-safe manifest tests: PASS")
     return 0

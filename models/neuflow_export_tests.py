@@ -375,6 +375,29 @@ def _test_linux_cuda_manifest_path(manifest) -> None:
             sys.argv = old_argv
 
 
+def _test_missing_artifact_scope() -> None:
+    """A missing ONNX payload is exempt only for the repository's own checked-in manifest.
+
+    The checked-in manifest's payload is gitignored, so validating it in a source checkout must
+    not require the bytes. A caller-supplied manifest -- e.g. an operator checking a returned
+    validation package -- must carry the exact bytes it claims: a missing artifact is fatal there
+    and must not pass on self-reported hash and size alone.
+    """
+
+    old_argv = sys.argv
+    try:
+        sys.argv = ["check_neuflow_manifest.py", str(MANIFEST_PATH)]
+        if checker.main() != 0:
+            raise AssertionError("default checked-in NeuFlow manifest must pass without the gitignored ONNX")
+        with tempfile.TemporaryDirectory(prefix="neuflow-artifact-scope-") as scope_dir:
+            supplied = Path(scope_dir) / "neuflow-v2.json"
+            supplied.write_bytes(MANIFEST_PATH.read_bytes())
+            sys.argv = ["check_neuflow_manifest.py", str(supplied)]
+            _expect_error(checker.main, ArtifactError, "artifact is missing")
+    finally:
+        sys.argv = old_argv
+
+
 def main() -> int:
     manifest = load_manifest(MANIFEST_PATH)
     if manifest["status"] not in {"provenance_pinned_export_pending", "export_validated", "excluded"}:
@@ -454,6 +477,7 @@ def main() -> int:
     _test_contiguous_onnx_inputs()
     _test_provider_selection_guards()
     _test_linux_cuda_manifest_path(manifest)
+    _test_missing_artifact_scope()
 
     artifact_path = MANIFEST_PATH.parent / manifest["export"]["artifact"]
     if artifact_path.exists():

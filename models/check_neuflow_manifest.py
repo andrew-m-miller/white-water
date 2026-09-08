@@ -27,6 +27,7 @@ CHECKPOINT_EXCLUSION_REASON = ExclusionReason.CHECKPOINT_LICENSE_TERMS_UNKNOWN.v
 EXPORT_FAILURE_EXCLUSION_REASON = ExclusionReason.EXPORT_OR_OPERATOR_FAILURE.value
 MACOS_PLATFORM = "macos-arm64"
 LINUX_PLATFORM = "linux-x86_64"
+DEFAULT_MANIFEST = Path(__file__).with_name("neuflow-v2.json")
 
 
 def _validate_provider_evidence(platform: str, observed: object) -> None:
@@ -71,9 +72,7 @@ def _validate_provider_evidence(platform: str, observed: object) -> None:
 
 
 def main() -> int:
-    manifest_path = (
-        Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("neuflow-v2.json")
-    )
+    manifest_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_MANIFEST
     manifest = load_manifest(manifest_path)
 
     if manifest["candidate"]["id"] != "neuflow-v2":
@@ -208,12 +207,22 @@ def main() -> int:
             raise ArtifactError("NeuFlow advertised output shape is not the fixed evaluation lattice")
 
     artifact_path = manifest_path.parent / manifest["export"]["artifact"]
-    # The source checkout intentionally omits ignored ONNX payloads. If a local exporter has
-    # staged one, validate its exact mode, size and hash instead of silently ignoring it.
+    # The repository's own checked-in manifest intentionally omits the ignored ONNX payload
+    # (models/*.onnx is gitignored), so validating it in a source checkout must not require the
+    # bytes -- there the recorded sha256/size are the identity of record. For any other
+    # (caller-supplied) manifest -- e.g. an operator running this against a returned validation
+    # package -- a missing artifact is fatal: the package must carry the exact bytes it claims,
+    # not pass on self-reported hash and size alone. If a local exporter has staged one, validate
+    # its exact mode, size and hash.
+    is_default_manifest = manifest_path.resolve() == DEFAULT_MANIFEST.resolve()
+    claims_artifact = manifest["export"].get("sha256") is not None
     try:
         artifact_path.lstat()
     except FileNotFoundError:
-        pass
+        # Only a manifest that actually claims an exported artifact (sha256 recorded) requires the
+        # bytes; a pending/failed record publishes no artifact and is legitimately payload-free.
+        if claims_artifact and not is_default_manifest:
+            raise ArtifactError(f"artifact is missing: {artifact_path}")
     else:
         validate_artifact(manifest, manifest_path, artifact_path)
 

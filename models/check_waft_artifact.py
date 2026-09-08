@@ -104,13 +104,17 @@ def main() -> int:
         require(export["sha256"] is not None and export["size_bytes"] is not None, "passed WAFT export has no hash/size")
         require(row["sha256"] == export["sha256"] and row["size_bytes"] == export["size_bytes"], "WAFT platform hash/size disagrees")
         artifact_path = manifest_path.parent / row["artifact"]
-        # The source checkout intentionally omits ignored ONNX payloads. If a local exporter has
-        # staged one, validate its exact mode, size and hash; otherwise the recorded sha256/size
-        # above remain the artifact identity of record. (Mirrors check_neuflow_manifest.py.)
+        # The repository's own checked-in manifest intentionally omits the ignored ONNX payload
+        # (models/*.onnx is gitignored), so validating it in a source checkout must not require the
+        # bytes -- there the recorded sha256/size are the identity of record. For any other
+        # (caller-supplied) manifest -- e.g. an operator running this against a returned validation
+        # package -- a missing artifact is fatal: the package must carry the exact bytes it claims,
+        # not pass on self-reported hash and size alone. (Mirrors check_neuflow_manifest.py.)
+        is_default_manifest = manifest_path.resolve() == DEFAULT_MANIFEST.resolve()
         try:
             artifact_path.lstat()
         except FileNotFoundError:
-            pass
+            require(is_default_manifest, f"artifact is missing: {artifact_path}")
         else:
             validate_artifact(manifest, manifest_path, artifact_path, platform=row["platform"])
         observed = validation["observed"]
