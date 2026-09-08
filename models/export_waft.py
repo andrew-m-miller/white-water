@@ -683,6 +683,29 @@ def _torch_export_shims(torch: Any):
             restores.append(lambda: setattr(F_t, "normalize", _original_normalize))
         except ImportError:
             pass
+
+        try:
+            from onnxscript.ir import serde as _serde
+
+            _original_fill = _serde._fill_in_value_for_attribute
+
+            def _fill_bool_coerced(attribute_proto, type_, value):
+                # ONNX has no boolean attribute type: booleans encode INT/INTS attributes, but
+                # protobuf's AttributeProto.i/.ints setters reject a Python bool ("Expected an int,
+                # got a boolean"), which aborts serialization of a torch-exported graph. Coerce
+                # bool scalars and bool lists to int before the upstream serializer assigns them.
+                if isinstance(value, bool):
+                    value = int(value)
+                elif isinstance(value, (list, tuple)) and any(isinstance(v, bool) for v in value):
+                    value = [int(v) if isinstance(v, bool) else v for v in value]
+                return _original_fill(attribute_proto, type_, value)
+
+            _serde._fill_in_value_for_attribute = _fill_bool_coerced
+            restores.append(
+                lambda: setattr(_serde, "_fill_in_value_for_attribute", _original_fill)
+            )
+        except (ImportError, AttributeError):
+            pass
         yield
     finally:
         for restore in reversed(restores):
@@ -707,10 +730,10 @@ def _export_dynamo(torch: Any, wrapper: Any, samples: tuple, output: Path, opset
     height = Dim("height", min=32, max=8192)
     width = Dim("width", min=32, max=8192)
     dynamic_shapes = ({2: height, 3: width}, {2: height, 3: width})
-    # Do NOT hand the exporter a path: torch.export builds the ONNXProgram in memory, and letting
-    # onnxscript serialize to the path is where it fails (SerdeError in serialize_model_into). The
-    # in-memory graph translated fine, so serialize its ModelProto with the onnx package instead,
-    # bypassing onnxscript's writer entirely.
+    # Serialization (via the ONNXProgram's model_proto / save) itself runs through onnxscript's
+    # serde, so it must happen INSIDE the shim context too -- that is where the bool->int attribute
+    # coercion applies. Building the ONNXProgram without a path keeps it in memory; we then write
+    # its ModelProto with the onnx package.
     with _torch_export_shims(torch):
         program = torch.onnx.export(
             wrapper,
@@ -721,14 +744,14 @@ def _export_dynamo(torch: Any, wrapper: Any, samples: tuple, output: Path, opset
             dynamic_shapes=dynamic_shapes,
             dynamo=True,
         )
-    model_proto = getattr(program, "model_proto", None)
-    if model_proto is not None:
-        onnx.save(model_proto, str(output))
-    elif hasattr(program, "save"):
-        # Fall back to the exporter's own serializer only if no ModelProto is exposed.
-        program.save(str(output))
-    else:
-        raise RuntimeError("dynamo ONNXProgram exposed neither a model_proto nor a save method")
+        model_proto = getattr(program, "model_proto", None)
+        if model_proto is not None:
+            onnx.save(model_proto, str(output))
+        elif hasattr(program, "save"):
+            # Fall back to the exporter's own serializer only if no ModelProto is exposed.
+            program.save(str(output))
+        else:
+            raise RuntimeError("dynamo ONNXProgram exposed neither a model_proto nor a save method")
 
 
 def export_onnx(model: Any, manifest: Mapping[str, Any], output: Path, device: str,
