@@ -614,9 +614,10 @@ def gate_onnx_graph(model_proto: Any, *, expected_opset: int) -> dict[str, Any]:
 
 def _export_legacy(torch: Any, wrapper: Any, samples: tuple, output: Path, opset: int,
                    input_names: list[str], output_names: list[str]) -> None:
-    """The tracing exporter. Dynamic axes are declared on the I/O, but internal spatial values the
-    trace constant-folds (the ViT/DepthAnythingV2 backbone interpolations) stay baked at the example
-    shape, so the graph only runs at that resolution."""
+    """The tracing exporter, fixed-shape. The ViT/DepthAnythingV2 backbone constant-folds its
+    spatial sizes at the example shape, so the graph only ever runs at that resolution (docs/
+    context.md correction 12). No dynamic_axes are declared -- the ONNX honestly fixes the input to
+    the example shape rather than advertising a dynamism the graph cannot honour."""
 
     torch.onnx.export(
         wrapper,
@@ -627,11 +628,6 @@ def _export_legacy(torch: Any, wrapper: Any, samples: tuple, output: Path, opset
         do_constant_folding=True,
         input_names=input_names,
         output_names=output_names,
-        dynamic_axes={
-            input_names[0]: {2: "height", 3: "width"},
-            input_names[1]: {2: "height", 3: "width"},
-            output_names[0]: {2: "height", 3: "width"},
-        },
     )
 
 
@@ -961,33 +957,14 @@ def validate_export(
     identity_onnx = run_onnx(first, first)
     forward_onnx = run_onnx(first, second)
     reverse_onnx = run_onnx(second, first)
-    second_shape = validation["second_dynamic_shape"]
-    require(
-        second_shape[0] == 1 and second_shape[1] == 3 and second_shape[2] % 32 == 0 and second_shape[3] % 32 == 0,
-        "second WAFT validation shape must be a multiple of 32",
-        code=BlockerCode.CONFIG,
-        stage="onnx_validation",
-        details={"shape": second_shape},
-    )
-    dynamic_first, dynamic_second = synthetic_pair(
-        torch, second_shape[2], second_shape[3], dx, validation["seed"] + 1, device
-    )
-    dynamic_pt = run_pt(dynamic_first, dynamic_second)
-    dynamic_onnx = run_onnx(dynamic_first, dynamic_second)
-    expected_dynamic_shape = [1, 2, second_shape[2], second_shape[3]]
-    require(
-        list(dynamic_onnx.shape) == expected_dynamic_shape,
-        "ONNX graph did not preserve dynamic spatial dimensions",
-        code=BlockerCode.ONNX_EXPORT,
-        stage="onnx_validation",
-        details={"actual": list(dynamic_onnx.shape), "expected": expected_dynamic_shape},
-    )
-
+    # WAFT is validated fixed-shape at the example resolution: its ViT/DepthAnythingV2 backbone
+    # bakes the input resolution, so no export path produces a spatially-dynamic ONNX (see
+    # docs/context.md correction 12). The second-shape dynamic run was therefore removed; the plugin
+    # runs WAFT at a fixed tiled resolution, as with the NeuFlow candidate.
     pairs = (
         ("identity", identity_pt, identity_onnx),
         ("forward", forward_pt, forward_onnx),
         ("reverse", reverse_pt, reverse_onnx),
-        ("second_shape", dynamic_pt, dynamic_onnx),
     )
     for label, pytorch_value, onnx_value in pairs:
         require(
@@ -1071,7 +1048,6 @@ def validate_export(
         "identity_median_epe": identity_median,
         "forward_median": [forward_x, forward_y],
         "reverse_median": [reverse_x, reverse_y],
-        "second_dynamic_shape": list(dynamic_onnx.shape),
     }
 
 
@@ -1164,10 +1140,13 @@ def update_success(
         },
     }
     shape = manifest["export"]["example_shape"]
+    # Fixed-shape evaluation: only the example resolution is validated (WAFT bakes its input
+    # resolution -- docs/context.md correction 12). "additional" mirrors "example" to satisfy the
+    # shared artifact schema; there is no distinct dynamic shape.
     validation["shapes"] = {
-        "dynamic": True,
+        "dynamic": False,
         "example": [1, 2, shape[2], shape[3]],
-        "additional": observed["second_dynamic_shape"],
+        "additional": [1, 2, shape[2], shape[3]],
     }
     validation["parity"] = {
         "checked": True,

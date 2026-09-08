@@ -940,3 +940,44 @@ validation-pack branch; PR #36.)
 The lesson: test the artifact from where it will be unpacked, not the tree you built it from. A
 packaging smoke that imports from the source checkout is the airgap-era twin of a local
 modern-distro build — it exercises everything except the thing you ship.
+
+### 12. WAFT cannot export a spatially-dynamic ONNX; it is evaluated fixed-shape
+
+**Symptom:** the WAFT-validation manifest asked for a spatially-dynamic export (a
+`second_dynamic_shape` run at 160×256 alongside the 128×192 example), and no export path could
+produce one. Three independent attempts on the qualified stack (torch 2.7.0 CPU, onnxruntime 1.22,
+onnxscript 0.2.7) each failed in a different place, all pointing at the same cause:
+
+- the legacy `torch.onnx.export` tracer produced a graph that ran only at 128×192 — at 160×256 its
+  `refine_net` `Add` broadcast a baked spatial constant against a runtime-sized tensor (140 vs 216)
+  and ONNX Runtime aborted;
+- the dynamo (`torch.export`) exporter, given explicit shared height/width `Dim`s, captured and
+  translated the whole graph but emitted an ONNX whose image inputs were **specialized to
+  128×192** — a post-export check of the input value-info confirmed `[128,192]`, so ORT rejected
+  160×256 with an invalid-dimension error;
+- the same exporter with `Dim.AUTO` produced a more-dynamic graph that onnxscript 0.2.7 could not
+  even translate (`ConversionError: Could not determine the dtype for the input 'inputs'`).
+
+**Root cause:** WAFT/Twins wraps a ViT / DepthAnythingV2 backbone whose positional-embedding
+interpolation, patch-grid arithmetic and `F.interpolate` targets compute spatial sizes as Python
+ints from the example shape. Both the tracer (constant-folds them) and `torch.export` (specializes
+the marked-dynamic dims to satisfy those constraints) therefore bake the input resolution into the
+graph. This is a property of the model *code*, not the weights: getting a dynamic export would take
+rewriting those backbone shape computations to be symbolic in `waft-src` — a provenance-fork of the
+pinned upstream plus per-resolution parity/accuracy work (ViT pos-embed interpolation degrades away
+from the trained resolution), not a checkpoint or retraining change.
+
+**Resolution:** WAFT is evaluated **fixed-shape at 128×192**, exactly as the NeuFlow v2 candidate is
+(fixed 432×768). The bake-off assumes the plugin runs flow at a fixed tiled resolution, so a
+fixed-shape ONNX is the apples-to-apples artifact. `models/export_waft.py` drops the dynamic
+second-shape run and no longer declares `dynamic_axes` (the ONNX honestly fixes its inputs);
+`models/waft-twins-artifact.json` sets `tensor_contract.spatial_dimensions` to `fixed_128x192` and
+drops `second_dynamic_shape`. The experimental `--exporter dynamo` path and its export-time shims
+(torchvision-normalize guard, bool→int attribute coercion, opset-18 floor, the input-shape verdict
+check) are kept for the record and to make the verdict reproducible; the legacy tracer stays the
+default. The two shims and the opset-18/serialize fixes were only ever needed to *reach* the verdict
+— they do not make WAFT dynamic. (Landed on the P25-7 validation-pack branch; PR #36.)
+
+The lesson: a declared dynamic axis on an ONNX I/O is a claim, not a guarantee — a model whose
+backbone computes spatial sizes as Python scalars bakes the resolution no matter which exporter is
+used, and the only honest options are to fix the model source or to evaluate it fixed-shape.

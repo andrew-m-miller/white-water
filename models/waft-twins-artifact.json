@@ -103,7 +103,7 @@
       "policy": "graph-internal"
     },
     "batch": 1,
-    "spatial_dimensions": "dynamic_multiples_of_32",
+    "spatial_dimensions": "fixed_128x192",
     "iterations": "pinned_config_baked_into_graph",
     "confidence": {
       "present": false,
@@ -149,7 +149,6 @@
     "observed": null,
     "seed": 20260823,
     "translation_pixels": 4,
-    "second_dynamic_shape": [1, 3, 160, 256],
     "identity_median_epe_max": 0.75,
     "translation_x_fraction_min": 0.5,
     "translation_abs_y_max": 2.0,
