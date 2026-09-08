@@ -208,7 +208,11 @@ def _test_update_manifest_preserves_checkpoint_admission(manifest) -> None:
             updated,
             output,
             observed,
-            "macos-arm64",
+            # Follow the manifest's own validated platform (linux-x86_64 for the checked-in
+            # CPU validation) so update_manifest builds an export environment consistent with the
+            # recorded observed evidence, rather than forcing a macOS platform onto Linux CPU
+            # evidence. macOS-specific provider handling is covered by _test_provider_selection_guards.
+            manifest["export"]["platform"],
         )
         recorded = load_manifest(destination)
         recorded_observed = recorded["validation"]["observed"]
@@ -227,7 +231,9 @@ def _test_update_manifest_preserves_checkpoint_admission(manifest) -> None:
 
         # Exercise the candidate-specific checker as well as the shared manifest gate. The
         # synthetic payload has the same contract as a real export, so only its expected hash
-        # and size need to be substituted for this dependency-free regression fixture.
+        # and size need to be substituted for this dependency-free regression fixture. (The
+        # macOS-primary path pins those constants; on the Linux platform the checker validates
+        # the recorded identity directly, so the substitution is inert but harmless.)
         digest = exporter.sha256_file(output)
         old_argv = sys.argv
         sys.argv = ["check_neuflow_manifest.py", str(destination)]

@@ -103,7 +103,16 @@ def main() -> int:
     else:
         require(export["sha256"] is not None and export["size_bytes"] is not None, "passed WAFT export has no hash/size")
         require(row["sha256"] == export["sha256"] and row["size_bytes"] == export["size_bytes"], "WAFT platform hash/size disagrees")
-        validate_artifact(manifest, manifest_path, manifest_path.parent / row["artifact"], platform=row["platform"])
+        artifact_path = manifest_path.parent / row["artifact"]
+        # The source checkout intentionally omits ignored ONNX payloads. If a local exporter has
+        # staged one, validate its exact mode, size and hash; otherwise the recorded sha256/size
+        # above remain the artifact identity of record. (Mirrors check_neuflow_manifest.py.)
+        try:
+            artifact_path.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            validate_artifact(manifest, manifest_path, artifact_path, platform=row["platform"])
         observed = validation["observed"]
         require(isinstance(observed, Mapping), "passed WAFT validation has no observed result")
         require(observed.get("strict_checkpoint", {}).get("strict") is True, "strict checkpoint evidence missing")

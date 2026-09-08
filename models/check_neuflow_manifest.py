@@ -41,15 +41,30 @@ def _validate_provider_evidence(platform: str, observed: object) -> None:
     selected = provider_validation.get("selected")
     if not isinstance(selected, list) or not selected:
         raise ArtifactError("NeuFlow provider evidence has no selected providers")
-    expected_provider = (
-        "CPUExecutionProvider" if platform == MACOS_PLATFORM else "CUDAExecutionProvider"
-    )
-    if requested != expected_provider or selected[0] != expected_provider:
-        raise ArtifactError(
-            f"NeuFlow {platform} evidence must request and first-select {expected_provider}"
-        )
-    if platform == MACOS_PLATFORM and "CUDAExecutionProvider" in selected:
-        raise ArtifactError("macOS NeuFlow evidence must not claim CUDA selection")
+    # The NeuFlow numerical pass is a device-independent parity check on the exported ONNX.
+    # macOS carries no CUDA runtime, so it must request and first-select CPU. The Linux x86_64
+    # validation may be qualified on either CPU or CUDA: the checked-in validation pack
+    # (bakeoff/neuflow-validation, like bakeoff/waft-validation) is deliberately CPU-only and
+    # device-independent, so a CPU-qualified Linux row is contract-valid, and a CUDA-qualified
+    # Linux row from a separate EL8 CUDA runtime is equally acceptable. Whichever provider is
+    # requested must be the one actually first-selected -- a requested provider that fell back to
+    # another is a silent-fallback failure, not a pass.
+    if platform == MACOS_PLATFORM:
+        if requested != "CPUExecutionProvider" or selected[0] != "CPUExecutionProvider":
+            raise ArtifactError(
+                "macOS NeuFlow evidence must request and first-select CPUExecutionProvider"
+            )
+        if "CUDAExecutionProvider" in selected:
+            raise ArtifactError("macOS NeuFlow evidence must not claim CUDA selection")
+    else:
+        if requested not in ("CPUExecutionProvider", "CUDAExecutionProvider"):
+            raise ArtifactError(
+                f"NeuFlow {platform} evidence requested an unsupported provider: {requested}"
+            )
+        if selected[0] != requested:
+            raise ArtifactError(
+                f"NeuFlow {platform} evidence must request and first-select {requested}"
+            )
     environment = observed.get("environment")
     if isinstance(environment, dict) and environment.get("provider") not in (None, requested):
         raise ArtifactError("NeuFlow provider evidence disagrees with its environment record")

@@ -116,6 +116,17 @@ def main() -> int:
         )
 
     # Failure recording is atomic, preserves status=excluded and does not invent artifact bytes.
+    # record_failure deliberately refuses to erase a successful artifact claim, so exercise it
+    # against a pre-export pending base (the checked-in manifest now records a passed export).
+    pending_manifest = copy.deepcopy(manifest)
+    pending_manifest["status"] = "excluded"
+    pending_manifest["export"]["sha256"] = None
+    pending_manifest["export"]["size_bytes"] = None
+    for pending_row in pending_manifest["export"].get("platform_artifacts", []):
+        pending_row["sha256"] = None
+        pending_row["size_bytes"] = None
+    pending_manifest["validation"]["status"] = "pending"
+    pending_manifest["validation"]["observed"] = None
     with tempfile.TemporaryDirectory(prefix="whitewater-waft-export-tests-") as temporary:
         temporary_path = Path(temporary)
         manifest_path = temporary_path / "manifest.json"
@@ -126,7 +137,7 @@ def main() -> int:
             "test blocker",
             {"missing": "torch"},
         )
-        assert record_failure(manifest_path, copy.deepcopy(manifest), blocker) is True
+        assert record_failure(manifest_path, copy.deepcopy(pending_manifest), blocker) is True
         failed = load_manifest(manifest_path)
         assert failed["status"] == "excluded"
         assert failed["export"]["sha256"] is None
@@ -145,7 +156,7 @@ def main() -> int:
             "ONNX Runtime raised while running the exported graph",
             {"exception": "RuntimeException", "input_shape": [1, 3, 160, 256]},
         )
-        assert record_failure(manifest_path, copy.deepcopy(manifest), ort_blocker) is True
+        assert record_failure(manifest_path, copy.deepcopy(pending_manifest), ort_blocker) is True
         recorded = load_manifest(manifest_path)
         assert recorded["validation"]["status"] == "pending"
         tb = recorded["validation"]["observed"]["technical_blocker"]
