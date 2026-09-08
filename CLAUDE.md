@@ -30,9 +30,12 @@ runner and active protocol v2 merged through PR #13; P25-5 local/CI qualificatio
 PR #15 at `946c042`. **P25-6 packaging is complete:** the airgap target-measurement package
 (profile driver plus an OpenEXR/pynvml runtime — the EXR backend was moved off OpenImageIO to drop
 a GPL media stack; see `docs/context.md` correction 8) was built and qualified on EL8 through PRs
-#21, #22, #23 and #24. The qualified `whitewater-p25-6-el8.tar.gz` has SHA256
-`06a72bb53d2919b8d2ed03fbcf7cbd314e3c2604fa377b912f01040ce67c707a`; its runtime license inventory
-`a87694f5…` was approved by the Andrew Miller runtime legal-review in PR #24. No model/default,
+#21, #22, #23 and #24, then re-qualified after PR #32 bounded ORT's CUDA arena
+(`gpu_mem_limit`), which changed the native ORT bridge and thus the generated runtime inventory.
+The qualified `whitewater-p25-6-el8.tar.gz` has SHA256
+`b74d450a6928b19234967a1c8f4b2e27dff1abe4cd41ccfa5cfd513e25d45658`; its runtime license inventory
+`6b431b40…` was approved by the Andrew Miller runtime legal-review in PR #38 (superseding the
+original `06a72bb5…`/`a87694f5…` from PR #24). No model/default,
 target result, or persistent OFX choice index has been selected. The P25-6 human operator
 measurement run (`smoke`/`screen`/`final` per `bakeoff/p25-6/RUN-P25-6.txt`) has been performed on
 the airgapped box; the completed 2026-09-01 evidence (`runner.source_commit 5731b2d`) is under
