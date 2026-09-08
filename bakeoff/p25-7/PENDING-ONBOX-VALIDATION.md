@@ -31,25 +31,27 @@ Bound identity:
 | neuflow-v2 | 204b5e3744461d90303b9ff82caa7a1bb56a2ca2   | 76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e20f7995fcc019f | 07aa20529a93eb970bd3160ce8a2cee10b65ba410aa32f47e63676c039661548 | 66177652            |
 
 Both candidates remain `status=excluded` (checkpoint licence terms unknown); this fill binds their
-measurement identity only, not any shipping authorization. Of the structural blockers in section 3,
-neuflow-v2's missing-`final`-profile blocker is now resolved: its GPU numbers are captured via the
-`screen`-profile CUDA blocks (`inputs/selection-screen-neuflow-*-cuda.json`) rather than the `final`
-cells. waft-twins exposing only CPUExecutionProvider is unchanged and still needs Andrew's decision
-before it can join the CUDA `final` cells.
+measurement identity only, not any shipping authorization. The structural blockers in section 3 are
+unchanged by this fill: neuflow-v2 has no `final` profile AND its checked-in validation is CPU-only,
+so its GPU (CUDA) latency/VRAM measurement is DEFERRED pending a dedicated NeuFlow CUDA qualification
+run. waft-twins exposing only CPUExecutionProvider is likewise unchanged and still needs Andrew's
+decision plus a CUDA validation pack before it can join any CUDA cells.
 
 ## 3. Structural blockers to flag (NOT operator-fillable)
 
-- **neuflow-v2 has no `final` profile — RESOLVED.** The frozen `_validate_final_coverage` gate
-  requires the final matrix to select `mp2`, but the frozen `candidate_constraints` restrict
-  neuflow-v2 to `mp0_331776`. A neuflow-only `final` selection is therefore structurally impossible
-  and is rejected (`final_coverage`). NeuFlow's CUDA timing/VRAM cannot ride the `final` profile at
-  all. **Decision (Andrew): capture neuflow-v2 GPU latency/VRAM via dedicated `screen`-profile CUDA
-  blocks at `mp0_331776`** — the new `inputs/selection-screen-neuflow-*-cuda.json` selections
-  (`cuda` provider, `idle`+`live_flame`, `gpu_mem_limit_mib` 15000), one per existing CPU block.
-  NeuFlow's GPU ranking is therefore at `screen` rigor (1 session / 0 warmup / 5 steady), one tier
-  below the shipping finalist's `final` rigor (3 / 1 / 10). This rigor asymmetry is accepted for
-  the fast-alternative comparison: NeuFlow is being weighed as a lightweight alternative, not as the
-  finalist, and screen-profile CUDA numbers are sufficient to rank it. Resolved in this prestage.
+- **neuflow-v2 GPU (CUDA) latency/VRAM is DEFERRED pending a dedicated NeuFlow CUDA qualification
+  run.** The frozen fail-closed rule is that a provider's support is potential capability, NOT
+  qualification evidence: NeuFlow must not list or schedule CUDA until a returned report explicitly
+  carries `measurement_providers` `cuda`. NeuFlow's checked-in validation evidence is CPU-only
+  (`measurement_providers` is `[cpu]`), so no NeuFlow CUDA row is schedulable and none is included in
+  this package's screen selections. NeuFlow is therefore CPU-only in the screen matrix, and its GPU
+  latency/VRAM measurement is DEFERRED: it requires a dedicated NeuFlow CUDA qualification run before
+  any CUDA cell can be scheduled. (This is separate from — and does not depend on — the fact that the
+  frozen `candidate_constraints` restrict neuflow-v2 to `mp0_331776`, so a neuflow `final` selection
+  is structurally impossible and rejected `final_coverage`; even were a profile available, the
+  fail-closed provider rule still blocks a CUDA row without a CUDA qualification result.) This mirrors
+  the waft-twins situation below: both are CPU-only-validated and need a CUDA qualification for any GPU
+  numbers.
 
 - **waft-twins is carried as CPU-only, validated-but-unmeasured evidence — RESOLVED (decision 2C).**
   Its ONNX export is a fixed 128x192 spatial shape: WAFT specializes resolution and cannot export a

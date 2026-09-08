@@ -14,22 +14,22 @@ install the extracted directory into Flame as a product plugin.
 DRAFT / prestage status
 -----------------------
 
-This directory (bakeoff/p25-7/) is a prestaged DRAFT for human review.  Two classes of value are
-deliberately not yet final and MUST be resolved before the matrix can execute the affected cells:
+This directory (bakeoff/p25-7/) is a prestaged DRAFT for human review.  Exactly ONE class of value
+still needs operator materialization before the matrix can execute the affected cells:
 
   1. Every production shot in inputs/corpus.template.json carries a REPLACE_WITH_ON_BOX_ABSOLUTE_PATH
      path_pattern placeholder.  The operator fills each with the truthful on-box EXR sequence path.
-     The driver refuses to start (corpus_invalid) while any placeholder remains.
+     The driver refuses to start (corpus_invalid) while any placeholder remains.  This is the only
+     operator fill required in this package.
 
-  2. The waft-twins and neuflow-v2 candidate Linux ONNX identity hashes do not exist yet -- they
-     are produced only by the on-box WAFT / NeuFlow validation-export runs.  Their entries in
-     inputs/candidate-entries.json and inputs/artifact-map.json carry clearly-labeled
-     PENDING_ONBOX_VALIDATION_<candidate> placeholders for artifact_sha256,
-     export_environment_sha256, manifest_sha256, artifact_size_bytes and the artifact-map platform.
-     See PENDING-ONBOX-VALIDATION.md.  Matrix PLANNING of those candidates already succeeds (the
-     planner does not consume the hashes), but any selection that names waft-twins or neuflow-v2
-     cannot EXECUTE until the operator replaces those placeholders with the validated
-     linux-x86_64 manifest values.  Do not invent hashes.
+The waft-twins and neuflow-v2 candidate Linux ONNX identity fields (artifact_sha256,
+export_environment_sha256, manifest_sha256, artifact_size_bytes and the artifact-map platform) are
+NOT operator-fillable and carry no placeholders: they are already bound in
+inputs/candidate-entries.json and inputs/artifact-map.json from the validated linux-x86_64 manifests
+(models/waft-twins-artifact.json, models/neuflow-v2.json) produced by the on-box WAFT / NeuFlow
+validation-export runs.  Do NOT edit or "replace" those fields -- step 4a confirms no operator action
+is required for them, and hand-editing them would corrupt valid bindings.  See
+PENDING-ONBOX-VALIDATION.md.
 
 No production images leave the machine.  The operator returns only:
 
@@ -106,9 +106,11 @@ The driver reads five small JSON inputs plus the production corpus.  Carried und
       Copy inputs/corpus.template.json out of the package and set every production
       path_pattern to the truthful on-box EXR sequence path.  The frozen synthetic partition must
       not be changed.  Do NOT change the supplied production geometry/PAR/encoding/channels/bit_depth/
-      reference_frame -- those are the anonymized metadata for the real shots.  Keep at least eight
-      frames on each side of each reference frame to exercise chain offsets 1/2/4/8.  Production
-      frames stay on the box and are read locally; the runner hashes them there.
+      reference_frame -- those are the anonymized metadata for the real shots.  The runner reads each
+      shot's reference_frame plus the forward chain offsets 1/2/4/8, so the sequence must extend at
+      least through reference_frame + 8, consistent with the supplied shot metadata; do NOT require
+      eight frames before the reference.  Production frames stay on the box and are read locally; the
+      runner hashes them there.
 
 The driver runs the complete corpus schema+protocol consistency gate before it creates resume
 state or starts any inference.  A remaining REPLACE_WITH_ path, a missing category or synthetic
@@ -117,8 +119,8 @@ case is an immediate corpus_invalid stop.
 5. CUDA loader-path preflight (CUDA runs only)
 ----------------------------------------------
 
-Mandatory before any CUDA profile (the final selection, and any neuflow-v2 CUDA run).  Skip only
-for pure-CPU smoke/screen runs.  As in P25-6: locate your box's Flame CUDA library directory
+Mandatory before any CUDA profile (the final selection).  Skip only for pure-CPU smoke/screen runs
+(every screen selection in this package is CPU-only).  As in P25-6: locate your box's Flame CUDA library directory
 (holding libcublas.so.12, libcublasLt.so.12, libcudart.so.12, libcurand.so.10), export
 LD_LIBRARY_PATH with the carried ORT directory FIRST then that Flame directory, and run the
 bridge/provider dependency preflight until it reports the carried ONNX Runtime and no unresolved
@@ -141,25 +143,22 @@ corpus/report-metadata copies OUTSIDE the package.
           mp0_331776.  Conditioning is matched to each shot's encoding: scene-linear shots use
           native-clamp01-v1 + signed-log-v1 + pair-percentile-v1; log shots use native-clamp01-v1 +
           native-log-v1 + pair-percentile-v1.  NeuFlow v2 is scheduled ONLY in its own constrained
-          768x432 / 16:9 / mp0_331776 blocks -- a CPU set (quality) and a matching CUDA set for GPU
-          latency/VRAM ranking.  Because neuflow-v2 is mp0_331776-only it can never use the `final`
-          profile, so its GPU numbers are captured here at `screen` rigor (1 session / 0 warmup / 5
-          steady) via the dedicated `-cuda` blocks; this is one tier below the finalist's `final`
-          rigor and is accepted for the fast-alternative comparison.  Run every screen file:
+          768x432 / 16:9 / mp0_331776 blocks, and CPU-only in this matrix.  NeuFlow's GPU (CUDA)
+          latency/VRAM is DEFERRED: the frozen protocol forbids scheduling a NeuFlow CUDA row until an
+          explicit NeuFlow CUDA qualification result exists, and NeuFlow's checked-in validation is
+          CPU-only, so no NeuFlow CUDA row is schedulable here.  Capturing NeuFlow GPU numbers requires
+          a dedicated NeuFlow CUDA qualification run first (see PENDING-ONBOX-VALIDATION.md).  Run
+          every screen file:
             inputs/selection-screen-production-scene-linear.json          (sea-raft-m, raft-original)
             inputs/selection-screen-production-log.json                   (sea-raft-m, raft-original)
             inputs/selection-screen-neuflow-production-scene-linear.json  (neuflow-v2 CPU, 16:9 prod shots)
             inputs/selection-screen-neuflow-production-log.json           (neuflow-v2 CPU, 16:9 prod shots)
-            inputs/selection-screen-neuflow-production-scene-linear-cuda.json  (neuflow-v2 CUDA, 16:9 prod shots; needs step 5)
-            inputs/selection-screen-neuflow-production-log-cuda.json           (neuflow-v2 CUDA, 16:9 prod shots; needs step 5)
             inputs/selection-screen-synthetic-scene-linear.json           (sea-raft-m, raft-original)
             inputs/selection-screen-synthetic-log.json                    (sea-raft-m, raft-original)
             inputs/selection-screen-neuflow-synthetic-lattice.json        (neuflow-v2 CPU, FHD/UHD 16:9)
-            inputs/selection-screen-neuflow-synthetic-lattice-cuda.json   (neuflow-v2 CUDA, FHD/UHD 16:9; needs step 5)
           waft-twins has been dropped from the screen selections above (decision 2C: CPU-only,
           fixed 128x192, not schedulable in the shared mp0_331776 lattice).  The neuflow-v2 files
-          require step 4a first.  The neuflow-v2 `-cuda` files additionally require the step 5 CUDA
-          loader preflight (they select the cuda provider).
+          require step 4a first.  All screen selections are CPU-only and need no CUDA loader preflight.
 
   final   inputs/selection-final.json
           The expensive repeated CUDA timing/VRAM protocol on the shipping finalist sea-raft-m at
