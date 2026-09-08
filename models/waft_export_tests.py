@@ -176,6 +176,7 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="whitewater-waft-artifact-scope-") as scope_dir:
             supplied = Path(scope_dir) / "waft-twins-artifact.json"
             supplied.write_bytes(MANIFEST.read_bytes())
+            supplied.chmod(0o644)  # write_bytes honours the umask; load_manifest requires exactly 0644
             assert not (supplied.parent / "waft-twins-opset17.onnx").exists()
             sys.argv = ["check_waft_artifact.py", str(supplied)]
             try:

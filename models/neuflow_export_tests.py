@@ -392,6 +392,7 @@ def _test_missing_artifact_scope() -> None:
         with tempfile.TemporaryDirectory(prefix="neuflow-artifact-scope-") as scope_dir:
             supplied = Path(scope_dir) / "neuflow-v2.json"
             supplied.write_bytes(MANIFEST_PATH.read_bytes())
+            supplied.chmod(0o644)  # write_bytes honours the umask; load_manifest requires exactly 0644
             sys.argv = ["check_neuflow_manifest.py", str(supplied)]
             _expect_error(checker.main, ArtifactError, "artifact is missing")
     finally:
