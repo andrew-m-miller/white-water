@@ -27,6 +27,7 @@ CHECKPOINT_EXCLUSION_REASON = ExclusionReason.CHECKPOINT_LICENSE_TERMS_UNKNOWN.v
 EXPORT_FAILURE_EXCLUSION_REASON = ExclusionReason.EXPORT_OR_OPERATOR_FAILURE.value
 MACOS_PLATFORM = "macos-arm64"
 LINUX_PLATFORM = "linux-x86_64"
+DEFAULT_MANIFEST = Path(__file__).with_name("neuflow-v2.json")
 
 
 def _validate_provider_evidence(platform: str, observed: object) -> None:
@@ -41,24 +42,37 @@ def _validate_provider_evidence(platform: str, observed: object) -> None:
     selected = provider_validation.get("selected")
     if not isinstance(selected, list) or not selected:
         raise ArtifactError("NeuFlow provider evidence has no selected providers")
-    expected_provider = (
-        "CPUExecutionProvider" if platform == MACOS_PLATFORM else "CUDAExecutionProvider"
-    )
-    if requested != expected_provider or selected[0] != expected_provider:
-        raise ArtifactError(
-            f"NeuFlow {platform} evidence must request and first-select {expected_provider}"
-        )
-    if platform == MACOS_PLATFORM and "CUDAExecutionProvider" in selected:
-        raise ArtifactError("macOS NeuFlow evidence must not claim CUDA selection")
+    # The NeuFlow numerical pass is a device-independent parity check on the exported ONNX.
+    # macOS carries no CUDA runtime, so it must request and first-select CPU. The Linux x86_64
+    # validation may be qualified on either CPU or CUDA: the checked-in validation pack
+    # (bakeoff/neuflow-validation, like bakeoff/waft-validation) is deliberately CPU-only and
+    # device-independent, so a CPU-qualified Linux row is contract-valid, and a CUDA-qualified
+    # Linux row from a separate EL8 CUDA runtime is equally acceptable. Whichever provider is
+    # requested must be the one actually first-selected -- a requested provider that fell back to
+    # another is a silent-fallback failure, not a pass.
+    if platform == MACOS_PLATFORM:
+        if requested != "CPUExecutionProvider" or selected[0] != "CPUExecutionProvider":
+            raise ArtifactError(
+                "macOS NeuFlow evidence must request and first-select CPUExecutionProvider"
+            )
+        if "CUDAExecutionProvider" in selected:
+            raise ArtifactError("macOS NeuFlow evidence must not claim CUDA selection")
+    else:
+        if requested not in ("CPUExecutionProvider", "CUDAExecutionProvider"):
+            raise ArtifactError(
+                f"NeuFlow {platform} evidence requested an unsupported provider: {requested}"
+            )
+        if selected[0] != requested:
+            raise ArtifactError(
+                f"NeuFlow {platform} evidence must request and first-select {requested}"
+            )
     environment = observed.get("environment")
     if isinstance(environment, dict) and environment.get("provider") not in (None, requested):
         raise ArtifactError("NeuFlow provider evidence disagrees with its environment record")
 
 
 def main() -> int:
-    manifest_path = (
-        Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("neuflow-v2.json")
-    )
+    manifest_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_MANIFEST
     manifest = load_manifest(manifest_path)
 
     if manifest["candidate"]["id"] != "neuflow-v2":
@@ -193,12 +207,22 @@ def main() -> int:
             raise ArtifactError("NeuFlow advertised output shape is not the fixed evaluation lattice")
 
     artifact_path = manifest_path.parent / manifest["export"]["artifact"]
-    # The source checkout intentionally omits ignored ONNX payloads. If a local exporter has
-    # staged one, validate its exact mode, size and hash instead of silently ignoring it.
+    # The repository's own checked-in manifest intentionally omits the ignored ONNX payload
+    # (models/*.onnx is gitignored), so validating it in a source checkout must not require the
+    # bytes -- there the recorded sha256/size are the identity of record. For any other
+    # (caller-supplied) manifest -- e.g. an operator running this against a returned validation
+    # package -- a missing artifact is fatal: the package must carry the exact bytes it claims,
+    # not pass on self-reported hash and size alone. If a local exporter has staged one, validate
+    # its exact mode, size and hash.
+    is_default_manifest = manifest_path.resolve() == DEFAULT_MANIFEST.resolve()
+    claims_artifact = manifest["export"].get("sha256") is not None
     try:
         artifact_path.lstat()
     except FileNotFoundError:
-        pass
+        # Only a manifest that actually claims an exported artifact (sha256 recorded) requires the
+        # bytes; a pending/failed record publishes no artifact and is legitimately payload-free.
+        if claims_artifact and not is_default_manifest:
+            raise ArtifactError(f"artifact is missing: {artifact_path}")
     else:
         validate_artifact(manifest, manifest_path, artifact_path)
 

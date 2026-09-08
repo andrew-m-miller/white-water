@@ -208,7 +208,11 @@ def _test_update_manifest_preserves_checkpoint_admission(manifest) -> None:
             updated,
             output,
             observed,
-            "macos-arm64",
+            # Follow the manifest's own validated platform (linux-x86_64 for the checked-in
+            # CPU validation) so update_manifest builds an export environment consistent with the
+            # recorded observed evidence, rather than forcing a macOS platform onto Linux CPU
+            # evidence. macOS-specific provider handling is covered by _test_provider_selection_guards.
+            manifest["export"]["platform"],
         )
         recorded = load_manifest(destination)
         recorded_observed = recorded["validation"]["observed"]
@@ -227,7 +231,9 @@ def _test_update_manifest_preserves_checkpoint_admission(manifest) -> None:
 
         # Exercise the candidate-specific checker as well as the shared manifest gate. The
         # synthetic payload has the same contract as a real export, so only its expected hash
-        # and size need to be substituted for this dependency-free regression fixture.
+        # and size need to be substituted for this dependency-free regression fixture. (The
+        # macOS-primary path pins those constants; on the Linux platform the checker validates
+        # the recorded identity directly, so the substitution is inert but harmless.)
         digest = exporter.sha256_file(output)
         old_argv = sys.argv
         sys.argv = ["check_neuflow_manifest.py", str(destination)]
@@ -369,6 +375,30 @@ def _test_linux_cuda_manifest_path(manifest) -> None:
             sys.argv = old_argv
 
 
+def _test_missing_artifact_scope() -> None:
+    """A missing ONNX payload is exempt only for the repository's own checked-in manifest.
+
+    The checked-in manifest's payload is gitignored, so validating it in a source checkout must
+    not require the bytes. A caller-supplied manifest -- e.g. an operator checking a returned
+    validation package -- must carry the exact bytes it claims: a missing artifact is fatal there
+    and must not pass on self-reported hash and size alone.
+    """
+
+    old_argv = sys.argv
+    try:
+        sys.argv = ["check_neuflow_manifest.py", str(MANIFEST_PATH)]
+        if checker.main() != 0:
+            raise AssertionError("default checked-in NeuFlow manifest must pass without the gitignored ONNX")
+        with tempfile.TemporaryDirectory(prefix="neuflow-artifact-scope-") as scope_dir:
+            supplied = Path(scope_dir) / "neuflow-v2.json"
+            supplied.write_bytes(MANIFEST_PATH.read_bytes())
+            supplied.chmod(0o644)  # write_bytes honours the umask; load_manifest requires exactly 0644
+            sys.argv = ["check_neuflow_manifest.py", str(supplied)]
+            _expect_error(checker.main, ArtifactError, "artifact is missing")
+    finally:
+        sys.argv = old_argv
+
+
 def main() -> int:
     manifest = load_manifest(MANIFEST_PATH)
     if manifest["status"] not in {"provenance_pinned_export_pending", "export_validated", "excluded"}:
@@ -448,6 +478,7 @@ def main() -> int:
     _test_contiguous_onnx_inputs()
     _test_provider_selection_guards()
     _test_linux_cuda_manifest_path(manifest)
+    _test_missing_artifact_scope()
 
     artifact_path = MANIFEST_PATH.parent / manifest["export"]["artifact"]
     if artifact_path.exists():
