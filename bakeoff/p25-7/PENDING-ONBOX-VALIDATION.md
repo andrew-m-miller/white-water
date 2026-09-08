@@ -51,12 +51,17 @@ before it can join the CUDA `final` cells.
   the fast-alternative comparison: NeuFlow is being weighed as a lightweight alternative, not as the
   finalist, and screen-profile CUDA numbers are sufficient to rank it. Resolved in this prestage.
 
-- **waft-twins has no CUDA measurability yet.** Its manifest exposes only CPUExecutionProvider, so
-  `measurement_providers` is `[cpu]` and a CUDA (final) waft run is rejected (`provider_unavailable`).
-  If waft-twins is to be a CUDA finalist, the on-box validation must establish and list cuda before
-  it can join `selection-final.json` at mp2.
+- **waft-twins is carried as CPU-only, validated-but-unmeasured evidence — RESOLVED (decision 2C).**
+  Its ONNX export is a fixed 128x192 spatial shape: WAFT specializes resolution and cannot export a
+  spatially-dynamic ONNX (no dynamic-shape support), and 128x192 matches no protocol cap token. A
+  128x192 graph cannot accept the shared `mp0_331776` (768x432) lattice input, and its manifest
+  exposes only CPUExecutionProvider (`measurement_providers` is `[cpu]`). waft-twins is therefore NOT
+  scheduled in the shared `mp0_331776` lattice and has been dropped from those screen selections; it
+  is retained in `candidate-entries.json` as `status=excluded` evidence. A full arena measurement
+  would require a re-export at the lattice resolution plus a CUDA validation pack, which is deferred.
 
 - **The final mandatory-cell gate is covered by sea-raft-m only right now.** `selection-final.json`
   contains the two mandatory cells (fhd/uhd @ mp2 @ cuda, idle+live_flame). sea-raft-m is the only
-  candidate currently able to run them. waft-twins joins that same file at mp2 once items 2 and its
-  CUDA measurability are resolved.
+  candidate currently able to run them. waft-twins does not join that file: per decision 2C it is
+  carried as CPU-only validated-but-unmeasured evidence and is not scheduled in the shared lattice
+  (its export is fixed 128x192, resolution-specialized with no dynamic-shape support, and CPU-only).
