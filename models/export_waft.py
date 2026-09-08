@@ -727,18 +727,14 @@ def _export_dynamo(torch: Any, wrapper: Any, samples: tuple, output: Path, opset
     import onnx
     from torch.export import Dim
 
-    # Dim.AUTO marks each spatial axis dynamic where the model allows and specializes -- with a log
-    # naming the axis -- only where the graph forces a constant. That is exactly the signal we want:
-    # if WAFT's backbone bakes the resolution, torch says which dim it pinned, and the post-export
-    # input-shape check records whether the emitted ONNX is actually dynamic. Fall back to named Dims
-    # on a torch without Dim.AUTO.
-    auto = getattr(Dim, "AUTO", None)
-    if auto is not None:
-        dynamic_shapes = ({2: auto, 3: auto}, {2: auto, 3: auto})
-    else:
-        height = Dim("height", min=32, max=8192)
-        width = Dim("width", min=32, max=8192)
-        dynamic_shapes = ({2: height, 3: width}, {2: height, 3: width})
+    # Named, shared height/width Dims: the model requires both frames to match, and this is the path
+    # that actually produces an ONNX (Dim.AUTO makes a more-dynamic graph that onnxscript 0.2.7
+    # cannot translate -- "Could not determine the dtype for the input 'inputs'"). The post-export
+    # input-shape check then reports whether the emitted ONNX kept the spatial axes dynamic or
+    # specialized them to the example resolution.
+    height = Dim("height", min=32, max=8192)
+    width = Dim("width", min=32, max=8192)
+    dynamic_shapes = ({2: height, 3: width}, {2: height, 3: width})
     # Serialization (via the ONNXProgram's model_proto / save) itself runs through onnxscript's
     # serde, so it must happen INSIDE the shim context too -- that is where the bool->int attribute
     # coercion applies. Building the ONNXProgram without a path keeps it in memory; we then write
