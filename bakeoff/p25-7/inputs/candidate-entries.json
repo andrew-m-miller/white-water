@@ -1,7 +1,7 @@
 [
   {
     "candidate_id": "sea-raft-m",
-    "status": "excluded",
+    "status": "eligible",
     "measurement_status": "measurable",
     "source_commit": "9137517ba24e628442aec097d3afe71d03503b75",
     "checkpoint_sha256": "cb8cfbf14c5e0f6734b64add383708b7ff68cc6089a0007c67165d4761346102",
@@ -10,10 +10,6 @@
     "manifest_sha256": "materialize-from-linux-manifest",
     "artifact_size_bytes": "materialize-from-linux-manifest",
     "measurement_providers": ["cpu", "cuda"],
-    "exclusion_reason": {
-      "type": "other",
-      "message": "Shipping candidate carried as a measurable comparison entry. The OFX default selection is a P25-7 ranking outcome and is not asserted by this input file, so the candidate is declared status=excluded here (measurement_status=measurable). The license surface below is the reviewed 2026-08-23 audit from models/sea-raft-m.json, carried as evidence, not as a shipping authorization."
-    },
     "license_verdicts": {
       "code": "commercial_use_permitted",
       "checkpoint": "commercial_use_permitted",
@@ -71,10 +67,10 @@
     "export_environment_sha256": "d22efc240e43b2b8a569655ec2efad19c74de75e79c49139ed759206ee2e0130",
     "manifest_sha256": "4dbc32e8314bea0c0024b8496cee62a9633a12927830556d3e06a64ec41a7834",
     "artifact_size_bytes": 66177652,
-    "measurement_providers": ["cpu", "cuda"],
+    "measurement_providers": ["cpu"],
     "exclusion_reason": {
       "type": "license_unknown",
-      "message": "NeuFlow v2 is a shipping-candidate carried for measurement only, and is restricted by the frozen protocol candidate_constraints to cap mp0_331776 (768x432, canonical 16:9) on cpu/cuda. The neuflow_mixed.pth checkpoint has no checkpoint-specific license (models/neuflow-v2.json), so shipping and OFX selection remain blocked pending a checkpoint terms review. The Linux x86_64 ONNX artifact identity fields are now bound to the validated linux-x86_64 manifest (models/neuflow-v2.json) from the on-box NeuFlow validation-export run (CPU-only validation; the device-independent artifact is measurable on cpu or cuda)."
+      "message": "NeuFlow v2 is a shipping-candidate carried for measurement only, and is restricted by the frozen protocol candidate_constraints to cap mp0_331776 (768x432, canonical 16:9). The neuflow_mixed.pth checkpoint has no checkpoint-specific license (models/neuflow-v2.json), so shipping and OFX selection remain blocked pending a checkpoint terms review. The Linux x86_64 ONNX artifact identity fields are now bound to the validated linux-x86_64 manifest (models/neuflow-v2.json) from the on-box NeuFlow validation-export run. That validation was CPU-only, so the checked-in NeuFlow evidence is CPU-only and measurement_providers is [cpu]; NeuFlow GPU (CUDA) measurement is deferred until an explicit NeuFlow CUDA qualification run produces a returned report carrying measurement_providers cuda."
     },
     "license_verdicts": {
       "code": "commercial_use_permitted",
