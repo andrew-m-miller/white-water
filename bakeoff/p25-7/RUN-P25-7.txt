@@ -77,25 +77,27 @@ The driver reads five small JSON inputs plus the production corpus.  Carried und
                     (excluded / measurable: P25-7 measures and ranks but this input file selects no
                     shipping default).  sea-raft-m (shipping) and raft-original (validation-baseline)
                     carry the materialize-from-linux-manifest CI sentinel for their platform-specific
-                    identity fields.  waft-twins and neuflow-v2 carry PENDING_ONBOX_VALIDATION_<id>
-                    placeholders that YOU must replace from the on-box validated manifests before any
-                    of their cells can run (step 4a).  raft-original is a validation baseline: it can
-                    never receive an OFX choice, ship, or win the ranking.
+                    identity fields.  waft-twins and neuflow-v2 are bound to their validated
+                    linux-x86_64 manifests (models/waft-twins-artifact.json, models/neuflow-v2.json);
+                    their identity fields are filled from the on-box validation-export runs.
+                    raft-original is a validation baseline: it can never receive an OFX choice, ship,
+                    or win the ranking.
   --artifact-map    inputs/artifact-map.json
                     Maps each candidate id to its manifest + Linux ONNX.  waft-twins and neuflow-v2
-                    carry PENDING_ONBOX_VALIDATION_<id> in the platform field until unblocked.
+                    carry platform=linux-x86_64, bound to their validated manifests.
   --selection       one of the carried selection-*.json files (step 6).
   --corpus          your filled copy of inputs/corpus.template.json (step 4b).
   --report-metadata your filled copy of inputs/report-metadata.json (fill only
                     os_release/cpu/gpu/driver; leave the materialize-from-ci hashes alone).
 
-  4a. Unblock waft-twins / neuflow-v2 (only needed to run their cells)
-      After the on-box WAFT / NeuFlow validation-export produces a linux-x86_64 manifest, replace
-      the four PENDING_ONBOX_VALIDATION_<id> fields in candidate-entries.json (artifact_sha256,
-      export_environment_sha256, manifest_sha256, artifact_size_bytes) and the artifact-map
-      platform field with that manifest's exact values.  Note: WAFT's current manifest exposes only
-      CPUExecutionProvider, so waft-twins measurement_providers is [cpu]; a CUDA (final) waft run
-      requires the on-box validation to first establish and list cuda.  See PENDING-ONBOX-VALIDATION.md.
+  4a. waft-twins / neuflow-v2 identity (already bound)
+      The four identity fields in candidate-entries.json (artifact_sha256, export_environment_sha256,
+      manifest_sha256, artifact_size_bytes) and the artifact-map platform field are bound to the
+      validated linux-x86_64 manifests (models/waft-twins-artifact.json, models/neuflow-v2.json) from
+      the on-box WAFT / NeuFlow validation-export runs; no operator action is required here.  Note:
+      WAFT's current manifest exposes only CPUExecutionProvider, so waft-twins measurement_providers
+      is [cpu]; a CUDA (final) waft run requires the on-box validation to first establish and list
+      cuda.  See PENDING-ONBOX-VALIDATION.md.
 
   4b. Fill the corpus
       Copy inputs/corpus.template.json out of the package and set every production

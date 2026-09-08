@@ -36,14 +36,14 @@
     "measurement_status": "measurable",
     "source_commit": "b152ff1cad1af8c185ee7b141997c48ff3334c87",
     "checkpoint_sha256": "f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070",
-    "artifact_sha256": "PENDING_ONBOX_VALIDATION_waft-twins",
-    "export_environment_sha256": "PENDING_ONBOX_VALIDATION_waft-twins",
-    "manifest_sha256": "PENDING_ONBOX_VALIDATION_waft-twins",
-    "artifact_size_bytes": "PENDING_ONBOX_VALIDATION_waft-twins",
+    "artifact_sha256": "de5206543d409f8759fcf4932543600065e66777a74ff63142c3c2426334a9e7",
+    "export_environment_sha256": "370f370d221d95b35060149150a85061569c314fa7656effeb638175d0687fb5",
+    "manifest_sha256": "faec803191f99a1c29461bab44403f6ff6cec90ba194df2d92c0e14bcd1c7074",
+    "artifact_size_bytes": 545359430,
     "measurement_providers": ["cpu"],
     "exclusion_reason": {
       "type": "license_unknown",
-      "message": "WAFT/Twins is a shipping-candidate carried for measurement only. The selected zero-shot.pth checkpoint member has no published file-level commercial-use or redistribution terms (models/waft-twins-artifact.json), so shipping and OFX selection remain blocked pending an explicit checkpoint terms review. The Linux ONNX artifact identity fields carry PENDING_ONBOX_VALIDATION_waft-twins placeholders: the export/validation run has not yet produced a linux-x86_64 manifest, so these MUST be replaced with the operator's on-box validated manifest hashes before the matrix can execute any waft-twins cell. models/export_waft.py currently exposes only CPUExecutionProvider, so measurement_providers is [cpu]; CUDA measurement requires the on-box validation to establish and list it."
+      "message": "WAFT/Twins is a shipping-candidate carried for measurement only. The selected zero-shot.pth checkpoint member has no published file-level commercial-use or redistribution terms (models/waft-twins-artifact.json), so shipping and OFX selection remain blocked pending an explicit checkpoint terms review. The Linux x86_64 ONNX artifact identity fields are now bound to the validated linux-x86_64 manifest (models/waft-twins-artifact.json) from the on-box WAFT validation-export run (fixed-shape 128x192). models/export_waft.py currently exposes only CPUExecutionProvider, so measurement_providers is [cpu]; CUDA measurement requires the on-box validation to establish and list it."
     },
     "license_verdicts": {
       "code": "commercial_use_permitted",
@@ -67,14 +67,14 @@
     "measurement_status": "measurable",
     "source_commit": "204b5e3744461d90303b9ff82caa7a1bb56a2ca2",
     "checkpoint_sha256": "76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e20f7995fcc019f",
-    "artifact_sha256": "PENDING_ONBOX_VALIDATION_neuflow-v2",
-    "export_environment_sha256": "PENDING_ONBOX_VALIDATION_neuflow-v2",
-    "manifest_sha256": "PENDING_ONBOX_VALIDATION_neuflow-v2",
-    "artifact_size_bytes": "PENDING_ONBOX_VALIDATION_neuflow-v2",
+    "artifact_sha256": "07aa20529a93eb970bd3160ce8a2cee10b65ba410aa32f47e63676c039661548",
+    "export_environment_sha256": "d22efc240e43b2b8a569655ec2efad19c74de75e79c49139ed759206ee2e0130",
+    "manifest_sha256": "4dbc32e8314bea0c0024b8496cee62a9633a12927830556d3e06a64ec41a7834",
+    "artifact_size_bytes": 66177652,
     "measurement_providers": ["cpu", "cuda"],
     "exclusion_reason": {
       "type": "license_unknown",
-      "message": "NeuFlow v2 is a shipping-candidate carried for measurement only, and is restricted by the frozen protocol candidate_constraints to cap mp0_331776 (768x432, canonical 16:9) on cpu/cuda. The neuflow_mixed.pth checkpoint has no checkpoint-specific license (models/neuflow-v2.json), so shipping and OFX selection remain blocked pending a checkpoint terms review. The Linux ONNX artifact identity fields carry PENDING_ONBOX_VALIDATION_neuflow-v2 placeholders: the export/validation run has not yet produced a linux-x86_64 manifest, so these MUST be replaced with the operator's on-box validated manifest hashes before the matrix can execute any neuflow-v2 cell."
+      "message": "NeuFlow v2 is a shipping-candidate carried for measurement only, and is restricted by the frozen protocol candidate_constraints to cap mp0_331776 (768x432, canonical 16:9) on cpu/cuda. The neuflow_mixed.pth checkpoint has no checkpoint-specific license (models/neuflow-v2.json), so shipping and OFX selection remain blocked pending a checkpoint terms review. The Linux x86_64 ONNX artifact identity fields are now bound to the validated linux-x86_64 manifest (models/neuflow-v2.json) from the on-box NeuFlow validation-export run (CPU-only validation; the device-independent artifact is measurable on cpu or cuda)."
     },
     "license_verdicts": {
       "code": "commercial_use_permitted",

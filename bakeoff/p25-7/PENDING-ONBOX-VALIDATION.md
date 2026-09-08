@@ -12,31 +12,28 @@ the truthful on-box EXR sequence path. Geometry/PAR/encoding/channels/bit_depth/
 the anonymized real-shot metadata supplied by Andrew (2026-09-02) and must not be changed. The
 driver refuses to start (`corpus_invalid`) while any placeholder remains.
 
-## 2. waft-twins and neuflow-v2 Linux ONNX identity hashes
+## 2. waft-twins and neuflow-v2 Linux ONNX identity hashes — RESOLVED
 
-These candidates' `checkpoint_sha256` and `source_commit` are known (from their model manifests and
-carried below for reference), but their **Linux x86_64 ONNX artifact identity** only exists after
-the on-box WAFT / NeuFlow validation-export runs. Until then, the following fields carry
-`PENDING_ONBOX_VALIDATION_<candidate>` placeholders in `inputs/candidate-entries.json` and
-`inputs/artifact-map.json`:
+**Resolved.** The on-box WAFT and NeuFlow validation-export runs have produced their validated
+linux-x86_64 manifests, recorded on `main` (`models/waft-twins-artifact.json`,
+`models/neuflow-v2.json`, merged in PR #36). The `artifact_sha256`, `export_environment_sha256`,
+`manifest_sha256`, `artifact_size_bytes` and artifact-map `platform` fields in
+`inputs/candidate-entries.json` and `inputs/artifact-map.json` are now bound to the linux-x86_64
+`platform_artifacts` row of those manifests (identity fields) and to each manifest file's own
+SHA256 (`manifest_sha256`), matching the `tools/p25_5/p25_6_materialize_inputs.py` linux-identity
+convention. No values were invented; each traces to the validated manifest.
 
-- `artifact_sha256`
-- `export_environment_sha256`
-- `manifest_sha256`
-- `artifact_size_bytes`
-- artifact-map `platform`
+Bound identity:
 
-Matrix planning of these candidates already succeeds offline (the planner does not consume the
-hashes), so the intended screen matrix is fully expressed and validated. But any selection naming
-waft-twins or neuflow-v2 will fail on-box artifact materialization until the operator replaces the
-placeholders with the exact values from the validated linux-x86_64 manifest.
+| candidate  | source_commit                              | checkpoint_sha256                                                | artifact_sha256                                                  | artifact_size_bytes |
+|------------|--------------------------------------------|------------------------------------------------------------------|------------------------------------------------------------------|---------------------|
+| waft-twins | b152ff1cad1af8c185ee7b141997c48ff3334c87   | f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070 | de5206543d409f8759fcf4932543600065e66777a74ff63142c3c2426334a9e7 | 545359430           |
+| neuflow-v2 | 204b5e3744461d90303b9ff82caa7a1bb56a2ca2   | 76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e20f7995fcc019f | 07aa20529a93eb970bd3160ce8a2cee10b65ba410aa32f47e63676c039661548 | 66177652            |
 
-Known (real) identity carried in the entries:
-
-| candidate  | source_commit                              | checkpoint_sha256 |
-|------------|--------------------------------------------|-------------------|
-| waft-twins | b152ff1cad1af8c185ee7b141997c48ff3334c87   | f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070 |
-| neuflow-v2 | 204b5e3744461d90303b9ff82caa7a1bb56a2ca2   | 76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e20f7995fcc019f |
+Both candidates remain `status=excluded` (checkpoint licence terms unknown); this fill binds their
+measurement identity only, not any shipping authorization. The structural blockers in section 3
+(neuflow-v2 has no `final` profile; waft-twins exposes only CPUExecutionProvider) are unchanged and
+still need Andrew's decisions before those candidates can join the CUDA `final` cells.
 
 ## 3. Structural blockers to flag (NOT operator-fillable)
 
