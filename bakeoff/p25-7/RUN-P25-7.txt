@@ -138,15 +138,23 @@ corpus/report-metadata copies OUTSIDE the package.
           mp0_331776.  Conditioning is matched to each shot's encoding: scene-linear shots use
           native-clamp01-v1 + signed-log-v1 + pair-percentile-v1; log shots use native-clamp01-v1 +
           native-log-v1 + pair-percentile-v1.  NeuFlow v2 is scheduled ONLY in its own constrained
-          768x432 / 16:9 / mp0_331776 blocks.  Run every screen file:
+          768x432 / 16:9 / mp0_331776 blocks -- a CPU set (quality) and a matching CUDA set for GPU
+          latency/VRAM ranking.  Because neuflow-v2 is mp0_331776-only it can never use the `final`
+          profile, so its GPU numbers are captured here at `screen` rigor (1 session / 0 warmup / 5
+          steady) via the dedicated `-cuda` blocks; this is one tier below the finalist's `final`
+          rigor and is accepted for the fast-alternative comparison.  Run every screen file:
             inputs/selection-screen-production-scene-linear.json          (sea-raft-m, waft-twins, raft-original)
             inputs/selection-screen-production-log.json                   (sea-raft-m, waft-twins, raft-original)
-            inputs/selection-screen-neuflow-production-scene-linear.json  (neuflow-v2, 16:9 prod shots)
-            inputs/selection-screen-neuflow-production-log.json           (neuflow-v2, 16:9 prod shots)
+            inputs/selection-screen-neuflow-production-scene-linear.json  (neuflow-v2 CPU, 16:9 prod shots)
+            inputs/selection-screen-neuflow-production-log.json           (neuflow-v2 CPU, 16:9 prod shots)
+            inputs/selection-screen-neuflow-production-scene-linear-cuda.json  (neuflow-v2 CUDA, 16:9 prod shots; needs step 5)
+            inputs/selection-screen-neuflow-production-log-cuda.json           (neuflow-v2 CUDA, 16:9 prod shots; needs step 5)
             inputs/selection-screen-synthetic-scene-linear.json           (sea-raft-m, waft-twins, raft-original)
             inputs/selection-screen-synthetic-log.json                    (sea-raft-m, waft-twins, raft-original)
-            inputs/selection-screen-neuflow-synthetic-lattice.json        (neuflow-v2, FHD/UHD 16:9)
-          The waft-twins and neuflow-v2 files require step 4a first.
+            inputs/selection-screen-neuflow-synthetic-lattice.json        (neuflow-v2 CPU, FHD/UHD 16:9)
+            inputs/selection-screen-neuflow-synthetic-lattice-cuda.json   (neuflow-v2 CUDA, FHD/UHD 16:9; needs step 5)
+          The waft-twins and neuflow-v2 files require step 4a first.  The neuflow-v2 `-cuda` files
+          additionally require the step 5 CUDA loader preflight (they select the cuda provider).
 
   final   inputs/selection-final.json
           The expensive repeated CUDA timing/VRAM protocol on the shipping finalist sea-raft-m at
