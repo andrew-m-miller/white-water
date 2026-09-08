@@ -17,6 +17,7 @@ manifest is an evaluation record, not shipping approval; its checkpoint licence 
 from __future__ import annotations
 
 import argparse
+import contextlib
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -73,6 +74,7 @@ class BlockerCode:
     CHECKPOINT_LOAD = "strict_checkpoint_load_failure"
     ONNX_EXPORT = "onnx_export_failure"
     OPERATOR_DOMAIN = "unsupported_operator_or_domain"
+    ONNX_RUNTIME = "onnx_runtime_validation_failure"
     PARITY = "pytorch_onnx_parity_failure"
     DIRECTION = "direction_or_identity_failure"
     ARTIFACT = "artifact_publication_failure"
@@ -125,11 +127,16 @@ def _git_head(upstream: Path) -> str:
             text=True,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
+        # Surface git's own stderr: on the airgapped box it is the only diagnostic channel, and its
+        # "detected dubious ownership ... add safe.directory" guard (a checkout copied in from
+        # another user) names the exact fix. A bare exit-128 does not.
+        detail = (getattr(exc, "stderr", "") or "").strip()
         raise TechnicalBlocker(
             BlockerCode.MISSING_INPUT,
             "provenance",
-            f"could not read the pinned upstream checkout: {upstream}",
-            {"command": ["git", "-C", str(upstream), "rev-parse", "HEAD"]},
+            f"could not read the pinned upstream checkout: {upstream}"
+            + (f"; git said: {detail}" if detail else ""),
+            {"command": ["git", "-C", str(upstream), "rev-parse", "HEAD"], "git_stderr": detail},
         ) from exc
     return result.stdout.strip()
 
@@ -145,10 +152,12 @@ def _require_clean_worktree(upstream: Path) -> None:
             text=True,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
+        detail = (getattr(exc, "stderr", "") or "").strip()
         raise TechnicalBlocker(
             BlockerCode.MISSING_INPUT,
             "provenance",
-            f"could not inspect the upstream worktree: {upstream}",
+            f"could not inspect the upstream worktree: {upstream}"
+            + (f"; git said: {detail}" if detail else ""),
         ) from exc
     dirty = result.stdout.strip()
     require(
@@ -603,7 +612,177 @@ def gate_onnx_graph(model_proto: Any, *, expected_opset: int) -> dict[str, Any]:
     }
 
 
-def export_onnx(model: Any, manifest: Mapping[str, Any], output: Path, device: str) -> dict[str, Any]:
+def _export_legacy(torch: Any, wrapper: Any, samples: tuple, output: Path, opset: int,
+                   input_names: list[str], output_names: list[str]) -> None:
+    """The tracing exporter, fixed-shape. The ViT/DepthAnythingV2 backbone constant-folds its
+    spatial sizes at the example shape, so the graph only ever runs at that resolution (docs/
+    context.md correction 12). No dynamic_axes are declared -- the ONNX honestly fixes the input to
+    the example shape rather than advertising a dynamism the graph cannot honour."""
+
+    torch.onnx.export(
+        wrapper,
+        samples,
+        str(output),
+        export_params=True,
+        opset_version=opset,
+        do_constant_folding=True,
+        input_names=input_names,
+        output_names=output_names,
+    )
+
+
+@contextlib.contextmanager
+def _torch_export_shims(torch: Any):
+    """Temporarily neutralise data-dependent guards that block torch.export, then restore them.
+
+    torch.export cannot evaluate a data-dependent tensor boolean, so a guard like torchvision
+    normalize's ``if (std == 0).any(): raise`` aborts the export with GuardOnDataDependentSymNode
+    even though std is a fixed non-zero constant and the branch never fires. Each shim is a
+    byte-for-byte copy of the upstream function (torchvision 0.22) with only the offending
+    data-dependent guard removed, installed for the duration of the export and unconditionally
+    restored. If a target module is not importable there is nothing to patch. Shims are added here
+    one at a time as torch.export surfaces the next data-dependent guard in the WAFT stack.
+    """
+
+    restores: list = []
+    try:
+        try:
+            from torchvision.transforms import _functional_tensor as F_t
+
+            _original_normalize = F_t.normalize
+
+            def _normalize_export_safe(tensor, mean, std, inplace: bool = False):
+                assert_image = getattr(F_t, "_assert_image_tensor", None)
+                if assert_image is not None:
+                    assert_image(tensor)
+                if not tensor.is_floating_point():
+                    raise TypeError(f"Input tensor should be a float tensor. Got {tensor.dtype}.")
+                if tensor.ndim < 3:
+                    raise ValueError(
+                        "Expected tensor to be a tensor image of size (..., C, H, W). "
+                        f"Got tensor.size() = {tensor.size()}"
+                    )
+                if not inplace:
+                    tensor = tensor.clone()
+                dtype = tensor.dtype
+                mean_t = torch.as_tensor(mean, dtype=dtype, device=tensor.device)
+                std_t = torch.as_tensor(std, dtype=dtype, device=tensor.device)
+                # Upstream's `if (std == 0).any(): raise` is dropped here: std is a fixed non-zero
+                # constant, and the tensor boolean is a data-dependent symbol torch.export rejects.
+                if mean_t.ndim == 1:
+                    mean_t = mean_t.view(-1, 1, 1)
+                if std_t.ndim == 1:
+                    std_t = std_t.view(-1, 1, 1)
+                return tensor.sub_(mean_t).div_(std_t)
+
+            F_t.normalize = _normalize_export_safe
+            restores.append(lambda: setattr(F_t, "normalize", _original_normalize))
+        except ImportError:
+            pass
+
+        try:
+            from onnxscript.ir import serde as _serde
+
+            _original_fill = _serde._fill_in_value_for_attribute
+
+            def _fill_bool_coerced(attribute_proto, type_, value):
+                # ONNX has no boolean attribute type: booleans encode INT/INTS attributes, but
+                # protobuf's AttributeProto.i/.ints setters reject a Python bool ("Expected an int,
+                # got a boolean"), which aborts serialization of a torch-exported graph. Coerce
+                # bool scalars and bool lists to int before the upstream serializer assigns them.
+                if isinstance(value, bool):
+                    value = int(value)
+                elif isinstance(value, (list, tuple)) and any(isinstance(v, bool) for v in value):
+                    value = [int(v) if isinstance(v, bool) else v for v in value]
+                return _original_fill(attribute_proto, type_, value)
+
+            _serde._fill_in_value_for_attribute = _fill_bool_coerced
+            restores.append(
+                lambda: setattr(_serde, "_fill_in_value_for_attribute", _original_fill)
+            )
+        except (ImportError, AttributeError):
+            pass
+        yield
+    finally:
+        for restore in reversed(restores):
+            restore()
+
+
+def _export_dynamo(torch: Any, wrapper: Any, samples: tuple, output: Path, opset: int,
+                   input_names: list[str], output_names: list[str]) -> None:
+    """EXPERIMENTAL: export with torch's dynamo (torch.export) exporter so spatial axes stay symbolic.
+
+    The legacy tracer bakes the backbone's spatial sizes as constants at the example shape, so the
+    graph fails at any other resolution (the refine_net broadcast mismatch). torch.export captures
+    symbolic shapes, which can keep the ViT positional-embedding interpolation and the
+    DepthAnythingV2 F.interpolate dynamic. A single shared height/width Dim ties both frames'
+    spatial axes together (they must match). Unverified on the WAFT stack -- must be qualified on the
+    EL8 box; any failure surfaces as a typed onnx_export blocker rather than a raw traceback.
+    """
+
+    import onnx
+    from torch.export import Dim
+
+    # Named, shared height/width Dims: the model requires both frames to match, and this is the path
+    # that actually produces an ONNX (Dim.AUTO makes a more-dynamic graph that onnxscript 0.2.7
+    # cannot translate -- "Could not determine the dtype for the input 'inputs'"). The post-export
+    # input-shape check then reports whether the emitted ONNX kept the spatial axes dynamic or
+    # specialized them to the example resolution.
+    height = Dim("height", min=32, max=8192)
+    width = Dim("width", min=32, max=8192)
+    dynamic_shapes = ({2: height, 3: width}, {2: height, 3: width})
+    # Serialization (via the ONNXProgram's model_proto / save) itself runs through onnxscript's
+    # serde, so it must happen INSIDE the shim context too -- that is where the bool->int attribute
+    # coercion applies. Building the ONNXProgram without a path keeps it in memory; we then write
+    # its ModelProto with the onnx package.
+    with _torch_export_shims(torch):
+        program = torch.onnx.export(
+            wrapper,
+            samples,
+            opset_version=opset,
+            input_names=input_names,
+            output_names=output_names,
+            dynamic_shapes=dynamic_shapes,
+            dynamo=True,
+        )
+        model_proto = getattr(program, "model_proto", None)
+        if model_proto is not None:
+            onnx.save(model_proto, str(output))
+        elif hasattr(program, "save"):
+            # Fall back to the exporter's own serializer only if no ModelProto is exposed.
+            program.save(str(output))
+        else:
+            raise RuntimeError("dynamo ONNXProgram exposed neither a model_proto nor a save method")
+
+
+def _onnx_input_spatial_dims(model_proto: Any, input_names: Sequence[str]) -> dict[str, list]:
+    """Report axes 2,3 of each named graph input as an int (fixed) or a str (dynamic dim_param).
+
+    A spatially-dynamic export has dim_param strings on the height/width axes; a specialized one has
+    concrete ints. This is the ground truth for whether the emitted ONNX can run at another size.
+    """
+
+    dims: dict[str, list] = {}
+    for value_info in model_proto.graph.input:
+        if value_info.name not in input_names:
+            continue
+        shape = value_info.type.tensor_type.shape.dim
+        if len(shape) < 4:
+            continue
+
+        def _axis(d: Any) -> Any:
+            if d.HasField("dim_param"):
+                return d.dim_param
+            if d.HasField("dim_value"):
+                return d.dim_value
+            return None
+
+        dims[value_info.name] = [_axis(shape[2]), _axis(shape[3])]
+    return dims
+
+
+def export_onnx(model: Any, manifest: Mapping[str, Any], output: Path, device: str,
+                exporter: str = "legacy") -> dict[str, Any]:
     try:
         import onnx
         import torch
@@ -627,34 +806,70 @@ def export_onnx(model: Any, manifest: Mapping[str, Any], output: Path, device: s
     sample1 = torch.zeros(shape, dtype=torch.float32, device=device)
     sample2 = torch.zeros(shape, dtype=torch.float32, device=device)
     output.parent.mkdir(parents=True, exist_ok=True)
+    opset = manifest["export"]["opset"]
+    # torch's dynamo exporter emits an opset-18 / IR-10 graph and cannot down-convert to a lower
+    # opset ("Conversion to opset < 18 is not supported"), so the experimental dynamo path exports
+    # and is gated at an opset floor of 18 even when the manifest pins a lower opset for the legacy
+    # artifact. The legacy tracer honours the manifest opset unchanged.
+    effective_opset = max(opset, 18) if exporter == "dynamo" else opset
+    input_names = [item["name"] for item in manifest["tensor_contract"]["inputs"]]
+    output_names = [manifest["tensor_contract"]["output"]["name"]]
     try:
-        torch.onnx.export(
-            wrapper,
-            (sample1, sample2),
-            str(output),
-            export_params=True,
-            opset_version=manifest["export"]["opset"],
-            do_constant_folding=True,
-            input_names=[item["name"] for item in manifest["tensor_contract"]["inputs"]],
-            output_names=[manifest["tensor_contract"]["output"]["name"]],
-            dynamic_axes={
-                "image1": {2: "height", 3: "width"},
-                "image2": {2: "height", 3: "width"},
-                "flow": {2: "height", 3: "width"},
-            },
-        )
+        if exporter == "dynamo":
+            _export_dynamo(torch, wrapper, (sample1, sample2), output, effective_opset, input_names, output_names)
+        else:
+            _export_legacy(torch, wrapper, (sample1, sample2), output, effective_opset, input_names, output_names)
         exported = onnx.load(str(output), load_external_data=False)
-        operator_gate = gate_onnx_graph(exported, expected_opset=manifest["export"]["opset"])
+        spatial_dims = _onnx_input_spatial_dims(exported, input_names)
+        if exporter == "dynamo":
+            # Definitive check: the export is only spatially dynamic if the height/width axes are
+            # dim_param strings. If every input pins them to concrete ints, torch.export specialized
+            # the resolution (the backbone bakes it) and the graph cannot run at another size -- fail
+            # closed here with the exact dims rather than deferring to a cryptic ORT shape error.
+            all_static = spatial_dims and all(
+                isinstance(h, int) and isinstance(w, int) for h, w in spatial_dims.values()
+            )
+            if all_static:
+                raise TechnicalBlocker(
+                    BlockerCode.ONNX_EXPORT,
+                    "onnx_export_dynamic_shape",
+                    "dynamo export specialized the spatial dims; the ONNX graph is not spatially "
+                    "dynamic (the backbone bakes the input resolution)",
+                    {"input_spatial_dims": spatial_dims, "exporter": exporter},
+                )
+        operator_gate = gate_onnx_graph(exported, expected_opset=effective_opset)
         onnx.checker.check_model(exported, full_check=True)
+        # Record which exporter produced the graph, at what opset, and the input spatial dims.
+        operator_gate = {**operator_gate, "exporter": exporter, "opset": effective_opset,
+                         "input_spatial_dims": spatial_dims}
         return operator_gate
     except TechnicalBlocker:
         raise
     except Exception as exc:
+        # Walk the full __cause__/__context__ chain to the DEEPEST exception: onnxscript wraps the
+        # real serialize failure in nested SerdeErrors whose str() is a huge graph-metadata dump, so
+        # the outer message hides the root. Report the innermost error's type and a truncated message.
+        root = exc
+        seen = {id(exc)}
+        while True:
+            nxt = getattr(root, "__cause__", None) or getattr(root, "__context__", None)
+            if nxt is None or id(nxt) in seen:
+                break
+            seen.add(id(nxt))
+            root = nxt
+        root_message = str(root)
+        if len(root_message) > 600:
+            root_message = root_message[:600] + " …[truncated]"
         raise TechnicalBlocker(
             BlockerCode.ONNX_EXPORT,
             "onnx_export",
             "PyTorch could not export WAFT to a checked ONNX graph",
-            {"exception": type(exc).__name__, "message": str(exc)},
+            {
+                "exception": type(exc).__name__,
+                "exporter": exporter,
+                "root_exception": type(root).__name__,
+                "root_message": root_message,
+            },
         ) from exc
 
 
@@ -696,7 +911,16 @@ def validate_export(
     forward_pt = run_pt(first, second)
     reverse_pt = run_pt(second, first)
     validate_provider_device(device, provider)
-    session = ort.InferenceSession(str(output), providers=[provider])
+    runtime_stage = f"{provider}_runtime_validation"
+    try:
+        session = ort.InferenceSession(str(output), providers=[provider])
+    except Exception as exc:  # onnxruntime raises its own pybind exception types
+        raise TechnicalBlocker(
+            BlockerCode.ONNX_RUNTIME,
+            runtime_stage,
+            "ONNX Runtime could not create an inference session for the exported graph",
+            {"exception": type(exc).__name__, "message": str(exc)},
+        ) from exc
     actual_providers = session.get_providers()
     verify_provider_selection(provider, actual_providers)
     input_names = [item["name"] for item in manifest["tensor_contract"]["inputs"]]
@@ -711,41 +935,36 @@ def validate_export(
     )
 
     def run_onnx(a: Any, b: Any) -> Any:
-        return session.run(
-            [output_name],
-            {input_names[0]: a.detach().cpu().numpy(), input_names[1]: b.detach().cpu().numpy()},
-        )[0]
+        try:
+            return session.run(
+                [output_name],
+                {input_names[0]: a.detach().cpu().numpy(), input_names[1]: b.detach().cpu().numpy()},
+            )[0]
+        except Exception as exc:  # onnxruntime inference failure (e.g. a shape/broadcast at a
+            # non-export resolution) must be a recordable typed blocker, not a raw traceback that
+            # --record-failure cannot capture. The input shape is the actionable detail.
+            raise TechnicalBlocker(
+                BlockerCode.ONNX_RUNTIME,
+                runtime_stage,
+                "ONNX Runtime raised while running the exported graph",
+                {
+                    "exception": type(exc).__name__,
+                    "message": str(exc),
+                    "input_shape": list(a.shape),
+                },
+            ) from exc
 
     identity_onnx = run_onnx(first, first)
     forward_onnx = run_onnx(first, second)
     reverse_onnx = run_onnx(second, first)
-    second_shape = validation["second_dynamic_shape"]
-    require(
-        second_shape[0] == 1 and second_shape[1] == 3 and second_shape[2] % 32 == 0 and second_shape[3] % 32 == 0,
-        "second WAFT validation shape must be a multiple of 32",
-        code=BlockerCode.CONFIG,
-        stage="onnx_validation",
-        details={"shape": second_shape},
-    )
-    dynamic_first, dynamic_second = synthetic_pair(
-        torch, second_shape[2], second_shape[3], dx, validation["seed"] + 1, device
-    )
-    dynamic_pt = run_pt(dynamic_first, dynamic_second)
-    dynamic_onnx = run_onnx(dynamic_first, dynamic_second)
-    expected_dynamic_shape = [1, 2, second_shape[2], second_shape[3]]
-    require(
-        list(dynamic_onnx.shape) == expected_dynamic_shape,
-        "ONNX graph did not preserve dynamic spatial dimensions",
-        code=BlockerCode.ONNX_EXPORT,
-        stage="onnx_validation",
-        details={"actual": list(dynamic_onnx.shape), "expected": expected_dynamic_shape},
-    )
-
+    # WAFT is validated fixed-shape at the example resolution: its ViT/DepthAnythingV2 backbone
+    # bakes the input resolution, so no export path produces a spatially-dynamic ONNX (see
+    # docs/context.md correction 12). The second-shape dynamic run was therefore removed; the plugin
+    # runs WAFT at a fixed tiled resolution, as with the NeuFlow candidate.
     pairs = (
         ("identity", identity_pt, identity_onnx),
         ("forward", forward_pt, forward_onnx),
         ("reverse", reverse_pt, reverse_onnx),
-        ("second_shape", dynamic_pt, dynamic_onnx),
     )
     for label, pytorch_value, onnx_value in pairs:
         require(
@@ -829,7 +1048,6 @@ def validate_export(
         "identity_median_epe": identity_median,
         "forward_median": [forward_x, forward_y],
         "reverse_median": [reverse_x, reverse_y],
-        "second_dynamic_shape": list(dynamic_onnx.shape),
     }
 
 
@@ -922,10 +1140,13 @@ def update_success(
         },
     }
     shape = manifest["export"]["example_shape"]
+    # Fixed-shape evaluation: only the example resolution is validated (WAFT bakes its input
+    # resolution -- docs/context.md correction 12). "additional" mirrors "example" to satisfy the
+    # shared artifact schema; there is no distinct dynamic shape.
     validation["shapes"] = {
-        "dynamic": True,
+        "dynamic": False,
         "example": [1, 2, shape[2], shape[3]],
-        "additional": observed["second_dynamic_shape"],
+        "additional": [1, 2, shape[2], shape[3]],
     }
     validation["parity"] = {
         "checked": True,
@@ -970,6 +1191,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, help="staged ONNX path; defaults beside the manifest")
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument(
+        "--exporter",
+        choices=("legacy", "dynamo"),
+        default="legacy",
+        help="ONNX export path: 'legacy' tracer (fixed backbone shape) or the experimental 'dynamo' "
+        "(torch.export) path that attempts symbolic spatial dims for dynamic-shape support",
+    )
+    parser.add_argument(
         "--provider",
         choices=sorted(PROVIDER_CHOICES),
         default="CPUExecutionProvider",
@@ -1002,7 +1230,7 @@ def main() -> int:
             candidate = Path(stream.name)
         candidate.unlink()
         try:
-            operator_gate = export_onnx(model, manifest, candidate, args.device)
+            operator_gate = export_onnx(model, manifest, candidate, args.device, args.exporter)
             observed = validate_export(
                 model,
                 manifest,

@@ -24,60 +24,22 @@
 # PyTorch-vs-ONNX parity) against the models/waft-twins-artifact.json validation.* thresholds.
 # The export is device-independent, so this is a CPU-only stack: unlike the P25-5/P25-6
 # measurement runtimes it does NOT add the ONNX Runtime CUDA-12 archive or the native ORT bridge.
-# onnxruntime is taken directly from conda-forge (CPU build), and there is no CUDA math-library
-# dependency.
 #
-# WHY THESE PINS.  The export dependency versions mirror models/requirements-searaft-export.txt
-# (torch==2.2.0, torchvision==0.17.0, numpy==1.26.4, scipy==1.12.0, onnx==1.15.0,
-# onnxruntime==1.29.0, safetensors==0.4.2) so WAFT is exported and validated on the same numeric
-# stack the SEA-RAFT candidate already used, and the frozen validation thresholds are read against
-# a known framework rather than a moving one.  See runtime-inputs.json and RUN-WAFT-VALIDATION.txt
-# for the timm and torch-version RISK notes -- upstream WAFT documents a NEWER stack than this.
+# THE ML EXPORT STACK IS pip-INSTALLED AT CI BUILD, NOT conda-sourced.  This conda spec is a
+# MINIMAL BASE only: it provides the pinned python interpreter plus the conda-pack/setuptools
+# packaging leaf.  conda-forge cannot provide the pinned CPU builds this export needs (there is no
+# satisfiable conda-forge onnxruntime ==1.22.0, and the torch/torchvision CPU builds the SEA-RAFT
+# candidate proved come from the PyTorch CPU wheel index), so the WHOLE ML export stack -- torch,
+# torchvision, numpy, scipy, onnx, onnxruntime, safetensors, timm, einops -- is pip-installed into
+# THIS env by CI AFTER the conda solve and BEFORE conda-pack and the runtime-license inventory,
+# mirroring the PROVEN models/requirements-searaft-export.txt pattern (torch/torchvision from
+# https://download.pytorch.org/whl/cpu, the rest from PyPI).  Those pip packages are packed into
+# the runtime and reported by licenses.py as pip identities (e.g. pip://torch==2.7.0,
+# pip://onnxruntime==1.22.0) for the licence-supplement population step.  See runtime-inputs.json
+# export_dependencies for the exact versions/indexes and RUN-WAFT-VALIDATION.txt for the timm and
+# torch-version RISK notes -- this stack now matches WAFT's documented python 3.12 / torch 2.7.0.
 
-python 3.11.*
-
-# CPU-only PyTorch/torchvision.  conda-forge encodes the CPU vs CUDA choice in the BUILD STRING
-# (there is no `cpuonly` package on conda-forge), so the build glob `=cpu*` requests the CPU
-# variant and keeps the CUDA runtime, cuDNN and cuBLAS out of the pack.  The export never touches
-# a GPU (torch.onnx.export and the parity check run on CPU), so a CPU build is correct and much
-# smaller.  CI's EL8 solve is authoritative: if conda-forge's exact CPU build string for this
-# torch differs, read the emitted @EXPLICIT lock (or the solver error) for the real build and, if
-# ever needed, tighten this glob to it -- do not guess a build hash here.
-pytorch ==2.2.0=cpu*
-torchvision ==0.17.0=cpu*
-
-numpy ==1.26.4
-scipy ==1.12.0
-onnx ==1.15.0
-# onnxruntime here is the conda-forge CPU build (CPUExecutionProvider only); the CUDA provider is
-# irrelevant to a device-independent export/validation run.  1.29.0 matches the SEA-RAFT export's
-# pin.  If conda-forge lacks exactly 1.29.0 for this Python, CI's solve fails closed and names what
-# it does have -- decide the nearest acceptable ORT then, in review, rather than silently drifting.
-onnxruntime ==1.29.0
-safetensors ==0.4.2
-
-# timm builds WAFT's twins_svt_large feature encoder (weightless: export_waft.py forces
-# pretrained=False and blocks any torch.hub download; the learned backbone tensors come only from
-# the checkpoint).  timm is the SINGLE BIGGEST VERSION RISK: a timm whose twins_svt_large parameter
-# names/shapes differ from the checkpoint fails export_waft.py's strict=True state-dict load
-# (technical blocker strict_checkpoint_load_failure) before any ONNX is written.
-#
-# The pinned WAFT commit b152ff1cad1af8c185ee7b141997c48ff3334c87 does NOT pin timm: its
-# requirements.txt lists a bare `timm` (torch/torchvision are bare there too), and its README
-# documents a much newer dev stack (pytorch 2.7.0, CUDA 12.8, python 3.12) with no timm version.
-# So the exact timm the checkpoint was produced with cannot be read off the pinned source.  This
-# pin is therefore CONSERVATIVE, chosen contemporaneously with torch 2.2.0 (early 2024), and its
-# correctness is proven only by CI's weightless twins_svt_large construction smoke plus the
-# on-box strict checkpoint load.  If either fails, re-pin timm (see RUN-WAFT-VALIDATION.txt) and
-# re-solve; treat this line as the most likely thing to change.
-timm ==0.9.16
-
-# einops is required by WAFT's model code (it is in the pinned commit's requirements.txt) and is
-# imported by the backbone/model construction that export_waft.py exercises.  It is pure-python and
-# permissive (MIT), so it is added proactively rather than discovered by a wasted airgap trip; the
-# CI weightless WAFTv2(twins) construction smoke is the gate that would name any OTHER missing
-# transitive import.  Left effectively unpinned (as WAFT itself leaves it) so CI's solve pins it.
-einops
+python 3.12.*
 
 # conda-pack is pinned to 0.8.1 (matching the P25-5/P25-6 lock): conda-forge's conda-pack 0.9.2
 # installs dist-info with `Version: 0.0.0` and no License field, so licenses.py cannot derive its

@@ -1,37 +1,37 @@
 {
   "schema_id": "whitewater-waft-validation-runtime-inputs-v1",
   "target": "el8-x86_64-glibc-2.28",
-  "python": "3.11",
-  "purpose": "Offline WAFT/Twins export+validation runtime for models/export_waft.py. CPU-only and device-independent: unlike bakeoff/p25-6/runtime-inputs.json this runtime carries NO ONNX Runtime CUDA-12 archive and NO native ORT bridge -- onnxruntime is a conda-forge CPU package. It carries the pinned WAFT BSD-3-Clause source instead.",
+  "python": "3.12",
+  "purpose": "Offline WAFT/Twins export+validation runtime for models/export_waft.py. CPU-only and device-independent: unlike bakeoff/p25-6/runtime-inputs.json this runtime carries NO ONNX Runtime CUDA-12 archive and NO native ORT bridge. The conda spec is a MINIMAL BASE (python 3.12 + conda-pack + setuptools); the WHOLE ML export stack (torch, torchvision, numpy, scipy, onnx, onnxruntime, safetensors, timm, einops) is pip-installed into the env at CI build, because conda-forge cannot provide the pinned CPU builds (no satisfiable onnxruntime==1.22.0; the torch/torchvision CPU builds come from the PyTorch CPU wheel index). This mirrors the PROVEN models/requirements-searaft-export.txt pattern: torch/torchvision from https://download.pytorch.org/whl/cpu, the rest from PyPI. The stack now matches WAFT's documented python 3.12 / torch 2.7.0 to resolve the timm features_only failure on twins_svt_large (see timm_pin_risk). It carries the pinned WAFT BSD-3-Clause source instead.",
   "conda": {
     "installer_url": "https://github.com/conda-forge/miniforge/releases/download/26.3.2-3/Miniforge3-26.3.2-3-Linux-x86_64.sh",
     "installer_sha256": "848194851a98903134187fbb4ab50efe87b003e0c0f808f97644b7524a62bf2c",
     "requested_spec": "bakeoff/waft-validation/conda-el8-x86_64.lock",
-    "requested_spec_sha256": "6d9336c2f92d1cb3ad672c480b8091551c6ac114feeaf9ac2471dcb7e12546ad",
-    "solved_lock": null,
-    "solved_lock_sha256": null,
-    "note": "TWO-DIGEST scheme, kept as SEPARATE fields so neither overwrites the other. `requested_spec` is the AUTHORED conda match-spec (NOT @EXPLICIT) and `requested_spec_sha256` pins its exact bytes. `solved_lock`/`solved_lock_sha256` are the CI-SOLVED fully-pinned @EXPLICIT lock and its digest -- both null until the first (review) dispatch solves the requested spec on EL8 x86_64 and emits the pinned lock (conda list --explicit -> whitewater-waft-validation-runtime.inventory, also uploaded as the `waft-validation-runtime-explicit-lock` artifact). WORKFLOW: (1) first dispatch with solved_lock null solves the requested spec, emits the @EXPLICIT lock, and generates the runtime license inventory for Andrew Miller review; (2) after that inventory is approved, commit the emitted @EXPLICIT lock to bakeoff/waft-validation/conda-el8-x86_64.solved.lock and record its SHA256 in solved_lock_sha256 (and its repo path in solved_lock); (3) the qualifying dispatch then INSTALLS that exact @EXPLICIT lock verbatim (no re-solve, so an unpinned transitive re-solve -- e.g. einops -- cannot diverge from the approved inventory), packages, and emits the archive. solved_lock_sha256 must never equal requested_spec_sha256; if the requested spec is ever re-authored, update requested_spec_sha256 and re-run the review dispatch."
+    "requested_spec_sha256": "b66bdaee3db7c71773d62a4b6b011519626e77513eda1132b11a0a505165d33a",
+    "solved_lock": "bakeoff/waft-validation/conda-el8-x86_64.solved.lock",
+    "solved_lock_sha256": "83be9583c38a4fb61b82744f2aaacfb81dcd92f4486a06cc536f00ec13d1f3b7",
+    "note": "TWO-DIGEST scheme, kept as SEPARATE fields so neither overwrites the other. `requested_spec` is the AUTHORED conda match-spec (NOT @EXPLICIT) and `requested_spec_sha256` pins its exact bytes. `solved_lock`/`solved_lock_sha256` are the CI-SOLVED fully-pinned @EXPLICIT lock and its digest -- both null until the first (review) dispatch solves the requested spec on EL8 x86_64 and emits the pinned lock (conda list --explicit -> whitewater-waft-validation-runtime.inventory, also uploaded as the `waft-validation-runtime-explicit-lock` artifact). WORKFLOW: (1) first dispatch with solved_lock null solves the requested spec, emits the @EXPLICIT lock, and generates the runtime license inventory for Andrew Miller review; (2) after that inventory is approved, commit the emitted @EXPLICIT lock to bakeoff/waft-validation/conda-el8-x86_64.solved.lock and record its SHA256 in solved_lock_sha256 (and its repo path in solved_lock); (3) the qualifying dispatch then INSTALLS that exact @EXPLICIT lock verbatim (no re-solve, so an unpinned transitive re-solve -- e.g. einops -- cannot diverge from the approved inventory), packages, and emits the archive. solved_lock_sha256 must never equal requested_spec_sha256; if the requested spec is ever re-authored, update requested_spec_sha256 and re-run the review dispatch. ML STACK SOURCING: the requested spec is a MINIMAL conda BASE (python 3.12 + conda-pack + setuptools) only. The WHOLE ML export stack (torch, torchvision, numpy, scipy, onnx, onnxruntime, safetensors, timm, einops) is NOT conda-sourced because conda-forge cannot provide the pinned CPU builds (no satisfiable onnxruntime==1.22.0; the torch/torchvision CPU builds come from the PyTorch CPU wheel index). CI pip-installs it into the solved env AFTER the conda solve and BEFORE conda-pack and the runtime-license inventory, mirroring the PROVEN models/requirements-searaft-export.txt pattern (torch==2.7.0 torchvision==0.22.0 from https://download.pytorch.org/whl/cpu; numpy==2.1.3 scipy==1.15.3 onnx==1.17.0 onnxruntime==1.22.0 safetensors==0.5.3 timm==1.0.19 einops from PyPI). The whole stack is packed into the runtime and reported by licenses.py as pip identities (e.g. pip://torch==2.7.0, pip://onnxruntime==1.22.0) for the licence-supplement population step; note this makes the runtime licence surface substantially larger than a conda-only solve (pip torch bundles vendored libraries)."
   },
   "export_dependencies": {
-    "note": "The numeric export stack requested by the conda spec, mirroring models/requirements-searaft-export.txt so WAFT is validated on the same framework as the SEA-RAFT candidate. These are REQUESTED versions; the CI-solved @EXPLICIT lock is the reproducible identity.",
-    "python": "3.11",
-    "pytorch": "2.2.0 (cpu build variant)",
-    "torchvision": "0.17.0 (cpu build variant)",
-    "numpy": "1.26.4",
-    "scipy": "1.12.0",
-    "onnx": "1.15.0",
-    "onnxruntime": "1.29.0 (conda-forge CPU build; CPUExecutionProvider only)",
-    "safetensors": "0.4.2",
-    "timm": "0.9.16",
-    "einops": "(unpinned; required by WAFT model code per the pinned commit's requirements.txt)",
-    "conda_pack": "0.8.1",
-    "setuptools": "<81"
+    "note": "The numeric export stack, now aligned with WAFT's documented python 3.12 / torch 2.7.0 dev stack (the previous torch 2.2.0 / python 3.11 mirror of models/requirements-searaft-export.txt hit a timm features_only failure constructing WAFTv2(twins); see timm_pin_risk). Only python/conda_pack/setuptools are conda-sourced (the minimal base); the ML stack (torch, torchvision, numpy, scipy, onnx, onnxruntime, safetensors, timm, einops) is pip-installed into the env at CI build because conda-forge cannot provide the pinned CPU builds -- torch/torchvision from the PyTorch CPU wheel index https://download.pytorch.org/whl/cpu, the rest from PyPI, matching the PROVEN SEA-RAFT export SOURCING pattern (torch/torchvision from the CPU wheel index, the rest from PyPI). torch 2.7.0 pairs with torchvision 0.22.0 (PyTorch previous-versions CPU install line; torchvision compat table: torch 2.7 <-> torchvision 0.22, python 3.9-3.13). These are the exact pinned pip versions.",
+    "python": "3.12 (conda-sourced; minimal base)",
+    "pytorch": "2.7.0 (pip-installed CPU wheel at CI build from https://download.pytorch.org/whl/cpu, not conda-sourced)",
+    "torchvision": "0.22.0 (pip-installed CPU wheel at CI build from https://download.pytorch.org/whl/cpu, not conda-sourced; pairs with torch 2.7.0)",
+    "numpy": "2.1.3 (pip-installed from PyPI at CI build, not conda-sourced)",
+    "scipy": "1.15.3 (pip-installed from PyPI at CI build, not conda-sourced)",
+    "onnx": "1.17.0 (pip-installed from PyPI at CI build, not conda-sourced)",
+    "onnxruntime": "1.22.0 (pip-installed CPU wheel from PyPI at CI build, not conda-sourced; CPUExecutionProvider only)",
+    "safetensors": "0.5.3 (pip-installed from PyPI at CI build, not conda-sourced)",
+    "timm": "1.0.19 (pip-installed from PyPI at CI build, not conda-sourced; recent 1.0.x, the features_only fix attempt for twins_svt_large)",
+    "einops": "(unpinned; pip-installed from PyPI at CI build; required by WAFT model code per the pinned commit's requirements.txt)",
+    "conda_pack": "0.8.1 (conda-sourced; minimal base)",
+    "setuptools": "<81 (conda-sourced; minimal base)"
   },
   "timm_pin_risk": {
-    "pinned": "0.9.16",
+    "pinned": "1.0.19",
     "confidence": "low-to-moderate",
-    "reason": "The pinned WAFT commit b152ff1cad1af8c185ee7b141997c48ff3334c87 does not pin timm (requirements.txt lists a bare `timm`; the README documents pytorch 2.7.0 / CUDA 12.8 / python 3.12 with no timm version). 0.9.16 is a conservative choice contemporaneous with torch 2.2.0. twins_svt_large parameter naming has been stable across recent timm, but the exact timm that produced the checkpoint is unknown. A mismatch fails export_waft.py's strict=True checkpoint load (technical blocker strict_checkpoint_load_failure). CI's weightless twins_svt_large construction smoke and the on-box strict load are the proof.",
-    "remediation": "If the smoke or strict load fails on timm, re-pin timm in conda-el8-x86_64.lock (try a recent timm 1.0.x, and if needed bump torch to WAFT's documented 2.7.x / python 3.12), update conda.requested_spec_sha256 to the edited spec's SHA256, clear conda.solved_lock/solved_lock_sha256 back to null, and re-run the review dispatch so a fresh @EXPLICIT lock is solved and re-approved."
+    "reason": "The pinned WAFT commit b152ff1cad1af8c185ee7b141997c48ff3334c87 does not pin timm (requirements.txt lists a bare `timm`; the README documents pytorch 2.7.0 / CUDA 12.8 / python 3.12 with no timm version). The earlier conservative timm 0.9.16 (contemporaneous with torch 2.2.0) FAILED constructing WAFTv2(feature_encoder='twins') with `RuntimeError: features_only not implemented for Vision Transformer models` on twins_svt_large. This APPROVED rework moves the whole stack to WAFT's documented python 3.12 / torch 2.7.0 and a recent timm 1.0.x (1.0.19) as the features_only fix attempt. RESIDUAL RISK: a recent timm MAY STILL not implement features_only=True for the twins_svt_large ViT-family backbone (a known architectural limitation for some ViT models); if so the fix is unresolved. Beyond features_only, a timm/checkpoint parameter-naming mismatch would fail export_waft.py's strict=True load (blocker strict_checkpoint_load_failure). CI's weightless twins_svt_large construction smoke and the on-box strict load are the proof.",
+    "remediation": "If CI's weightless smoke STILL raises `features_only not implemented`, STOP: WAFT's timm expectation is unresolved and needs upstream investigation -- escalate to Andrew, do NOT blind-bump timm further. If instead the on-box strict load fails (strict_checkpoint_load_failure), re-pin timm in the ci.yml waft-validation pip block to a different recent 1.0.x, update conda.requested_spec_sha256 only if the conda base (python) also changed, clear conda.solved_lock/solved_lock_sha256 back to null if the conda base changed, and re-run the review dispatch so a fresh @EXPLICIT lock is solved and re-approved."
   },
   "waft_source": {
     "repository": "https://github.com/princeton-vl/WAFT.git",
@@ -41,7 +41,9 @@
     "payload_root": "waft-src",
     "note": "export_waft.py re-verifies source identity with `git rev-parse HEAD` and a clean-worktree check, which a plain source tree without .git cannot satisfy. CI therefore vendors the BSD-3-Clause source as a CLEAN shallow git checkout at the pinned commit into waft-src/ (including .git), so the airgapped box needs no network and no separate WAFT download. The operator supplies ONLY the checkpoint. `git` is resolved from the box's /usr/bin (the airgap wrapper's PATH is runtime/bin:/usr/bin:/bin); it is deliberately NOT bundled to keep the conda license inventory permissive (git is GPLv2).",
     "submodules": {
-      "omitted": ["thirdparty/dinov3"],
+      "omitted": [
+        "thirdparty/dinov3"
+      ],
       "reason": "WAFT's ONLY git submodule is thirdparty/dinov3 (facebookresearch/dinov3), which carries a NON-COMMERCIAL licence. The shallow checkout does not init submodules, so its contents are deliberately absent from the pack. The Twins export path does not need it: model/backbone/dinov3.py defines REPO_DIR='thirdparty/dinov3' and only loads it via torch.hub.load inside DinoV3Feature.__init__, and WAFTv2(feature_encoder='twins') instantiates TwinsFeatureEncoder, never DinoV3Feature -- so importing WAFTv2 and constructing the twins model reach neither the submodule nor its torch.hub.load. The CI weightless WAFTv2(twins) construction smoke proves this empirically (it constructs the real model with the submodule absent). thirdparty/DepthAnythingV2 is vendored tracked code (Apache-2.0, NOT a submodule) and IS present -- model/backbone/vit.py imports it at module scope. If CI's smoke ever shows the twins path needs thirdparty/dinov3, STOP: do not vendor the non-commercial submodule; escalate to Andrew."
     }
   },

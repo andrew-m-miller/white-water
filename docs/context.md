@@ -903,3 +903,81 @@ do not change that approved runtime inventory.
 The lesson: a directory selected for four known dependencies is still a loader namespace, not a
 bag of only those four files. Verify ownership of the primary runtime library as well as absence
 of unresolved transitive dependencies; a clean provider-only `ldd` is not enough.
+
+### 11. The validation-pack smoke tested the repo, not the artifact it shipped
+
+**Symptom:** the NeuFlow-validation package unpacked cleanly on the airgapped box but failed at
+first contact (step 3, toolchain confirm) with
+`FileNotFoundError: .../whitewater-neuflow-validation-el8/tools/bakeoff/validator.py`. CI had
+built and "qualified" that same package as a success.
+
+`models/artifact_workflow.py` — carried in both validation packs — resolves several files
+relative to the package root and loads them as the exporter runs: `tools/bakeoff/validator.py`
+at import (which itself loads its `geometry.py`/`metrics.py` siblings at import), plus
+`models/artifact-v1.schema.json` and `bakeoff/protocol-v1.json` when the manifest is written and
+validated. It also imports `models/exclusion_contract.py` at module scope. The two qualify scripts
+staged `artifact_workflow.py` but none of that closure; the WAFT script additionally never staged
+`exclusion_contract.py`, so WAFT was broken the same way and one file deeper — the operator simply
+ran NeuFlow first.
+
+The reason CI stayed green is the important part. Its packaging step imported the exporter from the
+**repository checkout**, where every one of those files exists, rather than from the **staged
+package tree**, where none of them did. The smoke proved the repo could import the exporter; it
+never proved the artifact could. This is correction 3 in a new costume — there the glibc gate
+derived its baseline from the builder and so could never fail; here the import smoke derived its
+files from the source tree and so could never catch a staging omission. A check whose inputs come
+from the wrong tree is not a check.
+
+**The fix** stages the full closure into both packages, mirroring the repo layout so
+`artifact_workflow.py` resolves it, and adds a staged-artifact import smoke that `cd`s into the
+assembled package and imports the exporter **from there**. Because the failure is pure path
+resolution, the CI host interpreter reproduces the box's `FileNotFoundError` deterministically
+without unpacking the runtime; it was validated to pass on the full closure and to fail with the
+exact box error when any element is removed. The runtime inventory is unchanged, so the runtime
+legal-review signatures still held — only the outer package gained files. (Landed on the P25-7
+validation-pack branch; PR #36.)
+
+The lesson: test the artifact from where it will be unpacked, not the tree you built it from. A
+packaging smoke that imports from the source checkout is the airgap-era twin of a local
+modern-distro build — it exercises everything except the thing you ship.
+
+### 12. WAFT cannot export a spatially-dynamic ONNX; it is evaluated fixed-shape
+
+**Symptom:** the WAFT-validation manifest asked for a spatially-dynamic export (a
+`second_dynamic_shape` run at 160×256 alongside the 128×192 example), and no export path could
+produce one. Three independent attempts on the qualified stack (torch 2.7.0 CPU, onnxruntime 1.22,
+onnxscript 0.2.7) each failed in a different place, all pointing at the same cause:
+
+- the legacy `torch.onnx.export` tracer produced a graph that ran only at 128×192 — at 160×256 its
+  `refine_net` `Add` broadcast a baked spatial constant against a runtime-sized tensor (140 vs 216)
+  and ONNX Runtime aborted;
+- the dynamo (`torch.export`) exporter, given explicit shared height/width `Dim`s, captured and
+  translated the whole graph but emitted an ONNX whose image inputs were **specialized to
+  128×192** — a post-export check of the input value-info confirmed `[128,192]`, so ORT rejected
+  160×256 with an invalid-dimension error;
+- the same exporter with `Dim.AUTO` produced a more-dynamic graph that onnxscript 0.2.7 could not
+  even translate (`ConversionError: Could not determine the dtype for the input 'inputs'`).
+
+**Root cause:** WAFT/Twins wraps a ViT / DepthAnythingV2 backbone whose positional-embedding
+interpolation, patch-grid arithmetic and `F.interpolate` targets compute spatial sizes as Python
+ints from the example shape. Both the tracer (constant-folds them) and `torch.export` (specializes
+the marked-dynamic dims to satisfy those constraints) therefore bake the input resolution into the
+graph. This is a property of the model *code*, not the weights: getting a dynamic export would take
+rewriting those backbone shape computations to be symbolic in `waft-src` — a provenance-fork of the
+pinned upstream plus per-resolution parity/accuracy work (ViT pos-embed interpolation degrades away
+from the trained resolution), not a checkpoint or retraining change.
+
+**Resolution:** WAFT is evaluated **fixed-shape at 128×192**, exactly as the NeuFlow v2 candidate is
+(fixed 432×768). The bake-off assumes the plugin runs flow at a fixed tiled resolution, so a
+fixed-shape ONNX is the apples-to-apples artifact. `models/export_waft.py` drops the dynamic
+second-shape run and no longer declares `dynamic_axes` (the ONNX honestly fixes its inputs);
+`models/waft-twins-artifact.json` sets `tensor_contract.spatial_dimensions` to `fixed_128x192` and
+drops `second_dynamic_shape`. The experimental `--exporter dynamo` path and its export-time shims
+(torchvision-normalize guard, bool→int attribute coercion, opset-18 floor, the input-shape verdict
+check) are kept for the record and to make the verdict reproducible; the legacy tracer stays the
+default. The two shims and the opset-18/serialize fixes were only ever needed to *reach* the verdict
+— they do not make WAFT dynamic. (Landed on the P25-7 validation-pack branch; PR #36.)
+
+The lesson: a declared dynamic axis on an ONNX I/O is a claim, not a guarantee — a model whose
+backbone computes spatial sizes as Python scalars bakes the resolution no matter which exporter is
+used, and the only honest options are to fix the model source or to evaluate it fixed-shape.

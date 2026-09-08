@@ -1,0 +1,8 @@
+{
+  "schema_id": "whitewater-p25-runtime-legal-review-v1",
+  "inventory_sha256": "3cd121cfccd5df68335076b64b0f57e4e70609c4f3d718027b4fc4a6ae156717",
+  "reviewed": true,
+  "reviewer": "Andrew Miller",
+  "reviewed_at": "2026-09-03T22:40:10Z",
+  "statement": "I, Andrew Miller, reviewed the generated NeuFlow-validation runtime license and notice inventory with SHA256 3cd121cfccd5df68335076b64b0f57e4e70609c4f3d718027b4fc4a6ae156717, covering the conda base (python 3.9, conda-pack, setuptools and the transitive system libraries) and the pip-installed export stack (PyTorch CPU, torchvision, numpy, onnx, onnxruntime CPU and their transitive dependencies), each bound to its own licence and notice evidence. I approve this exact runtime inventory for the NeuFlow v2 export/validation run. The pinned NeuFlow v2 source is Apache-2.0; the NeuFlow v2 checkpoint is operator-supplied and its file-level licence remains unknown -- this approval covers the packed runtime only, not the checkpoint, and no upstream source or checkpoint is carried in the package."
+}

@@ -1,5 +1,75 @@
 {
-  "_note": "Starts EMPTY on purpose. licenses.py fails closed and names any solved package that lacks embedded info/licenses evidence (or whose licence it cannot derive). The first waft-validation EL8 dispatch reports the exact packages+URLs to add here, each bound to its CI-solved conda build (see bakeoff/p25-6/runtime-license-supplement.json for the shape of a populated file). Do not guess entries before the solve.",
   "schema_id": "whitewater-p25-runtime-license-supplement-v1",
-  "packages": []
+  "packages": [
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_4.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/libgcc-16.2.0-ha9f2e26_4.RUNTIME.LIBRARY.EXCEPTION",
+          "sha256": "28e85c5aa4af9b4f1dfe6b4817aa3eefb3eaaee7fd735045016f29ccf50276a1"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libgomp-16.2.0-he0feb66_4.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/libgcc-16.2.0-ha9f2e26_4.RUNTIME.LIBRARY.EXCEPTION",
+          "sha256": "28e85c5aa4af9b4f1dfe6b4817aa3eefb3eaaee7fd735045016f29ccf50276a1"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-16.2.0-h934c35e_4.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/libgcc-16.2.0-ha9f2e26_4.RUNTIME.LIBRARY.EXCEPTION",
+          "sha256": "28e85c5aa4af9b4f1dfe6b4817aa3eefb3eaaee7fd735045016f29ccf50276a1"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "https://conda.anaconda.org/conda-forge/linux-64/libsqlite-3.53.4-h13e7031_1.conda",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/SQLITE-BLESSING.txt",
+          "sha256": "9c6479123f32a1ed50d9a0af203dfe8972e65035b0cdeef436b5f8d0924517fe"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "pip://flatbuffers==25.12.19",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/flatbuffers-25.12.19.LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "pip://onnxruntime==1.22.0",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/onnxruntime-1.22.0.LICENSE",
+          "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c"
+        }
+      ],
+      "notice_files": []
+    },
+    {
+      "package_url": "pip://safetensors==0.5.3",
+      "license_files": [
+        {
+          "path": "runtime-license-evidence/safetensors-0.5.3.LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ],
+      "notice_files": []
+    }
+  ]
 }

@@ -7,9 +7,15 @@ no model, assigns no OFX choice index, and authorizes no redistribution of the W
 Do not install the extracted directory into Flame as a product plugin.
 
 The export is device-independent and runs on CPU.  This package deliberately does NOT carry the
-ONNX Runtime CUDA-12 archive or the White Water native ORT bridge; onnxruntime is the conda-forge
-CPU build and there is no CUDA setup.  (If you have run RUN-P25-6.txt: that procedure does not
-apply here -- this is a different runtime with a different purpose.)
+ONNX Runtime CUDA-12 archive or the White Water native ORT bridge, and there is no CUDA setup.  The
+conda spec is a MINIMAL BASE (python 3.12 + conda-pack + setuptools); the WHOLE ML export stack
+(torch 2.7.0 / torchvision 0.22.0 from the PyTorch CPU wheel index, and numpy 2.1.3 / scipy 1.15.3 /
+onnx 1.17.0 / onnxruntime 1.22.0 / safetensors 0.5.3 / timm 1.0.19 / einops / opencv-python-headless
+from PyPI) is pip-installed into the env at CI build, because conda-forge cannot provide the pinned
+CPU builds.  This stack now matches WAFT's documented python 3.12 / torch 2.7.0 (the earlier torch
+2.2.0 / python 3.11 mirror of the SEA-RAFT export hit a timm features_only failure on twins_svt_large;
+see the RISK note below).  (If you have run RUN-P25-6.txt: that
+procedure does not apply here -- this is a different runtime with a different purpose.)
 
 No production images and no checkpoint leave the machine.  The operator returns only:
 
@@ -179,21 +185,31 @@ Version-pin risks (READ BEFORE RUNNING)
 ---------------------------------------
 
 * timm is the single biggest risk.  The pinned WAFT commit does not pin timm, and its README
-  documents a NEWER dev stack than this runtime uses (pytorch 2.7.0 / CUDA 12.8 / python 3.12
-  vs. this runtime's CPU pytorch 2.2.0 / python 3.11, mirroring the SEA-RAFT export).  This runtime
-  pins `timm==0.9.16` conservatively.  If step 5 stops with `strict_checkpoint_load_failure`, the
-  timm twins_svt_large parameter naming does not match the checkpoint: re-pin timm in
-  bakeoff/waft-validation/conda-el8-x86_64.lock (try a recent timm 1.0.x first, and if that still
-  fails, move the whole stack to WAFT's documented pytorch 2.7.x / python 3.12 and a matching timm),
-  update runtime-inputs.json conda.requested_spec_sha256 to the edited spec's SHA256, clear
-  conda.solved_lock/solved_lock_sha256 back to null (the old solved lock no longer matches), and
-  re-run the review dispatch so CI solves and re-emits a fresh @EXPLICIT lock for re-approval.
+  documents pytorch 2.7.0 / CUDA 12.8 / python 3.12.  This runtime now MATCHES that documented stack
+  (CPU torch 2.7.0 / torchvision 0.22.0 / python 3.12) and pins a recent `timm==1.0.19`, because the
+  earlier conservative `timm==0.9.16` (with torch 2.2.0 / python 3.11) FAILED constructing
+  WAFTv2(feature_encoder='twins') with `RuntimeError: features_only not implemented for Vision
+  Transformer models` on twins_svt_large.  timm is pip-installed (from PyPI) by the ci.yml
+  waft-validation pip block, NOT the conda lock.
+    - If CI's weightless WAFTv2(twins) construction smoke STILL raises `features_only not implemented`,
+      STOP.  A recent timm may still not implement features_only=True for the twins_svt_large ViT-family
+      backbone (a known architectural limitation for some ViT models).  This is NOT a cue to keep
+      blind-bumping timm: it means WAFT's timm expectation is unresolved and needs upstream
+      investigation -- escalate to Andrew.
+    - If instead step 5 stops with `strict_checkpoint_load_failure`, the timm twins_svt_large parameter
+      naming does not match the checkpoint: re-pin timm in the ci.yml waft-validation pip block to a
+      different recent 1.0.x.  (Only if you ALSO change the conda base python must you edit
+      `python 3.12.*` in bakeoff/waft-validation/conda-el8-x86_64.lock, recompute its SHA256, and update
+      both runtime-inputs.json conda.requested_spec_sha256 and ci.yml WAFT_REQUESTED_SPEC_SHA256, then
+      clear conda.solved_lock/solved_lock_sha256 back to null so the old solved lock is not installed.)
+      Re-run the review dispatch.
 * xformers is NOT needed for the Twins path and is intentionally absent: it does not appear in
   waft_a2.py, twins.py, vit.py or dinov3.py at the pinned commit (its README note is for other
   backbones).  einops IS required by the WAFT model code (it is in the pinned commit's
-  requirements.txt) and is included in the runtime.  The CI weightless WAFTv2(twins) construction
-  smoke is the gate for any OTHER missing transitive import: if it names one, add that package to
-  bakeoff/waft-validation/conda-el8-x86_64.lock and re-dispatch.
+  requirements.txt) and is pip-installed by the ci.yml waft-validation pip block.  The CI weightless
+  WAFTv2(twins) construction smoke is the gate for any OTHER missing transitive import: if it names
+  one, add that package to the ci.yml waft-validation pip block (or, if it is a conda base leaf, to
+  bakeoff/waft-validation/conda-el8-x86_64.lock) and re-dispatch.
 * thirdparty/dinov3 (NON-COMMERCIAL) is omitted and not needed here (see above).  If a future WAFT
   revision made the Twins path require it, that is a licence decision for Andrew -- do NOT vendor
   the submodule to make the export pass.
@@ -202,8 +218,11 @@ Legal record
 ------------
 
 The runtime aggregates are `legal/RUNTIME-LICENSES.txt` and `legal/RUNTIME-NOTICES.txt`, covering
-the conda runtime (python, PyTorch CPU, torchvision, numpy, scipy, onnx, onnxruntime CPU,
-safetensors, timm, conda-pack, setuptools and their transitive natives).  A separate Andrew Miller
+the runtime (python, conda-pack and setuptools from the conda base, plus the pip-installed ML stack
+-- PyTorch CPU, torchvision, numpy, scipy, onnx, onnxruntime, safetensors, timm and einops -- each
+reported as a pip identity, INCLUDING the third-party libraries the pip torch wheel bundles).  Note
+this pip-sourced stack makes the runtime licence surface SUBSTANTIALLY LARGER than a conda-only
+solve.  A separate Andrew Miller
 runtime legal-review JSON (schema `whitewater-p25-runtime-legal-review-v1`, reviewer
 `Andrew Miller`, `reviewed: true`) approving the exact generated runtime inventory hash is required
 before CI packages anything; the carried `legal/runtime-legal-review.json` is that approval.  That
