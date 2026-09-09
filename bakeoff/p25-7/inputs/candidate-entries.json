@@ -1,0 +1,122 @@
+[
+  {
+    "candidate_id": "sea-raft-m",
+    "status": "eligible",
+    "measurement_status": "measurable",
+    "source_commit": "9137517ba24e628442aec097d3afe71d03503b75",
+    "checkpoint_sha256": "cb8cfbf14c5e0f6734b64add383708b7ff68cc6089a0007c67165d4761346102",
+    "artifact_sha256": "materialize-from-linux-manifest",
+    "export_environment_sha256": "materialize-from-linux-manifest",
+    "manifest_sha256": "materialize-from-linux-manifest",
+    "artifact_size_bytes": "materialize-from-linux-manifest",
+    "measurement_providers": ["cpu", "cuda"],
+    "license_verdicts": {
+      "code": "commercial_use_permitted",
+      "checkpoint": "commercial_use_permitted",
+      "backbone": "commercial_use_permitted"
+    },
+    "redistribution_permitted": {
+      "code": "permitted",
+      "checkpoint": "permitted",
+      "backbone": "permitted"
+    },
+    "redistribution_terms_reviewed": {
+      "code": true,
+      "checkpoint": true,
+      "backbone": true
+    }
+  },
+  {
+    "candidate_id": "waft-twins",
+    "status": "excluded",
+    "measurement_status": "measurable",
+    "source_commit": "b152ff1cad1af8c185ee7b141997c48ff3334c87",
+    "checkpoint_sha256": "f750cd15281fc30de477723438ff4a67fe1591deac4ab0eb9b366e27c827e070",
+    "artifact_sha256": "de5206543d409f8759fcf4932543600065e66777a74ff63142c3c2426334a9e7",
+    "export_environment_sha256": "370f370d221d95b35060149150a85061569c314fa7656effeb638175d0687fb5",
+    "manifest_sha256": "faec803191f99a1c29461bab44403f6ff6cec90ba194df2d92c0e14bcd1c7074",
+    "artifact_size_bytes": 545359430,
+    "measurement_providers": ["cpu"],
+    "exclusion_reason": {
+      "type": "license_unknown",
+      "message": "WAFT/Twins is carried as CPU-only, validated-but-unmeasured evidence (decision 2C). The selected zero-shot.pth checkpoint member has no published file-level commercial-use or redistribution terms (models/waft-twins-artifact.json), so shipping and OFX selection remain blocked pending an explicit checkpoint terms review. The Linux x86_64 ONNX artifact identity fields are bound to the validated linux-x86_64 manifest (models/waft-twins-artifact.json) from the on-box WAFT validation-export run, whose export is a fixed 128x192 spatial shape: WAFT specializes resolution and cannot export a spatially-dynamic ONNX (no dynamic-shape support). It is therefore NOT scheduled in the shared mp0_331776 (768x432) lattice — a 128x192 graph cannot accept the lattice input, and 128x192 matches no protocol cap token. models/export_waft.py exposes only CPUExecutionProvider, so measurement_providers is [cpu] and the candidate is CPU-only. A full arena measurement would require a re-export at the lattice resolution plus a CUDA validation pack, which is deferred."
+    },
+    "license_verdicts": {
+      "code": "commercial_use_permitted",
+      "checkpoint": "unknown",
+      "backbone": "commercial_use_permitted"
+    },
+    "redistribution_permitted": {
+      "code": "permitted",
+      "checkpoint": "unknown",
+      "backbone": "permitted"
+    },
+    "redistribution_terms_reviewed": {
+      "code": true,
+      "checkpoint": true,
+      "backbone": true
+    }
+  },
+  {
+    "candidate_id": "neuflow-v2",
+    "status": "excluded",
+    "measurement_status": "measurable",
+    "source_commit": "204b5e3744461d90303b9ff82caa7a1bb56a2ca2",
+    "checkpoint_sha256": "76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e20f7995fcc019f",
+    "artifact_sha256": "07aa20529a93eb970bd3160ce8a2cee10b65ba410aa32f47e63676c039661548",
+    "export_environment_sha256": "d22efc240e43b2b8a569655ec2efad19c74de75e79c49139ed759206ee2e0130",
+    "manifest_sha256": "4dbc32e8314bea0c0024b8496cee62a9633a12927830556d3e06a64ec41a7834",
+    "artifact_size_bytes": 66177652,
+    "measurement_providers": ["cpu"],
+    "exclusion_reason": {
+      "type": "license_unknown",
+      "message": "NeuFlow v2 is a shipping-candidate carried for measurement only, and is restricted by the frozen protocol candidate_constraints to cap mp0_331776 (768x432, canonical 16:9). The neuflow_mixed.pth checkpoint has no checkpoint-specific license (models/neuflow-v2.json), so shipping and OFX selection remain blocked pending a checkpoint terms review. The Linux x86_64 ONNX artifact identity fields are now bound to the validated linux-x86_64 manifest (models/neuflow-v2.json) from the on-box NeuFlow validation-export run. That validation was CPU-only, so the checked-in NeuFlow evidence is CPU-only and measurement_providers is [cpu]; NeuFlow GPU (CUDA) measurement is deferred until an explicit NeuFlow CUDA qualification run produces a returned report carrying measurement_providers cuda."
+    },
+    "license_verdicts": {
+      "code": "commercial_use_permitted",
+      "checkpoint": "unknown",
+      "backbone": "unknown"
+    },
+    "redistribution_permitted": {
+      "code": "permitted",
+      "checkpoint": "unknown",
+      "backbone": "unknown"
+    },
+    "redistribution_terms_reviewed": {
+      "code": true,
+      "checkpoint": true,
+      "backbone": true
+    }
+  },
+  {
+    "candidate_id": "raft-original",
+    "status": "excluded",
+    "measurement_status": "measurable",
+    "source_commit": "2888e15a51fa41140771d3f498ed8023cff098d1",
+    "checkpoint_sha256": "fcfa4125d6418f4de95d84aec20a3c5f4e205101715a79f193243c186ac9a7e1",
+    "artifact_sha256": "materialize-from-linux-manifest",
+    "export_environment_sha256": "materialize-from-linux-manifest",
+    "manifest_sha256": "materialize-from-linux-manifest",
+    "artifact_size_bytes": "materialize-from-linux-manifest",
+    "measurement_providers": ["cpu"],
+    "exclusion_reason": {
+      "type": "license_unknown",
+      "message": "Original RAFT is a validation-baseline only. The frozen P25 protocol admits it purely as a validation baseline: it can never receive an OFX choice, ship, or win the ranking, and its official checkpoint has no published commercial-use or redistribution terms (models/raft-original.json). It is CPU-only here; CUDA would require an explicit EL8 requalification not claimed by its manifest. Its Linux ONNX is CI-fetched and reproducibly exported (models/fetch_raft_checkpoint.py), so the identity fields use the materialize-from-linux-manifest CI pattern."
+    },
+    "license_verdicts": {
+      "code": "commercial_use_permitted",
+      "checkpoint": "unknown",
+      "backbone": "commercial_use_permitted"
+    },
+    "redistribution_permitted": {
+      "code": "permitted",
+      "checkpoint": "unknown",
+      "backbone": "permitted"
+    },
+    "redistribution_terms_reviewed": {
+      "code": true,
+      "checkpoint": true,
+      "backbone": true
+    }
+  }
+]
