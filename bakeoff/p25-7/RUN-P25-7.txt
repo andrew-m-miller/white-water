@@ -2,7 +2,7 @@ White Water P25-7 production-selection measurement package (DRAFT)
 =================================================================
 
 This package drives the Phase 2.5 profile driver (tools/bakeoff/run.py) on the airgapped Flame
-box to finally evaluate production footage across all measurable candidates.  It reuses the
+box to finally evaluate production footage across the schedulable candidates.  It reuses the
 frozen active protocol bakeoff/protocol-v2.json, the P25-6 runtime (conda-pack OpenEXR + pynvml +
 the native ORT CUDA-12 bridge) and the P25-6 evaluator/driver module closure unchanged.  There is
 NO new runtime and NO new evaluator in P25-7.
@@ -73,9 +73,11 @@ the CLI help (this touches no production data):
 The driver reads five small JSON inputs plus the production corpus.  Carried under inputs/:
 
   --candidates      inputs/candidate-entries.json
-                    All four P25 candidates, each carrying BOTH status and measurement_status
-                    (excluded / measurable: P25-7 measures and ranks but this input file selects no
-                    shipping default).  sea-raft-m (shipping) and raft-original (validation-baseline)
+                    All four P25 candidates, each carrying BOTH status and measurement_status.
+                    sea-raft-m is eligible / measurable (the shipping candidate); waft-twins,
+                    neuflow-v2 and raft-original are excluded / measurable.  P25-7 measures and
+                    ranks, but this input file selects no shipping default -- the default is a
+                    selection-record outcome.  sea-raft-m (shipping) and raft-original (validation-baseline)
                     carry the materialize-from-linux-manifest CI sentinel for their platform-specific
                     identity fields.  waft-twins and neuflow-v2 are bound to their validated
                     linux-x86_64 manifests (models/waft-twins-artifact.json, models/neuflow-v2.json);
@@ -139,8 +141,9 @@ corpus/report-metadata copies OUTSIDE the package.
           CPU sanity slice: sea-raft-m on prod-motion-blur at cap mp0_5.  Verifies archive/artifact
           hashes, runtime/provider selection, conditioning and directions end to end.  No CUDA.
 
-  screen  the QUALITY comparison, CPU, all measurable candidates at the shared-lattice cap
-          mp0_331776.  Conditioning is matched to each shot's encoding: scene-linear shots use
+  screen  the QUALITY comparison, CPU, all schedulable candidates at the shared-lattice cap
+          mp0_331776 (waft-twins is measurable but deliberately unscheduled -- CPU-only, fixed
+          128x192, per decision 2C; see the note below).  Conditioning is matched to each shot's encoding: scene-linear shots use
           native-clamp01-v1 + signed-log-v1 + pair-percentile-v1; log shots use native-clamp01-v1 +
           native-log-v1 + pair-percentile-v1.  NeuFlow v2 is scheduled ONLY in its own constrained
           768x432 / 16:9 / mp0_331776 blocks, and CPU-only in this matrix.  NeuFlow's GPU (CUDA)
